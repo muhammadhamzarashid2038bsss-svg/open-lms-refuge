@@ -1,0 +1,979 @@
+// Phase 1 database for the refugee learning-center LMS.
+// Personal data stays minimal on purpose (SYS-2): learner code, a first name
+// or nickname, an age band, section membership, and optional fields a center
+// has explicitly turned on. There is no column for an address, a birth date,
+// an identity document, immigration or legal status, or free-text family
+// circumstances.
+//
+// How sync works is documented in docs/DATABASE.md.
+// Attendance is append-only (a correction is a new row). Grades and progress
+// notes are editable and keep a version vector so two offline phones cannot
+// wipe each other. File uploads use a separate queue from JSON record sync.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// --- Enums -----------------------------------------------------------------
+
+enum UserRole {
+  STUDENT
+  TEACHER
+  CENTER_DIRECTOR
+  ADMIN
+}
+
+/// Coarse age bands only. Exact birth dates are not stored (FEAT-4).
+enum AgeBand {
+  UNDER_6
+  AGE_6_8
+  AGE_9_11
+  AGE_12_14
+  AGE_15_17
+  AGE_18_24
+  AGE_25_PLUS
+}
+
+/// Optional facts a center may turn on. Anything not listed here is not collected.
+enum OptionalFieldKey {
+  GENDER
+  CONTACT_PHONE
+}
+
+enum Gender {
+  FEMALE
+  MALE
+  NONBINARY
+  PREFER_NOT_TO_SAY
+}
+
+enum Semester {
+  SEMESTER_1
+  SEMESTER_2
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  WITHDRAWN
+  COMPLETED
+}
+
+enum ResourceType {
+  PDF
+  TEXT
+  TEXTBOOK_LINK
+  AUDIO
+  VIDEO_LINK
+  WEB_LINK
+}
+
+enum DeliveryMode {
+  IN_PERSON
+  LIVE_ONLINE
+  PRE_RECORDED
+}
+
+enum SessionStatus {
+  SCHEDULED
+  HELD
+  CANCELLED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+/// Closed list from FEAT-3. FAMILY_CIRCUMSTANCES_NOT_RECORDED stores no story:
+/// it only tells the risk score to suggest a human check-in.
+enum AbsenceReasonCode {
+  ILLNESS
+  FAMILY_CARE
+  TRANSPORT_OR_COST
+  FAMILY_CIRCUMSTANCES_NOT_RECORDED
+  UNKNOWN
+}
+
+enum AssignmentKind {
+  PAPER
+  DIGITAL
+  IN_CLASS_EXAM
+}
+
+/// What the gradebook shows. The file queue has its own state for retries.
+enum UploadState {
+  QUEUED
+  UPLOADING
+  STORED
+  FAILED
+}
+
+/// Transfer state for the file worker. Kept off the JSON sync batch on purpose:
+/// a photo must not block attendance, and a retry must not duplicate the gradebook row.
+enum FileQueueState {
+  QUEUED
+  UPLOADING
+  STORED
+  FAILED
+}
+
+enum FileErrorCode {
+  CHECKSUM_MISMATCH
+  TOO_LARGE
+  STORAGE_UNAVAILABLE
+}
+
+enum LessonStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum SkillGap {
+  READING
+  WRITING
+  SPEAKING
+  NUMBER_SENSE
+  CUSTOM
+}
+
+enum HandoffReason {
+  TEACHER_DEACTIVATED
+  SECTION_REASSIGNED
+}
+
+enum HandoffStatus {
+  READY
+  ACKNOWLEDGED
+}
+
+enum TrendLabel {
+  IMPROVING
+  STEADY
+  DECLINING
+  INSUFFICIENT
+}
+
+enum RiskLevel {
+  INSUFFICIENT_DATA
+  NONE
+  WATCH
+  HIGH
+}
+
+enum RiskFlagStatus {
+  OPEN
+  CHECK_IN_DONE
+  DISMISSED
+}
+
+enum RiskDismissReason {
+  NOT_NEEDED
+  ALREADY_SUPPORTED
+  DATA_ERROR
+}
+
+enum RiskReasonCode {
+  CONSECUTIVE_UNEXCUSED_ABSENCES
+  MISSING_ASSIGNMENTS
+  GRADE_SLOPE
+  CHECK_IN_SUGGESTED
+}
+
+enum AuditAction {
+  VIEW
+  CREATE
+  UPDATE
+  DEACTIVATE
+  EXPORT
+  RESOLVE_CONFLICT
+  GENERATE_HANDOFF
+  UPDATE_RISK_FLAG
+}
+
+enum AuditEntityType {
+  GRADE_ENTRY
+  PROGRESS_NOTE
+  HANDOFF_REPORT
+  RISK_FLAG
+  EXPORT
+  USER
+  ATTENDANCE
+  SUBMISSION
+}
+
+/// Editable records that can conflict. Attendance is not here: it is append-only.
+enum SyncEntityType {
+  GRADE_ENTRY
+  PROGRESS_NOTE
+}
+
+enum ConflictState {
+  OPEN
+  RESOLVED
+}
+
+enum ConflictResolution {
+  KEPT_LATER_RECEIVED
+  KEPT_OTHER_VERSION
+  MERGED
+}
+
+/// JSON batch members only. File uploads are not a member of this list.
+enum JsonSyncEntityType {
+  ATTENDANCE
+  GRADE_ENTRY
+  PROGRESS_NOTE
+  LESSON_PROGRESS
+}
+
+enum JsonSyncItemStatus {
+  RECEIVED
+  APPLIED
+  DUPLICATE
+  CONFLICT
+  REJECTED
+}
+
+// --- Center and people -----------------------------------------------------
+
+model Center {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  code      String   @unique
+  /// IANA timezone used to display the timetable. Stored instants stay in UTC.
+  timezone  String
+  /// FEAT-3 starting levels. A director may change these later.
+  watchRiskThreshold       Int @default(40)
+  highRiskThreshold        Int @default(70)
+  /// FEAT-4. A figure based on fewer learners than this is shown as "<5".
+  smallGroupSuppressionMin Int @default(5)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  optionalFields   CenterOptionalField[]
+  users            User[]
+  learnerProfiles  LearnerProfile[]
+  devices          Device[]
+  courses          Course[]
+  riskFlags        RiskFlag[]
+  auditLogs        AuditLog[]
+  jsonSyncBatches  JsonSyncBatch[]
+
+  @@map("centers")
+}
+
+/// Which optional facts this center chose to collect (SYS-2). Default is off.
+model CenterOptionalField {
+  id        String           @id @default(uuid()) @db.Uuid
+  centerId  String           @db.Uuid
+  center    Center           @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  fieldKey  OptionalFieldKey
+  enabled   Boolean
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@unique([centerId, fieldKey])
+  @@map("center_optional_fields")
+}
+
+model User {
+  id             String    @id @default(uuid()) @db.Uuid
+  centerId       String    @db.Uuid
+  center         Center    @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  role           UserRole
+  /// Staff sign in with email. Learners sign in with a learner code, so email stays empty.
+  email          String?
+  /// Staff password hash. Learners use LearnerProfile.pinHash instead.
+  passwordHash   String?
+  /// Working name for staff. Empty for learners; their nickname lives on the profile.
+  displayName    String?
+  /// Accounts are deactivated, never deleted, so history keeps its author (FEAT-2).
+  active         Boolean   @default(true)
+  deactivatedAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  learnerProfile          LearnerProfile?
+  registeredDevices       Device[]                 @relation("DeviceRegisteredBy")
+  sectionAssignments      SectionTeacher[]
+  resourcesCreated        Resource[]
+  assignmentsCreated      Assignment[]
+  attendanceRecorded      AttendanceRecord[]       @relation("AttendanceRecordedBy")
+  gradesRecorded          GradeEntry[]             @relation("GradeRecordedBy")
+  gradeVersionsRecorded   GradeEntryVersion[]      @relation("GradeVersionRecordedBy")
+  progressNotes           ProgressNote[]           @relation("ProgressNoteAuthor")
+  progressNoteVersions    ProgressNoteVersion[]    @relation("ProgressNoteVersionAuthor")
+  lessonProgressRecorded  LessonProgress[]
+  submissions             Submission[]
+  handoffsOutgoing        HandoffReport[]          @relation("HandoffOutgoing")
+  handoffsIncoming        HandoffReport[]          @relation("HandoffIncoming")
+  handoffsAssigned        HandoffReport[]          @relation("HandoffAssignee")
+  riskFlagsResolved       RiskFlag[]
+  auditLogs               AuditLog[]
+  conflictsResolved       SyncConflict[]
+
+  @@unique([email])
+  @@index([centerId, role, active])
+  @@map("users")
+}
+
+model LearnerProfile {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @unique @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  /// Repeats the account's center so learner queries and later row checks do not
+  /// depend on a join. A database trigger keeps this equal to the user's center.
+  centerId     String   @db.Uuid
+  center       Center   @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  learnerCode  String
+  /// First name or nickname only. Not a legal name, not a family name.
+  displayName  String
+  ageBand      AgeBand
+  /// Simple PIN hash for shared phones (SYS-1). Not the PIN itself.
+  pinHash      String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  gender              LearnerOptionalGender?
+  contact             LearnerOptionalContact?
+  enrollments         Enrollment[]
+  attendanceRecords   AttendanceRecord[]
+  gradeEntries        GradeEntry[]
+  submissions         Submission[]
+  lessonProgress      LessonProgress[]
+  progressNotes       ProgressNote[]
+  transitionProfiles  TransitionProfile[]
+  riskFlags           RiskFlag[]
+
+  @@unique([centerId, learnerCode])
+  @@index([centerId, ageBand])
+  @@map("learner_profiles")
+}
+
+/// Stored only when the center has enabled GENDER. One value, from a fixed list.
+model LearnerOptionalGender {
+  learnerId String   @id @db.Uuid
+  learner   LearnerProfile @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  gender    Gender
+  updatedAt DateTime @updatedAt
+
+  @@map("learner_optional_genders")
+}
+
+/// Director-only contact phone. Never exported (SYS-2). No address column exists.
+/// Rows are rejected unless this center enabled CONTACT_PHONE.
+model LearnerOptionalContact {
+  learnerId String   @id @db.Uuid
+  learner   LearnerProfile @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  phoneE164 String
+  updatedAt DateTime @updatedAt
+
+  @@map("learner_optional_contacts")
+}
+
+/// A phone or laptop that syncs. Its id is the key inside a version vector.
+model Device {
+  id             String    @id @db.Uuid
+  centerId       String    @db.Uuid
+  center         Center    @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  label          String
+  registeredById String?   @db.Uuid
+  registeredBy   User?     @relation("DeviceRegisteredBy", fields: [registeredById], references: [id], onDelete: Restrict)
+  lastSeenAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  attendanceRecords    AttendanceRecord[]
+  gradeEntries         GradeEntry[]
+  gradeEntryVersions   GradeEntryVersion[]
+  progressNotes        ProgressNote[]
+  progressNoteVersions ProgressNoteVersion[]
+  submissions          Submission[]
+  jsonSyncBatches      JsonSyncBatch[]
+  jsonSyncItems        JsonSyncItem[]
+
+  @@index([centerId])
+  @@map("devices")
+}
+
+// --- Teaching structure ----------------------------------------------------
+
+model Course {
+  id             String   @id @default(uuid()) @db.Uuid
+  centerId       String   @db.Uuid
+  center         Center   @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  title          String
+  code           String
+  academicYear   Int
+  semester       Semester
+  summary        String?  @db.VarChar(500)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  sections  Section[]
+  resources Resource[]
+
+  @@unique([centerId, code, academicYear, semester])
+  @@index([centerId, academicYear, semester])
+  @@map("courses")
+}
+
+model Section {
+  id        String   @id @default(uuid()) @db.Uuid
+  courseId  String   @db.Uuid
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  teachers        SectionTeacher[]
+  enrollments     Enrollment[]
+  resources       Resource[]
+  sessions        ClassSession[]
+  assignments     Assignment[]
+  progressNotes   ProgressNote[]
+  handoffReports  HandoffReport[]
+
+  @@unique([courseId, name])
+  @@map("sections")
+}
+
+model Enrollment {
+  id          String           @id @default(uuid()) @db.Uuid
+  sectionId   String           @db.Uuid
+  section     Section          @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  learnerId   String           @db.Uuid
+  learner     LearnerProfile   @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  status      EnrollmentStatus @default(ACTIVE)
+  enrolledOn  DateTime         @db.Date
+  withdrawnOn DateTime?        @db.Date
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([sectionId, learnerId])
+  @@index([learnerId, status])
+  @@map("enrollments")
+}
+
+/// A teacher's time on a section. endsOn is empty while they are still assigned.
+/// History stays when a volunteer leaves (FEAT-2).
+model SectionTeacher {
+  id        String    @id @default(uuid()) @db.Uuid
+  sectionId String    @db.Uuid
+  section   Section   @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  teacherId String    @db.Uuid
+  teacher   User      @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  startsOn  DateTime  @db.Date
+  endsOn    DateTime? @db.Date
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([sectionId, teacherId, startsOn])
+  @@index([teacherId, endsOn])
+  @@index([sectionId, endsOn])
+  @@map("section_teachers")
+}
+
+model Resource {
+  id           String       @id @default(uuid()) @db.Uuid
+  courseId     String       @db.Uuid
+  course       Course       @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  /// Empty means the whole course. Set means one section only.
+  sectionId    String?      @db.Uuid
+  section      Section?     @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  createdById  String       @db.Uuid
+  createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  title        String
+  resourceType ResourceType
+  /// Web links only. Files use storageKey so the database never holds the bytes.
+  externalUrl  String?
+  storageKey   String?
+  mimeType     String?
+  byteSize     Int?
+  checksumSha256 String?
+  /// Short reading-list text for the TEXT type. Not a place for personal notes.
+  bodyText     String?      @db.Text
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  sessions ClassSession[]
+
+  @@index([courseId])
+  @@index([sectionId])
+  @@map("resources")
+}
+
+model ClassSession {
+  id               String        @id @default(uuid()) @db.Uuid
+  sectionId        String        @db.Uuid
+  section          Section       @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  title            String
+  startsAt         DateTime
+  endsAt           DateTime
+  deliveryMode     DeliveryMode
+  /// Join link for a live online session. Empty for in-person sessions.
+  meetingUrl       String?
+  status           SessionStatus @default(SCHEDULED)
+  linkedResourceId String?       @db.Uuid
+  linkedResource   Resource?     @relation(fields: [linkedResourceId], references: [id], onDelete: Restrict)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  attendanceRecords AttendanceRecord[]
+  lessonProgress    LessonProgress[]
+
+  @@index([sectionId, startsAt])
+  @@map("class_sessions")
+}
+
+// --- Attendance (append-only) ----------------------------------------------
+
+/// One tap at the door, or a later correction. Never updated in place.
+/// The database trigger in the Phase 1 migration rejects UPDATE, and rejects
+/// DELETE unless a local demo reset explicitly allows it.
+model AttendanceRecord {
+  id              String              @id @default(uuid()) @db.Uuid
+  /// Idempotency key from the phone. A retry with the same id is a duplicate, not a second fact.
+  clientEventId   String              @unique
+  learnerId       String              @db.Uuid
+  learner         LearnerProfile      @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  sessionId       String              @db.Uuid
+  session         ClassSession        @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  status          AttendanceStatus
+  reasonCode      AbsenceReasonCode?
+  deviceId        String              @db.Uuid
+  device          Device              @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  recordedById    String              @db.Uuid
+  recordedBy      User                @relation("AttendanceRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  /// Clock on the phone. Often wrong. Do not sort corrections by this.
+  recordedAt      DateTime
+  /// When the server received this event. Corrections are ordered by this time.
+  syncedAt        DateTime
+  createdOffline  Boolean
+  createdAt       DateTime            @default(now())
+
+  @@index([sessionId, learnerId])
+  @@index([learnerId, syncedAt])
+  @@index([deviceId, syncedAt])
+  @@map("attendance_records")
+}
+
+// --- Grades, files, and notes ----------------------------------------------
+
+model Assignment {
+  id          String         @id @default(uuid()) @db.Uuid
+  sectionId   String         @db.Uuid
+  section     Section        @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  title       String
+  kind        AssignmentKind
+  dueAt       DateTime?
+  maxPoints   Decimal        @db.Decimal(6, 2)
+  createdById String         @db.Uuid
+  createdBy   User           @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  gradeEntries GradeEntry[]
+  submissions  Submission[]
+
+  @@index([sectionId, dueAt])
+  @@map("assignments")
+}
+
+/// The grade the gradebook shows right now. `id` is the stable id created on
+/// the phone and reused for every later edit of this same mark.
+/// Sync metadata matches ProgressNote exactly: deviceId, versionVector,
+/// deviceRecordedAt, syncedAt, createdOffline.
+model GradeEntry {
+  id               String         @id @default(uuid()) @db.Uuid
+  assignmentId     String         @db.Uuid
+  assignment       Assignment     @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  learnerId        String         @db.Uuid
+  learner          LearnerProfile @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  points           Decimal        @db.Decimal(6, 2)
+  /// Academic comment only. Do not write family circumstances, legal status, or contact details.
+  academicNote     String?        @db.VarChar(500)
+  recordedById     String         @db.Uuid
+  recordedBy       User           @relation("GradeRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+
+  deviceId         String         @db.Uuid
+  device           Device         @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  /// Device id to counter, for example {"<device-uuid>": 2}. Compared as a whole.
+  /// A missing key means 0. Phone clocks are not used to pick a winner.
+  versionVector    Json           @db.JsonB
+  deviceRecordedAt DateTime
+  syncedAt         DateTime
+  createdOffline   Boolean
+
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  versions  GradeEntryVersion[]
+  conflicts SyncConflict[]
+
+  @@unique([assignmentId, learnerId])
+  @@index([learnerId])
+  @@index([deviceId])
+  @@map("grade_entries")
+}
+
+/// Every stored version of a grade, including both sides of a conflict.
+/// Append-only. The current GradeEntry row is what teachers see meanwhile.
+model GradeEntryVersion {
+  id                    String     @id @default(uuid()) @db.Uuid
+  gradeEntryId          String     @db.Uuid
+  gradeEntry            GradeEntry @relation(fields: [gradeEntryId], references: [id], onDelete: Restrict)
+  points                Decimal    @db.Decimal(6, 2)
+  academicNote          String?    @db.VarChar(500)
+  recordedById          String     @db.Uuid
+  recordedBy            User       @relation("GradeVersionRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+
+  deviceId              String     @db.Uuid
+  device                Device     @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  versionVector         Json       @db.JsonB
+  deviceRecordedAt      DateTime
+  syncedAt              DateTime
+  createdOffline        Boolean
+  /// True when this copy was kept because another device disagreed.
+  preservedFromConflict Boolean    @default(false)
+  createdAt             DateTime   @default(now())
+
+  conflictsAsA     SyncConflict[] @relation("GradeConflictA")
+  conflictsAsB     SyncConflict[] @relation("GradeConflictB")
+  conflictsShowing SyncConflict[] @relation("GradeConflictShown")
+
+  @@index([gradeEntryId, syncedAt])
+  @@map("grade_entry_versions")
+}
+
+/// File metadata for digital homework. The bytes live in private storage, not in PostgreSQL.
+model Submission {
+  id                  String         @id @default(uuid()) @db.Uuid
+  /// Idempotency key from the phone. Retrying the upload does not create a second row.
+  clientSubmissionId  String         @unique
+  assignmentId        String         @db.Uuid
+  assignment          Assignment     @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  learnerId           String         @db.Uuid
+  learner             LearnerProfile @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  submittedById       String         @db.Uuid
+  submittedBy         User           @relation(fields: [submittedById], references: [id], onDelete: Restrict)
+  uploadState         UploadState
+  byteSize            Int
+  mimeType            String
+  checksumSha256      String         @db.VarChar(64)
+  /// Private object-storage key, not a public URL and not the file itself.
+  storageKey          String
+  deviceId            String         @db.Uuid
+  device              Device         @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  createdOffline      Boolean
+  queuedAt            DateTime
+  receivedAt          DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  fileQueueItem FileUploadQueueItem?
+
+  @@index([assignmentId, learnerId])
+  @@index([uploadState, queuedAt])
+  @@map("submissions")
+}
+
+/// Retry queue for file bytes. It has no link to a JSON sync batch.
+model FileUploadQueueItem {
+  id            String         @id @default(uuid()) @db.Uuid
+  submissionId  String         @unique @db.Uuid
+  submission    Submission     @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  state         FileQueueState
+  attemptCount  Int            @default(0)
+  lastErrorCode FileErrorCode?
+  queuedAt      DateTime
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([state, queuedAt])
+  @@map("file_upload_queue")
+}
+
+model LessonProgress {
+  id             String         @id @default(uuid()) @db.Uuid
+  learnerId      String         @db.Uuid
+  learner        LearnerProfile @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  classSessionId String         @db.Uuid
+  classSession   ClassSession   @relation(fields: [classSessionId], references: [id], onDelete: Restrict)
+  status         LessonStatus
+  completedAt    DateTime?
+  recordedById   String         @db.Uuid
+  recordedBy     User           @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([learnerId, classSessionId])
+  @@index([classSessionId])
+  @@map("lesson_progress")
+}
+
+/// Teacher note about academic progress. Same sync metadata as GradeEntry:
+/// deviceId, versionVector, deviceRecordedAt, syncedAt, createdOffline.
+/// `id` is the stable id from the phone. The body is academic only.
+model ProgressNote {
+  id               String         @id @default(uuid()) @db.Uuid
+  learnerId        String         @db.Uuid
+  learner          LearnerProfile @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  sectionId        String         @db.Uuid
+  section          Section        @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  authorId         String         @db.Uuid
+  author           User           @relation("ProgressNoteAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  /// Academic progress only. Do not record legal status, addresses, or family circumstances.
+  body             String         @db.VarChar(2000)
+  skillGaps        SkillGap[]
+  /// Short label only when skillGaps includes CUSTOM, for example "map reading".
+  customSkillLabel String?        @db.VarChar(80)
+
+  deviceId         String         @db.Uuid
+  device           Device         @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  versionVector    Json           @db.JsonB
+  deviceRecordedAt DateTime
+  syncedAt         DateTime
+  createdOffline   Boolean
+
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  versions            ProgressNoteVersion[]
+  conflicts           SyncConflict[]
+  transitionLinks     TransitionProfileNote[]
+
+  @@index([learnerId, sectionId])
+  @@index([sectionId])
+  @@index([deviceId])
+  @@map("progress_notes")
+}
+
+/// Every stored version of a progress note, including both sides of a conflict.
+/// Holds the same sync metadata as GradeEntryVersion.
+model ProgressNoteVersion {
+  id                    String       @id @default(uuid()) @db.Uuid
+  progressNoteId        String       @db.Uuid
+  progressNote          ProgressNote @relation(fields: [progressNoteId], references: [id], onDelete: Restrict)
+  authorId              String       @db.Uuid
+  author                User         @relation("ProgressNoteVersionAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  body                  String       @db.VarChar(2000)
+  skillGaps             SkillGap[]
+  customSkillLabel      String?      @db.VarChar(80)
+
+  deviceId              String       @db.Uuid
+  device                Device       @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  versionVector         Json         @db.JsonB
+  deviceRecordedAt      DateTime
+  syncedAt              DateTime
+  createdOffline        Boolean
+  preservedFromConflict Boolean      @default(false)
+  createdAt             DateTime     @default(now())
+
+  conflictsAsA     SyncConflict[] @relation("NoteConflictA")
+  conflictsAsB     SyncConflict[] @relation("NoteConflictB")
+  conflictsShowing SyncConflict[] @relation("NoteConflictShown")
+
+  @@index([progressNoteId, syncedAt])
+  @@map("progress_note_versions")
+}
+
+// --- Handoff, risk, and audit ----------------------------------------------
+
+/// One section-level pack built when a teacher leaves or a section is reassigned.
+/// Per-learner pages live in TransitionProfile so names are not copied into a blob.
+model HandoffReport {
+  id                 String        @id @default(uuid()) @db.Uuid
+  sectionId          String        @db.Uuid
+  section            Section       @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  outgoingTeacherId  String        @db.Uuid
+  outgoingTeacher    User          @relation("HandoffOutgoing", fields: [outgoingTeacherId], references: [id], onDelete: Restrict)
+  incomingTeacherId  String?       @db.Uuid
+  incomingTeacher    User?         @relation("HandoffIncoming", fields: [incomingTeacherId], references: [id], onDelete: Restrict)
+  /// Incoming teacher, or the director when nobody is assigned yet.
+  assignedToId       String        @db.Uuid
+  assignedTo         User          @relation("HandoffAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  reason             HandoffReason
+  status             HandoffStatus @default(READY)
+  generatedAt        DateTime
+  acknowledgedAt     DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  profiles TransitionProfile[]
+
+  @@index([assignedToId, status])
+  @@index([sectionId, generatedAt])
+  @@map("handoff_reports")
+}
+
+/// The Student Transition Profile for one learner inside a handoff report.
+/// Counts and labels only. Note text stays in ProgressNote and is linked, not copied.
+model TransitionProfile {
+  id                      String       @id @default(uuid()) @db.Uuid
+  handoffReportId         String       @db.Uuid
+  handoffReport           HandoffReport @relation(fields: [handoffReportId], references: [id], onDelete: Restrict)
+  learnerId               String       @db.Uuid
+  learner                 LearnerProfile @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  /// Percent present or late across held sessions. A number, not a narrative.
+  attendanceRate          Decimal      @db.Decimal(5, 2)
+  unexcusedAbsenceCount   Int
+  gradeTrend              TrendLabel
+  lessonsCompleted        Int
+  lessonsTotal            Int
+  skillGaps               SkillGap[]
+  createdAt               DateTime     @default(now())
+
+  notes TransitionProfileNote[]
+
+  @@unique([handoffReportId, learnerId])
+  @@map("transition_profiles")
+}
+
+model TransitionProfileNote {
+  transitionProfileId String            @db.Uuid
+  transitionProfile   TransitionProfile @relation(fields: [transitionProfileId], references: [id], onDelete: Restrict)
+  progressNoteId      String            @db.Uuid
+  progressNote        ProgressNote      @relation(fields: [progressNoteId], references: [id], onDelete: Restrict)
+
+  @@id([transitionProfileId, progressNoteId])
+  @@map("transition_profile_notes")
+}
+
+/// A suggested supportive check-in. Nothing here triggers an automatic action (FEAT-3).
+/// The score was computed from a learner code and numbers. This row links back to the
+/// learner so the director dashboard can show a nickname. The Python service does not.
+model RiskFlag {
+  id                String             @id @default(uuid()) @db.Uuid
+  learnerId         String             @db.Uuid
+  learner           LearnerProfile     @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  centerId          String             @db.Uuid
+  center            Center             @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  /// Empty when level is INSUFFICIENT_DATA.
+  score             Decimal?           @db.Decimal(5, 2)
+  level             RiskLevel
+  reasonCodes       RiskReasonCode[]
+  checkInSuggested  Boolean            @default(false)
+  /// The three indicators and a data-point count. No names and no note text.
+  indicatorSnapshot Json               @db.JsonB
+  status            RiskFlagStatus
+  dismissReason     RiskDismissReason?
+  computedAt        DateTime
+  resolvedAt        DateTime?
+  resolvedById      String?            @db.Uuid
+  resolvedBy        User?              @relation(fields: [resolvedById], references: [id], onDelete: Restrict)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([centerId, status, level])
+  @@index([learnerId, computedAt])
+  @@map("risk_flags")
+}
+
+/// Who viewed or changed sensitive records, and when (FEAT-2). Append-only.
+/// metadata may hold ids and field names only, never names, notes, or phone numbers.
+model AuditLog {
+  id         String          @id @default(uuid()) @db.Uuid
+  centerId   String          @db.Uuid
+  center     Center          @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  actorId    String?         @db.Uuid
+  actor      User?           @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  action     AuditAction
+  entityType AuditEntityType
+  entityId   String
+  deviceId   String?         @db.Uuid
+  at         DateTime        @default(now())
+  metadata   Json?           @db.JsonB
+
+  @@index([centerId, at])
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@map("audit_logs")
+}
+
+// --- Sync ------------------------------------------------------------------
+
+/// An open or resolved clash between two preserved versions of one editable record.
+/// Exactly one pair is set: both grade versions, or both note versions.
+/// While state is OPEN, the shown version is the one the server received later.
+model SyncConflict {
+  id           String              @id @default(uuid()) @db.Uuid
+  entityType   SyncEntityType
+  state        ConflictState       @default(OPEN)
+  resolution   ConflictResolution?
+  resolvedById String?             @db.Uuid
+  resolvedBy   User?               @relation(fields: [resolvedById], references: [id], onDelete: Restrict)
+  resolvedAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  gradeEntryId        String?            @db.Uuid
+  gradeEntry          GradeEntry?        @relation(fields: [gradeEntryId], references: [id], onDelete: Restrict)
+  gradeVersionAId     String?            @unique @db.Uuid
+  gradeVersionA       GradeEntryVersion? @relation("GradeConflictA", fields: [gradeVersionAId], references: [id], onDelete: Restrict)
+  gradeVersionBId     String?            @unique @db.Uuid
+  gradeVersionB       GradeEntryVersion? @relation("GradeConflictB", fields: [gradeVersionBId], references: [id], onDelete: Restrict)
+  shownGradeVersionId String?            @db.Uuid
+  shownGradeVersion   GradeEntryVersion? @relation("GradeConflictShown", fields: [shownGradeVersionId], references: [id], onDelete: Restrict)
+
+  progressNoteId      String?              @db.Uuid
+  progressNote        ProgressNote?        @relation(fields: [progressNoteId], references: [id], onDelete: Restrict)
+  noteVersionAId      String?              @unique @db.Uuid
+  noteVersionA        ProgressNoteVersion? @relation("NoteConflictA", fields: [noteVersionAId], references: [id], onDelete: Restrict)
+  noteVersionBId      String?              @unique @db.Uuid
+  noteVersionB        ProgressNoteVersion? @relation("NoteConflictB", fields: [noteVersionBId], references: [id], onDelete: Restrict)
+  shownNoteVersionId  String?              @db.Uuid
+  shownNoteVersion    ProgressNoteVersion? @relation("NoteConflictShown", fields: [shownNoteVersionId], references: [id], onDelete: Restrict)
+
+  @@index([state, entityType])
+  @@index([gradeEntryId])
+  @@index([progressNoteId])
+  @@map("sync_conflicts")
+}
+
+/// One compressed JSON upload of attendance, grades, notes, or lesson progress.
+/// File bytes never travel in this batch (FEAT-1).
+model JsonSyncBatch {
+  id                  String   @id @default(uuid()) @db.Uuid
+  deviceId            String   @db.Uuid
+  device              Device   @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  centerId            String   @db.Uuid
+  center              Center   @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  receivedAt          DateTime
+  itemCount           Int
+  compressedByteSize  Int
+  createdAt           DateTime @default(now())
+
+  items JsonSyncItem[]
+
+  @@index([deviceId, receivedAt])
+  @@index([centerId, receivedAt])
+  @@map("json_sync_batches")
+}
+
+model JsonSyncItem {
+  id               String             @id @default(uuid()) @db.Uuid
+  batchId          String             @db.Uuid
+  batch            JsonSyncBatch      @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  /// Copied here so the same phone cannot apply one mutation twice, even in a new batch.
+  deviceId         String             @db.Uuid
+  device           Device             @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  entityType       JsonSyncEntityType
+  entityId         String             @db.Uuid
+  clientMutationId String
+  status           JsonSyncItemStatus
+  createdAt        DateTime           @default(now())
+
+  @@unique([deviceId, clientMutationId])
+  @@index([batchId])
+  @@index([entityType, entityId])
+  @@map("json_sync_items")
+}
