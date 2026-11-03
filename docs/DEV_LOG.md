@@ -1,6 +1,6 @@
 # Development Log
 
-## Day 1 - October 23, 2026 (or replace with today's date)
+## Day 1 - October 23, 2026 
 
 ### What I built
 - Set up Next.js project with TypeScript and Tailwind CSS.
