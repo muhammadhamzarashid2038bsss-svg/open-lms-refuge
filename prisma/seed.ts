@@ -7,8 +7,9 @@
 // are append-only, so the reset sets a database switch that allows deletes for
 // this demo wipe only. The switch does not allow edits.
 
-import { createHash, randomBytes, scryptSync } from "node:crypto";
+import { createHash } from "node:crypto";
 import { Prisma } from "../generated/prisma/client";
+import { hashSecret } from "../lib/auth/password";
 import { prisma } from "../lib/db";
 
 const DEMO_PASSWORD = "demo-password";
@@ -78,12 +79,6 @@ function learnerUserId(index: number): string {
 
 function learnerProfileId(index: number): string {
   return uid(200 + index);
-}
-
-function hashSecret(plain: string): string {
-  const salt = randomBytes(16).toString("hex");
-  const hash = scryptSync(plain, salt, 32, { N: 16384, r: 8, p: 1 }).toString("hex");
-  return `scrypt$16384$8$1$${salt}$${hash}`;
 }
 
 function sha256(value: string): string {
@@ -160,6 +155,13 @@ async function wipeDemo(tx: Prisma.TransactionClient): Promise<void> {
 
   const center = await tx.center.findUnique({ where: { code: "DEMO" } });
   if (!center) return;
+
+  // Sign-in rows point at users. Remove them before the demo accounts.
+  // Throttle keys are hashes, so they cannot be filtered by center. This wipe
+  // is the local demo reset, and it clears those counters too.
+  await tx.authSession.deleteMany({ where: { user: { centerId: center.id } } });
+  await tx.deviceHandover.deleteMany({ where: { centerId: center.id } });
+  await tx.loginThrottle.deleteMany();
 
   const learners = await tx.learnerProfile.findMany({
     where: { centerId: center.id },

@@ -266,6 +266,7 @@ model Center {
   riskFlags        RiskFlag[]
   auditLogs        AuditLog[]
   jsonSyncBatches  JsonSyncBatch[]
+  deviceHandovers  DeviceHandover[]
 
   @@map("centers")
 }
@@ -319,6 +320,9 @@ model User {
   riskFlagsResolved       RiskFlag[]
   auditLogs               AuditLog[]
   conflictsResolved       SyncConflict[]
+  authSessions            AuthSession[]
+  deviceHandoversFrom     DeviceHandover[] @relation("DeviceHandoverFrom")
+  deviceHandoversReleased DeviceHandover[] @relation("DeviceHandoverReleasedBy")
 
   @@unique([email])
   @@index([centerId, role, active])
@@ -976,4 +980,63 @@ model JsonSyncItem {
   @@index([batchId])
   @@index([entityType, entityId])
   @@map("json_sync_items")
+}
+
+// --- Sign-in ---------------------------------------------------------------
+
+/// One signed-in browser. The cookie holds only this id, sealed so it cannot
+/// be edited. Logout sets revokedAt so a copied cookie stops working even
+/// before it expires. Shared phones need that: deleting the cookie on one
+/// screen is not enough if someone kept a copy.
+/// Absolute expiry is 8 hours. Idle expiry is 30 minutes without a page load.
+/// Those clocks use the server time, never the phone clock.
+model AuthSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  @@index([userId, revokedAt])
+  @@map("auth_sessions")
+}
+
+/// Failed sign-in counter. The key is a hash of the attempted email, learner
+/// code, or network address, not the raw value, so this table is not a list
+/// of accounts. Five failures lock that key for 15 minutes (SYS-1).
+/// Unknown emails get a counter too, so a guess and a real account behave
+/// the same and the form cannot be used to discover which emails exist.
+model LoginThrottle {
+  id          String    @id @default(uuid()) @db.Uuid
+  bucketKey   String    @unique
+  failedCount Int       @default(0)
+  lockedUntil DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@map("login_throttles")
+}
+
+/// A staff member released a shared phone that still had unsent records.
+/// The records stay on the phone, under the account that wrote them.
+/// This row is the written note that a person took responsibility. It does
+/// not contain the records, a PIN, or a password.
+model DeviceHandover {
+  id           String   @id @default(uuid()) @db.Uuid
+  centerId     String   @db.Uuid
+  center       Center   @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  fromUserId   String   @db.Uuid
+  fromUser     User     @relation("DeviceHandoverFrom", fields: [fromUserId], references: [id], onDelete: Restrict)
+  releasedById String   @db.Uuid
+  releasedBy   User     @relation("DeviceHandoverReleasedBy", fields: [releasedById], references: [id], onDelete: Restrict)
+  /// Short reason a person typed. The screen tells them not to type a PIN or a family story.
+  reason       String   @db.VarChar(200)
+  itemCount    Int
+  deviceLabel  String   @db.VarChar(80)
+  createdAt    DateTime @default(now())
+
+  @@index([centerId, createdAt])
+  @@index([fromUserId, createdAt])
+  @@map("device_handovers")
 }

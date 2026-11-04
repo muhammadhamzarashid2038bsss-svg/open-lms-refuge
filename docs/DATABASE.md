@@ -98,9 +98,25 @@ One row per optional fact, per center, with an on/off switch. The demo center al
 
 A login for a student, teacher, center director, or admin. `active` is the on/off flag. Turning it off sets `deactivatedAt` and keeps the row.
 
-Staff have an email and a password hash. Learners do not. A hash is a scrambled form of the password that cannot be read back. This project uses Node’s built-in `scrypt` so it did not add a password library yet. When login is built, the same hash format can be checked. Maintained alternatives are `bcrypt` and `argon2`.
+Staff have an email and a password hash. Learners do not. A hash is a scrambled form of the secret that cannot be read back. This project uses Node’s built-in `scrypt`. Sign-in checks that same format. Maintained alternatives are `bcrypt` and `argon2`. Argon2 needs a native add-on, so the project stays with scrypt unless the hashes are deliberately rotated.
+
+Staff sign in with email and password. Learners sign in with a learner code and a 4-digit PIN. The PIN is hashed the same way. The PIN itself is not stored. Five wrong tries lock that account for 15 minutes. Unknown emails and unknown learner codes get the same message as a wrong password, so the form cannot be used to discover which accounts exist.
+
+A signed-in browser gets a sealed cookie from the `iron-session` library. The cookie holds a session id. The session row can be revoked on sign-out, so a copied cookie stops working. A session ends after 8 hours, or after 30 minutes with no use. Deactivated accounts cannot sign in.
 
 The demo password for every staff account is `demo-password`. The demo PIN for every learner is `1234`. They are for this fake center only.
+
+### AuthSession
+
+One row per sign-in. `revokedAt` is set on sign-out, when the session goes idle, when the 8 hours are up, and when a password or PIN is changed.
+
+### LoginThrottle
+
+A counter for failed sign-ins. The key is a hash of the attempted email, learner code, or network address, not the raw value. Five failures set `lockedUntil` 15 minutes ahead.
+
+### DeviceHandover
+
+A short note written by staff when a shared phone still has records that have not been sent. The records stay on the phone. This table does not contain them, and it does not contain a PIN or a password.
 
 ### LearnerProfile
 
