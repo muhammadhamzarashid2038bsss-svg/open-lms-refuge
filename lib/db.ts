@@ -13,7 +13,17 @@ if (!connectionString) {
   );
 }
 
-const adapter = new PrismaPg({ connectionString });
+function pgPoolConfig(): string | { connectionString: string; max: number } {
+  const raw = process.env.DATABASE_POOL_MAX?.trim();
+  if (!raw) return connectionString;
+  const max = Number.parseInt(raw, 10);
+  if (!Number.isFinite(max) || max < 1) {
+    throw new Error("DATABASE_POOL_MAX must be a positive integer when set.");
+  }
+  return { connectionString, max };
+}
+
+const adapter = new PrismaPg(pgPoolConfig());
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
