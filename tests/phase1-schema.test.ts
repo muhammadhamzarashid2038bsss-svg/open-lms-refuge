@@ -47,7 +47,7 @@ describe("phase 1 demo database", () => {
     ).toBe(331);
     expect(await prisma.gradeEntry.count({ where: { learner: { centerId: center.id } } })).toBe(120);
     expect(await prisma.assignment.count({ where: { section: { course: { centerId: center.id } } } })).toBe(8);
-    expect(await prisma.resource.count({ where: { course: { centerId: center.id } } })).toBe(5);
+    expect(await prisma.resource.count({ where: { course: { centerId: center.id } } })).toBe(6);
     expect(await prisma.classSession.count({ where: { section: { course: { centerId: center.id } } } })).toBe(24);
   });
 
