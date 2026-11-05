@@ -58,6 +58,7 @@
 ## Day 3 of 20 · 2026-11-04
 
 ### What I built
+
 - Added a secure login system using iron-session.
 - Created separate dashboards for Admins, Directors, Teachers, and Learners.
 - Added server-side authorization to block users from accessing pages they don't have permission for (tested by trying to access teacher URLs as a learner).
@@ -66,10 +67,43 @@
 - Wrote automated tests for permissions, lockouts, and data isolation.
 
 ### What went wrong
+
 - The AI gave me the credentials for the teacher and learner, but forgot to give me the admin email. I had to find it by searching through the generated data.
 - Hit a known bug where Prisma Studio and DBeaver couldn't connect to the local Prisma 7 / PostgreSQL 17 database ("Connection Reset" and "Metadata Unavailable" errors). I had to skip the visual database check and trust the automated tests instead, to avoid wasting time.
 
 ### What I learned
+
 - I learned the difference between Authentication (who you are) and Authorization (what you are allowed to see).
 - I learned that hiding a button on a screen isn't enough security; the server itself must block unauthorized users (which is why the learner got a 404 error when typing a teacher URL).
 - I learned how shared devices are dangerous and why the app needs to lock down local data on logout.
+
+## Day 4 of 20 · 2026-11-05
+
+### What I built
+
+- Built the Syllabus and Course Manager.
+- Teachers can now create courses, assign them to sections, and add course-wide or section-specific learning materials, including links and supported file resources.
+- Added the ability to create a course without an initial section and add sections later.
+- Built learner-facing section pages where learners can view course materials and download supported files.
+- Implemented resource visibility so that whole-course materials are available to all appropriately enrolled learners, while section-specific materials remain restricted to their respective sections.
+- Added server-side authorization for course management, resource access, and file downloads.
+- Updated the teacher, director, and student dashboards to provide access to the new course functionality.
+- Checked the pages for mobile responsiveness and confirmed the remaining Day 4 browser tests.
+
+### What went wrong
+
+- When I created a course without providing a first-section name, the course was saved successfully but did not appear in the teacher's course list. The problem was that the teacher's course query only displayed courses containing sections assigned to that teacher. This was fixed so teachers can see empty courses within their center and add sections later.
+- Whole-course resources appeared on teacher screens but were missing from learner screens. The problem was that these resources were stored with an empty section association, but learner queries only retrieved resources belonging directly to their sections. This was fixed in the learner section pages, learner home-page resource counts, and section API while preserving the existing authorization checks.
+- The new resource visibility tests initially lacked coverage for whole-course materials. I added tests to verify that learners from both sections can see shared materials without gaining access to resources belonging exclusively to the other section.
+- I also encountered Prisma database seed transaction timeouts. The original large seed transaction exceeded the transaction timeout, so the seed process was divided into fifteen shorter sequential transactions. Later, another verification revealed that a successful seed message did not always guarantee that all records were durably committed when other database clients were connected.
+- To investigate the database issue, I stopped the application and other database clients, reseeded the DEMO database, and verified the results using a separate Prisma client. The expected database counts were confirmed: 30 learners, 2 sections, 6 resources, 24 class sessions, 331 attendance records, 120 grades, 2 open conflicts, and 4 submissions.
+- The targeted course tests passed all 6 tests, and ESLint passed on the modified Day 4 files. However, the Phase 1 schema test suite still has 2 tests that exceed the 30-second timeout. The other 6 tests pass. These timeouts remain under investigation and are not confirmed application logic failures.
+
+### What I learned
+
+- I learned how server-side authorization applies to API routes, database queries, and file downloads, not just page views.
+- I learned how database relationships affect resource visibility. A whole-course resource with a null section association must be included separately when retrieving resources for individual sections.
+- I learned that course visibility and resource visibility must account for both the course and the learner's section enrollment.
+- I learned how to use the browser's Developer Tools to simulate a mobile phone screen and test responsiveness.
+- I learned that successful database seed output does not necessarily prove that transactions have been durably committed. Verifying records through a separate database client is important.
+- I learned to add automated tests for both successful access and restricted access so that fixing visibility issues does not weaken existing permissions.
