@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   canListAccounts,
+  canManageCourse,
+  canManageResource,
   canReadContact,
   canReadLearner,
   canReadResource,
@@ -113,6 +115,15 @@ describe("role permission matrix", () => {
     expect(canResetPassword(director, { id: "t2", role: "TEACHER", centerId: centerA })).toBe(true);
     expect(canResetPassword(director, { id: "admin", role: "ADMIN", centerId: centerA })).toBe(false);
     expect(canSetActive(director, { id: director.id, role: "CENTER_DIRECTOR", centerId: centerA })).toBe(false);
+  });
+
+  it("lets staff manage courses and section materials without opening admin back doors", () => {
+    expect(canManageCourse(morningTeacher, centerA)).toBe(true);
+    expect(canManageCourse(student, centerA)).toBe(false);
+    expect(canManageResource(morningTeacher, morningFile)).toBe(true);
+    expect(canManageResource(afternoonTeacher, morningFile)).toBe(false);
+    expect(canManageResource(student, courseWide)).toBe(false);
+    expect(canManageResource(director, morningFile)).toBe(true);
   });
 
   it("lets an admin manage accounts and not read learner records", () => {

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { AccountList } from "@/components/account-list";
@@ -32,6 +33,11 @@ async function DirectorHome() {
           {summary.learnerCount} learners · {summary.sectionCount} sections · code {summary.code}
         </p>
       ) : null}
+      <p className="text-lg">
+        <Link className="underline" href="/courses">
+          Courses and syllabus materials
+        </Link>
+      </p>
       <PinResetForm showCenterCode={false} />
       <PasswordResetForm />
       {accounts ? <AccountList accounts={accounts} /> : null}

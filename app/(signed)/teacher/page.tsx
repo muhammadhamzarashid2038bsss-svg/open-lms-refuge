@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { PhoneTools } from "@/components/phone-tools";
@@ -24,6 +25,11 @@ async function TeacherHome() {
   const sections = actor ? await listAssignedSections(actor) : [];
   return (
     <Shell title={actor ? `Hello, ${actor.displayName}` : "Teacher home"} lede="You only see sections assigned to you.">
+      <p className="text-lg">
+        <Link className="underline" href="/courses">
+          Manage courses and materials
+        </Link>
+      </p>
       <ul className="flex flex-col gap-2 text-lg">
         {sections.map((section) => (
           <li key={section.id}>

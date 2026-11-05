@@ -101,6 +101,20 @@ export function canReadResource(actor: Actor, resource: ResourceScope): boolean 
   return false;
 }
 
+// LMS-1: teachers change materials only for sections they staff; directors cover the center.
+export function canManageCourse(actor: Actor, centerId: string): boolean {
+  if (!activeActor(actor) || !sharesCenter(actor, centerId)) return false;
+  return actor.role === "TEACHER" || actor.role === "CENTER_DIRECTOR";
+}
+
+export function canManageResource(actor: Actor, resource: ResourceScope): boolean {
+  if (!activeActor(actor) || !sharesCenter(actor, resource.centerId)) return false;
+  if (actor.role === "CENTER_DIRECTOR") return true;
+  if (actor.role !== "TEACHER") return false;
+  const sectionIds = resource.sectionId ? [resource.sectionId] : resource.courseSectionIds;
+  return sectionIds.some((sectionId) => teacherHasSection(actor, sectionId));
+}
+
 // The optional phone is director-only and is never exported (SYS-2).
 export function canReadContact(actor: Actor, learner: LearnerScope): boolean {
   return activeActor(actor) && actor.role === "CENTER_DIRECTOR" && sharesCenter(actor, learner.centerId);

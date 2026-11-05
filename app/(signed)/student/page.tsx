@@ -1,5 +1,8 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
+import { semesterLabel } from "@/lib/lms/resources";
+import { listLearnerSections } from "@/lib/data/courses";
 import { PhoneTools } from "@/components/phone-tools";
 import { Shell } from "@/components/ui";
 import { getActor } from "@/lib/auth/actor";
@@ -21,14 +24,31 @@ async function StudentHome() {
   const guard = pageGuard(actor, "STUDENT");
   if (!guard.ok) redirect(guard.redirectTo);
   const record = actor?.learnerId ? await readLearnerRecord(actor, actor.learnerId) : null;
+  const sections = actor ? await listLearnerSections(actor) : [];
   return (
     <Shell title={record ? `Hello, ${record.displayName}` : "Learner home"}>
       {record ? (
         <>
           <p className="text-lg">Learner code {record.learnerCode}</p>
-          <p className="text-lg">
-            Sections: {record.sections.map((section) => section.name).join(", ") || "None yet"}
-          </p>
+          <section className="flex flex-col gap-2">
+            <h2 className="text-xl font-semibold">Your sections</h2>
+            <ul className="flex flex-col gap-2 text-lg">
+              {sections.map((section) => (
+                <li key={section.id}>
+                  <Link className="underline" href={`/student/sections/${section.id}`}>
+                    {section.name} · {section.courseTitle} · {section.academicYear} ·{" "}
+                    {semesterLabel(section.semester)}
+                  </Link>
+                  <p className="text-base text-zinc-700">
+                    {section.downloadableCount === 0
+                      ? "No downloadable files for you here."
+                      : `${section.downloadableCount} downloadable file${section.downloadableCount === 1 ? "" : "s"}.`}
+                  </p>
+                </li>
+              ))}
+              {sections.length === 0 ? <li>No section yet.</li> : null}
+            </ul>
+          </section>
           <p className="text-lg">Attendance marks: {record.attendanceCount}</p>
           <p className="text-lg">Grades: {record.gradeCount}</p>
         </>

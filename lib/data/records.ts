@@ -6,6 +6,7 @@ import {
   canReadSection,
   type Actor,
 } from "../auth/permissions";
+import { countDownloadableResources } from "../lms/resources";
 
 type Db = typeof prisma;
 
@@ -17,6 +18,9 @@ export type ResourceView = {
   mimeType: string | null;
   byteSize: number | null;
   fileStatus: "none" | "private";
+  bodyText: string | null;
+  sectionId: string | null;
+  sectionName: string | null;
 };
 
 export type LearnerView = {
@@ -41,6 +45,7 @@ export type SectionView = {
   name: string;
   courseTitle: string;
   resources: ResourceView[];
+  downloadableCount: number;
   learners: SectionLearner[] | null;
 };
 
@@ -69,6 +74,9 @@ function toResourceView(row: {
   mimeType: string | null;
   byteSize: number | null;
   storageKey: string | null;
+  bodyText?: string | null;
+  sectionId?: string | null;
+  section?: { name: string } | null;
 }): ResourceView {
   return {
     id: row.id,
@@ -78,6 +86,9 @@ function toResourceView(row: {
     mimeType: row.mimeType,
     byteSize: row.byteSize,
     fileStatus: row.storageKey ? "private" : "none",
+    bodyText: row.bodyText ?? null,
+    sectionId: row.sectionId ?? null,
+    sectionName: row.section?.name ?? null,
   };
 }
 
@@ -89,8 +100,10 @@ const resourceSelect = {
   mimeType: true,
   byteSize: true,
   storageKey: true,
+  bodyText: true,
   sectionId: true,
   courseId: true,
+  section: { select: { name: true } },
 } as const;
 
 export async function readLearnerRecord(
@@ -195,8 +208,18 @@ export async function readSectionRecord(
     select: {
       id: true,
       name: true,
-      course: { select: { title: true, centerId: true, sections: { select: { id: true } } } },
-      resources: { select: resourceSelect },
+      course: {
+        select: {
+          title: true,
+          centerId: true,
+          sections: { select: { id: true } },
+          resources: {
+            where: { OR: [{ sectionId: null }, { sectionId }] },
+            select: resourceSelect,
+            orderBy: { title: "asc" },
+          },
+        },
+      },
       enrollments: {
         select: {
           status: true,
@@ -209,7 +232,7 @@ export async function readSectionRecord(
   if (!canReadSection(actor, { id: row.id, centerId: row.course.centerId })) return null;
   if (actor.role === "TEACHER" && !actor.assignedSectionIds.includes(row.id)) return null;
 
-  const resources = row.resources
+  const resources = row.course.resources
     .filter((resource) =>
       canReadResource(actor, {
         id: resource.id,
@@ -225,6 +248,7 @@ export async function readSectionRecord(
     name: row.name,
     courseTitle: row.course.title,
     resources,
+    downloadableCount: countDownloadableResources(resources),
     learners:
       actor.role === "STUDENT"
         ? null
