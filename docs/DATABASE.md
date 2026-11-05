@@ -283,7 +283,7 @@ All of it is fake.
 
 Emails use `.invalid`, which is a reserved ending that does not deliver mail.
 
-Re-running the seed deletes and rebuilds the `DEMO` center only. It turns on `app.allow_demo_reset` inside that one database transaction so the append-only tables can be cleared. Application code must not set that switch.
+Re-running the seed deletes and rebuilds the `DEMO` center only. The seed does that in fifteen transactions, one after another. Reset is first. It turns on `app.allow_demo_reset` for that transaction only, so the append-only tables can be cleared. The switch ends when Reset commits. The later transactions insert the replacement rows and do not set the switch. Application code must not set that switch.
 
 ## How to look at it
 

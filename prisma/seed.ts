@@ -149,6 +149,23 @@ async function createInChunks<T>(
   }
 }
 
+function attendanceInsert(row: AttendanceRow) {
+  return {
+    id: row.id,
+    clientEventId: row.clientEventId,
+    learnerId: row.learnerId,
+    sessionId: row.sessionId,
+    status: row.status,
+    reasonCode: row.reasonCode,
+    deviceId: row.deviceId,
+    recordedById: row.recordedById,
+    recordedAt: row.recordedAt,
+    syncedAt: row.syncedAt,
+    createdOffline: row.createdOffline,
+    createdAt: row.createdAt,
+  };
+}
+
 async function wipeDemo(tx: Prisma.TransactionClient): Promise<void> {
   // Row triggers see this for the rest of the transaction. UPDATE stays blocked.
   await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
@@ -324,6 +341,7 @@ async function main(): Promise<void> {
     readingList: uid(1202),
     audio: uid(1203),
     web: uid(1204),
+    video: uid(1205),
   };
 
   const sessions: SessionRow[] = [];
@@ -473,10 +491,28 @@ async function main(): Promise<void> {
     laterClock: new Date(Date.UTC(2026, 8, 25, 10, 0, 0)),
   };
 
+  // Fifteen sequential transactions. Each phase commits before the next begins,
+  // so later rows can point at parents that are already saved. The demo-reset
+  // switch is local to Reset; the later transactions only insert.
+  if (attendance.length !== 331) {
+    throw new Error(`Expected 331 attendance records, found ${attendance.length}.`);
+  }
+  const attendanceFirst = attendance.slice(0, 160);
+  const attendanceSecond = attendance.slice(160);
+  if (attendanceFirst.length !== 160 || attendanceSecond.length !== 171) {
+    throw new Error(
+      `Attendance split must be 160 and 171 records, found ${attendanceFirst.length} and ${attendanceSecond.length}.`,
+    );
+  }
   await prisma.$transaction(
     async (tx) => {
       await wipeDemo(tx);
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
 
+  await prisma.$transaction(
+    async (tx) => {
       await tx.center.create({
         data: {
           id: centerId,
@@ -740,6 +776,20 @@ async function main(): Promise<void> {
             checksumSha256: null,
             bodyText: null,
           },
+          {
+            id: resourceIds.video,
+            courseId,
+            sectionId: null,
+            createdById: teacher1Id,
+            title: "Demo counting video link",
+            resourceType: "VIDEO_LINK",
+            externalUrl: "https://example.com/demo-counting-video",
+            storageKey: null,
+            mimeType: null,
+            byteSize: null,
+            checksumSha256: null,
+            bodyText: null,
+          },
         ],
       });
 
@@ -756,26 +806,30 @@ async function main(): Promise<void> {
           linkedResourceId: session.linkedResourceId,
         })),
       });
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
 
-      await createInChunks(attendance, (chunk) =>
-        tx.attendanceRecord.createMany({
-          data: chunk.map((row) => ({
-            id: row.id,
-            clientEventId: row.clientEventId,
-            learnerId: row.learnerId,
-            sessionId: row.sessionId,
-            status: row.status,
-            reasonCode: row.reasonCode,
-            deviceId: row.deviceId,
-            recordedById: row.recordedById,
-            recordedAt: row.recordedAt,
-            syncedAt: row.syncedAt,
-            createdOffline: row.createdOffline,
-            createdAt: row.createdAt,
-          })),
-        }),
+  await prisma.$transaction(
+    async (tx) => {
+      await createInChunks(attendanceFirst, (chunk) =>
+        tx.attendanceRecord.createMany({ data: chunk.map(attendanceInsert) }),
       );
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
 
+  await prisma.$transaction(
+    async (tx) => {
+      await createInChunks(attendanceSecond, (chunk) =>
+        tx.attendanceRecord.createMany({ data: chunk.map(attendanceInsert) }),
+      );
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
+
+  await prisma.$transaction(
+    async (tx) => {
       await tx.assignment.createMany({
         data: [0, 1].flatMap((sectionIndex) =>
           assignmentDefs.map((assignment, assignmentIndex) => ({
@@ -789,9 +843,12 @@ async function main(): Promise<void> {
           })),
         ),
       });
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
 
-      const gradeRows = [];
-      const gradeVersionRows = [];
+      const gradeRows: Prisma.GradeEntryCreateManyInput[] = [];
+      const gradeVersionRows: Prisma.GradeEntryVersionCreateManyInput[] = [];
       for (let learnerIndex = 0; learnerIndex < 30; learnerIndex += 1) {
         const sectionIndex = learnerIndex < 15 ? 0 : 1;
         const deviceId = sectionIndex === 0 ? deviceMorningId : deviceAfternoonId;
@@ -864,10 +921,21 @@ async function main(): Promise<void> {
         }
       }
 
+  await prisma.$transaction(
+    async (tx) => {
       await createInChunks(gradeRows, (chunk) => tx.gradeEntry.createMany({ data: chunk }));
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
+
+  await prisma.$transaction(
+    async (tx) => {
       await createInChunks(gradeVersionRows, (chunk) =>
         tx.gradeEntryVersion.createMany({ data: chunk }),
       );
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
 
       const notePlans = [
         {
@@ -942,6 +1010,8 @@ async function main(): Promise<void> {
         },
       ];
 
+  await prisma.$transaction(
+    async (tx) => {
       await tx.progressNote.createMany({
         data: notePlans.map((note) => {
           const conflict = note.id === noteConflict.noteId;
@@ -1007,7 +1077,12 @@ async function main(): Promise<void> {
           },
         ],
       });
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
 
+  await prisma.$transaction(
+    async (tx) => {
       await tx.syncConflict.createMany({
         data: [
           {
@@ -1044,6 +1119,9 @@ async function main(): Promise<void> {
           },
         ],
       });
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
 
       const submissionPlans = [0, 1, 2, 3].map((localIndex) => {
         const clientSubmissionId = `demo-sub-${localIndex + 1}`;
@@ -1071,6 +1149,8 @@ async function main(): Promise<void> {
         };
       });
 
+  await prisma.$transaction(
+    async (tx) => {
       await tx.submission.createMany({
         data: submissionPlans.map((row) => ({
           id: row.id,
@@ -1089,7 +1169,12 @@ async function main(): Promise<void> {
           receivedAt: row.receivedAt,
         })),
       });
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
 
+  await prisma.$transaction(
+    async (tx) => {
       await tx.fileUploadQueueItem.createMany({
         data: submissionPlans.map((row) => ({
           id: row.queueId,
@@ -1100,6 +1185,9 @@ async function main(): Promise<void> {
           queuedAt: row.queuedAt,
         })),
       });
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
 
       const latestBySession = new Map<string, AttendanceRow>();
       for (const row of attendance) {
@@ -1108,7 +1196,7 @@ async function main(): Promise<void> {
         if (!current || row.syncedAt > current.syncedAt) latestBySession.set(key, row);
       }
 
-      const lessonRows = [];
+      const lessonRows: Prisma.LessonProgressCreateManyInput[] = [];
       for (const row of latestBySession.values()) {
         const session = sessions.find((item) => item.id === row.sessionId);
         if (!session) continue;
@@ -1122,9 +1210,16 @@ async function main(): Promise<void> {
           recordedById: row.recordedById,
         });
       }
+  await prisma.$transaction(
+    async (tx) => {
       await createInChunks(lessonRows, (chunk) => tx.lessonProgress.createMany({ data: chunk }));
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
 
       const handoffId = uid(9000);
+  await prisma.$transaction(
+    async (tx) => {
       await tx.handoffReport.create({
         data: {
           id: handoffId,
@@ -1193,11 +1288,16 @@ async function main(): Promise<void> {
       if (profileNoteRows.length) {
         await tx.transitionProfileNote.createMany({ data: profileNoteRows });
       }
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
 
       const morningBatchId = uid(9600);
       const afternoonBatchId = uid(9601);
       const morningItems = attendance.filter((row) => row.section === "morning").slice(0, 2);
       const afternoonItems = attendance.filter((row) => row.section === "afternoon").slice(0, 2);
+  await prisma.$transaction(
+    async (tx) => {
       await tx.jsonSyncBatch.createMany({
         data: [
           {
@@ -1240,8 +1340,13 @@ async function main(): Promise<void> {
           })),
         ],
       });
+    },
+    { timeout: 180000, maxWait: 20000 },
+  );
 
       const seededAt = new Date(Date.UTC(2026, 10, 4, 0, 0, 0));
+  await prisma.$transaction(
+    async (tx) => {
       await tx.auditLog.createMany({
         data: [adminId, directorId, teacher1Id, teacher2Id, teacher3Id].map((entityId, index) => ({
           id: uid(9800 + index),
@@ -1255,19 +1360,19 @@ async function main(): Promise<void> {
           metadata: { source: "synthetic-seed" },
         })),
       });
+
+      const [learners, attendanceCount, grades, conflicts] = await Promise.all([
+        tx.learnerProfile.count({ where: { centerId } }),
+        tx.attendanceRecord.count({ where: { learner: { centerId } } }),
+        tx.gradeEntry.count({ where: { learner: { centerId } } }),
+        tx.syncConflict.count({ where: { state: "OPEN" } }),
+      ]);
+
+      console.log(
+        `Seeded synthetic center DEMO. Learners ${learners}, attendance ${attendanceCount}, grades ${grades}, open conflicts ${conflicts}.`,
+      );
     },
     { timeout: 180000, maxWait: 20000 },
-  );
-
-  const [learners, attendanceCount, grades, conflicts] = await Promise.all([
-    prisma.learnerProfile.count({ where: { centerId } }),
-    prisma.attendanceRecord.count({ where: { learner: { centerId } } }),
-    prisma.gradeEntry.count({ where: { learner: { centerId } } }),
-    prisma.syncConflict.count({ where: { state: "OPEN" } }),
-  ]);
-
-  console.log(
-    `Seeded synthetic center DEMO. Learners ${learners}, attendance ${attendanceCount}, grades ${grades}, open conflicts ${conflicts}.`,
   );
 }
 
