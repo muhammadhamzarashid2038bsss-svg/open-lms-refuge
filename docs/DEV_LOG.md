@@ -107,3 +107,58 @@
 - I learned how to use the browser's Developer Tools to simulate a mobile phone screen and test responsiveness.
 - I learned that successful database seed output does not necessarily prove that transactions have been durably committed. Verifying records through a separate database client is important.
 - I learned to add automated tests for both successful access and restricted access so that fixing visibility issues does not weaken existing permissions.
+
+# Development Log
+
+## Day 5 of 20 · 2026-11-06 (End of Week 1!)
+
+### What I built
+
+- Built the weekly timetable functionality for the Hybrid Classroom Dashboard.
+- Teachers and directors can manage weekly timetables for their sections.
+- Added three session types: In-person, Live online, and Pre-recorded.
+- Live online sessions support Google Meet, Zoom, and Jitsi meeting links, with a Join button for learners.
+- Pre-recorded sessions can link to an existing course lesson or learning resource.
+- The learner home page now displays "Today's classes" in simple language, showing the sessions scheduled for the center's current day.
+- Added timetable validation to prevent sessions from having an end time earlier than or equal to their start time and to prevent overlapping sessions within the same section.
+- Updated navigation so teachers can access section timetables and learners can access timetables through their course pages.
+- Tested the timetable on simulated mobile screens and checked basic keyboard accessibility and focus visibility.
+- Added automated tests for timetable behavior and permissions.
+
+### What went wrong
+
+- After starting the application with `npm run dev`, the browser became stuck on the "Checking this phone..." screen and kept returning to the opening page. There were no obvious browser console or network errors. Grok investigated the problem and identified a redirect loop involving an expired sign-in cookie and the opening page's loading process. The problem was related to how redirects were handled in the application's Next.js version. This was fixed by improving the session checks, adding a session cleanup route, and changing the device checking process.
+- The opening-page fix affected authentication and shared-device protection, while the timetable implementation was a separate feature. I kept these changes in two separate commits to make the Git history easier to understand and maintain.
+- I initially had difficulty understanding how to test shared-device protection because the instructions asked me to create a practice record that was waiting to synchronize. However, the actual offline attendance workflow and its waiting-to-synchronize indicator are scheduled for Day 7. Day 5 did not yet provide the intended learner activity for generating a real unsynchronized attendance record, so I postponed that test until the offline workflow is implemented.
+- During manual timetable testing, I noticed some possible improvements. The system allows teachers to create sessions for past dates, the session creation form displays only the weekday instead of the full date, and learners must navigate through a course page to find the weekly timetable. I also noticed that overlapping sessions are checked within individual sections, but scheduling conflicts involving teachers assigned to multiple sections may need additional protection. I recorded these observations in a separate future improvements backlog rather than treating them as Day 5 failures.
+- The targeted automated test runs passed after the changes were separated into two commits. ESLint also completed without errors. It reported a warning that the CSS file did not match the supplied lint configuration, but this did not produce any lint errors.
+
+### What I learned
+
+- I learned how a ClassSession connects to a specific section and can link to an existing course lesson or learning resource.
+- I learned that a weekly timetable needs more than displaying dates and times. It also needs validation to prevent invalid session durations and scheduling conflicts.
+- I learned how to use the browser's Developer Tools to simulate different screen sizes and check keyboard accessibility and focus visibility.
+- I learned that authentication, session management, and shared-device protection can affect how the application loads, even when the actual page feature is working correctly.
+- I learned to separate unrelated changes into different Git commits. This makes it easier to track features and fixes independently.
+- I learned to distinguish between features that are already implemented and features scheduled for later development. For example, the real offline attendance workflow and synchronization indicator will be developed in the following days.
+
+### Week 1 Review: 3 Decisions That Shaped the Project
+
+1. **Decision:** Used `iron-session` for managing user sessions instead of adopting a larger authentication framework.
+   **Why:** This keeps session management relatively lightweight and gives the application control over its login process. It also supports the project's requirement for learners to sign in using a code or PIN instead of depending on email addresses.
+
+2. **Decision:** Designed attendance records as append-only records.
+   **Why:** Attendance history should not be silently rewritten or deleted. For example, if a teacher initially records a learner as Absent and later needs to correct the record to Present, the original record should remain available as part of the attendance history. The database tests verify that existing attendance records cannot simply be edited or deleted. Corrections should preserve the original history by using additional records or events.
+
+3. **Decision:** Enforced authorization on the server side instead of relying only on hiding buttons and links.
+   **Why:** A user could try to access another role's page or information by entering its URL directly. Server-side authorization checks ensure that users cannot access information they are not permitted to see. I tested this during Day 3 by attempting to access teacher pages as a learner.
+
+### Week 1 Summary
+
+During the first five development days, I established the project, created the database and synthetic data, implemented authentication and role-based access, built the course manager, and added the weekly timetable.
+
+I also learned that developing an application involves more than writing code. Testing, database troubleshooting, security, accessibility, and understanding how different features connect are equally important.
+
+The core timetable functionality is now implemented, and both the timetable feature and the opening-page fix have been committed and pushed to GitHub.
+
+**Week 1 completed!**
