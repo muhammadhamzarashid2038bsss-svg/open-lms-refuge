@@ -12,7 +12,7 @@ import { cookies } from "next/headers";
 import { connection } from "next/server";
 import { SESSION_ABSOLUTE_MS, SESSION_COOKIE } from "./constants";
 import { createSessionRow, findSessionRow, revokeSessionRow, touchSessionRow } from "./session-db";
-import { sessionVerdict, shouldTouchSession } from "./session-policy";
+import { sessionVerdict, shouldDropSessionCookie, shouldTouchSession } from "./session-policy";
 
 type CookieData = {
   sessionId?: string;
@@ -73,7 +73,9 @@ export async function readSessionUserId(now?: Date): Promise<string | null> {
   const row = await findSessionRow(sessionId);
   if (!row) return null;
   const verdict = sessionVerdict(row, checkedAt);
-  if (verdict !== "ok") {
+  // A page is not allowed to change cookies. The dead cookie is removed by
+  // /session/clear, which is the only place that may write it.
+  if (shouldDropSessionCookie(verdict)) {
     if (!row.revokedAt) await revokeSessionRow(row.id, checkedAt);
     return null;
   }

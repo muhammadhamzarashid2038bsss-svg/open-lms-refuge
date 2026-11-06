@@ -18,6 +18,8 @@ export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const signedIn = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
   const isProtected = PROTECTED.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+  // /session/clear is neither of these. It deletes a dead cookie. Treating it
+  // as a public sign-in page would send that cookie straight back to /opening.
   const isPublicAuth = path === "/" || path.startsWith("/sign-in") || path === "/device-release";
 
   if (isProtected && !signedIn) {

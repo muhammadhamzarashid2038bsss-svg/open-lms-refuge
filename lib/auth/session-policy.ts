@@ -19,6 +19,13 @@ export function shouldTouchSession(row: SessionRow, now: Date): boolean {
   return sessionVerdict(row, now) === "ok" && now.getTime() - row.lastSeenAt.getTime() >= SESSION_TOUCH_MS;
 }
 
+// The proxy only checks that a cookie exists. A dead, missing, or unreadable
+// session still looks signed in, so / and /opening send the phone to each other.
+// The cookie has to be dropped. A live session must keep it.
+export function shouldDropSessionCookie(verdict: SessionVerdict | "missing" | "unreadable"): boolean {
+  return verdict !== "ok";
+}
+
 export function sessionExpiry(now: Date): Date {
   return new Date(now.getTime() + SESSION_ABSOLUTE_MS);
 }

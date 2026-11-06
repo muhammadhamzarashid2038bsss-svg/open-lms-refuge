@@ -17,7 +17,7 @@ import {
   type LearnerScope,
   type ResourceScope,
 } from "../lib/auth/permissions";
-import { sessionVerdict } from "../lib/auth/session-policy";
+import { sessionVerdict, shouldDropSessionCookie } from "../lib/auth/session-policy";
 import { FAILED_ATTEMPTS_BEFORE_LOCK, LOCKOUT_MS, SESSION_IDLE_MS } from "../lib/auth/constants";
 
 const centerA = "center-a";
@@ -167,6 +167,15 @@ describe("session expiry", () => {
     const fresh = { ...row, lastSeenAt: new Date(row.expiresAt.getTime() - 1000) };
     expect(sessionVerdict(fresh, row.expiresAt)).toBe("absolute");
     expect(sessionVerdict({ ...row, revokedAt: start }, start)).toBe("revoked");
+  });
+
+  it("drops a cookie that no longer proves sign-in", () => {
+    expect(shouldDropSessionCookie("ok")).toBe(false);
+    expect(shouldDropSessionCookie("idle")).toBe(true);
+    expect(shouldDropSessionCookie("absolute")).toBe(true);
+    expect(shouldDropSessionCookie("revoked")).toBe(true);
+    expect(shouldDropSessionCookie("missing")).toBe(true);
+    expect(shouldDropSessionCookie("unreadable")).toBe(true);
   });
 
   it("locks after 5 failures for 15 minutes", () => {

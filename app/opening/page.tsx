@@ -1,23 +1,19 @@
-import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { DeviceGate } from "@/components/device-gate";
 import { getActor } from "@/lib/auth/actor";
-import { homeForRole } from "@/lib/auth/permissions";
+import { openingDestination } from "@/lib/device/phone-check";
 
 // This hop only exists to check the session and the phone lock. It is not a
 // public page that should be prefetched ahead of time.
+// The redirect stays in this component, not inside <Suspense>. A redirect
+// inside the loading boundary is reported as a failed render, and the browser
+// retries /opening while the old cookie is still present.
 export const instant = false;
 
-export default function OpeningPage() {
+export default async function OpeningPage() {
+  const destination = openingDestination(await getActor());
+  if (destination.type === "login") redirect(destination.href);
   return (
-    <Suspense fallback={<p className="p-4 text-lg text-zinc-950">Checking this phone…</p>}>
-      <Opening />
-    </Suspense>
+    <DeviceGate userId={destination.userId} centerId={destination.centerId} home={destination.home} mode="continue" />
   );
-}
-
-async function Opening() {
-  const actor = await getActor();
-  if (!actor) redirect("/");
-  return <DeviceGate userId={actor.id} centerId={actor.centerId} home={homeForRole(actor.role)} mode="continue" />;
 }

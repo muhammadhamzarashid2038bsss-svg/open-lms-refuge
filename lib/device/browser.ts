@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoredDevice } from "./phone-check";
 import {
   addDeviceItem,
   addRelease,
@@ -20,6 +21,21 @@ export function loadDevice(): DeviceState {
   const raw = readRaw();
   if (raw === null) return emptyDeviceState();
   return parseDeviceState(raw) ?? emptyDeviceState();
+}
+
+// The opening check uses this instead of loadDevice(). A missing key is a phone
+// with nothing saved. A broken value is not an empty queue: replacing it, or
+// treating it as empty, could hide unsent records and let the next person in.
+export function readStoredDevice(): StoredDevice {
+  try {
+    const raw = readRaw();
+    if (raw === null) return { status: "ready", state: emptyDeviceState() };
+    const parsed = parseDeviceState(raw);
+    if (parsed === null) return { status: "unavailable" };
+    return { status: "ready", state: parsed };
+  } catch {
+    return { status: "unavailable" };
+  }
 }
 
 // A broken saved value is left in place. Replacing it would delete unsent records.
