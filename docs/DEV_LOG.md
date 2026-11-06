@@ -108,8 +108,6 @@
 - I learned that successful database seed output does not necessarily prove that transactions have been durably committed. Verifying records through a separate database client is important.
 - I learned to add automated tests for both successful access and restricted access so that fixing visibility issues does not weaken existing permissions.
 
-# Development Log
-
 ## Day 5 of 20 · 2026-11-06 (End of Week 1!)
 
 ### What I built
