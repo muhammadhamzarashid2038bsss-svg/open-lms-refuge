@@ -35,6 +35,10 @@ async function StudentSection({ params }: { params: Promise<{ sectionId: string 
         <Link className="underline" href="/student">
           Back to learner home
         </Link>
+        {" · "}
+        <Link className="underline" href={`/sections/${section.id}/timetable`}>
+          Weekly timetable
+        </Link>
       </p>
       <ResourceList resources={section.resources} downloadableCount={section.downloadableCount} />
     </Shell>

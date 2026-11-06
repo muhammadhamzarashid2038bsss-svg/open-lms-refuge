@@ -19,3 +19,15 @@ body {
   color: #171717;
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Shared phones are used in bright light. A dark ring shows where the keyboard is.
+   The ring is unlayered so it stays visible over Tailwind's focus reset. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #171717;
+  outline-offset: 3px;
+}

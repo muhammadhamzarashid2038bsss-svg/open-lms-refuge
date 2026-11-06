@@ -107,6 +107,13 @@ export function canManageCourse(actor: Actor, centerId: string): boolean {
   return actor.role === "TEACHER" || actor.role === "CENTER_DIRECTOR";
 }
 
+// Teachers edit the timetable only for sections they are assigned to now.
+// Directors cover every section in their center. Learners can look, not edit.
+export function canManageTimetable(actor: Actor, section: SectionScope): boolean {
+  if (!canReadSection(actor, section)) return false;
+  return actor.role === "TEACHER" || actor.role === "CENTER_DIRECTOR";
+}
+
 export function canManageResource(actor: Actor, resource: ResourceScope): boolean {
   if (!activeActor(actor) || !sharesCenter(actor, resource.centerId)) return false;
   if (actor.role === "CENTER_DIRECTOR") return true;

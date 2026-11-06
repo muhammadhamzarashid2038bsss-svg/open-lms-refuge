@@ -33,7 +33,9 @@ async function TeacherHome() {
       <ul className="flex flex-col gap-2 text-lg">
         {sections.map((section) => (
           <li key={section.id}>
-            {section.name} · {section.course.title}
+            <Link className="underline" href={`/sections/${section.id}/timetable`}>
+              {section.name} · {section.course.title} timetable
+            </Link>
           </li>
         ))}
         {sections.length === 0 ? <li>No section is assigned to you right now.</li> : null}

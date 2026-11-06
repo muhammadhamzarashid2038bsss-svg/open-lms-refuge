@@ -515,6 +515,10 @@ model Resource {
   @@map("resources")
 }
 
+/// One dated meeting for a section. The weekly timetable is these rows,
+/// shown in the center timezone. Weekday and clock time are read from
+/// startsAt and endsAt. A second weekly table would copy the same class
+/// and drift away from attendance, which already points here.
 model ClassSession {
   id               String        @id @default(uuid()) @db.Uuid
   sectionId        String        @db.Uuid
@@ -524,6 +528,8 @@ model ClassSession {
   endsAt           DateTime
   deliveryMode     DeliveryMode
   /// Join link for a live online session. Empty for in-person sessions.
+  /// New links must be https Google Meet, Zoom, or Jitsi addresses.
+  /// Older demo rows may still hold a placeholder host. Those are not Join buttons.
   meetingUrl       String?
   status           SessionStatus @default(SCHEDULED)
   linkedResourceId String?       @db.Uuid

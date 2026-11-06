@@ -26,7 +26,7 @@ export function ResourceList({
       </p>
       <ul className="flex flex-col gap-3">
         {resources.map((resource) => (
-          <li key={resource.id} className="rounded-lg border-2 border-zinc-950 p-3">
+          <li id={`lesson-${resource.id}`} key={resource.id} className="rounded-lg border-2 border-zinc-950 p-3">
             <p className="text-lg font-medium">{resource.title}</p>
             <p className="text-base text-zinc-700">
               {resourceTypeLabel(resource.resourceType)}

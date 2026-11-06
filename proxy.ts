@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE } from "./lib/auth/constants";
 
-const PROTECTED = ["/opening", "/student", "/teacher", "/director", "/admin", "/courses"];
+const PROTECTED = ["/opening", "/student", "/teacher", "/director", "/admin", "/courses", "/sections"];
 
 // The cookie check only sends people to the right screen. It is not the
 // permission check. Pages, API routes, and database queries check the session

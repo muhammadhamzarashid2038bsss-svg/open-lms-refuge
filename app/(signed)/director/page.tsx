@@ -8,6 +8,7 @@ import { PinResetForm } from "@/components/pin-reset-form";
 import { Shell } from "@/components/ui";
 import { getActor } from "@/lib/auth/actor";
 import { pageGuard } from "@/lib/auth/permissions";
+import { listTimetableSections } from "@/lib/data/timetable";
 import { listAccounts, readCenterSummary } from "@/lib/data/records";
 
 export const instant = false;
@@ -26,6 +27,7 @@ async function DirectorHome() {
   if (!guard.ok) redirect(guard.redirectTo);
   const summary = actor ? await readCenterSummary(actor) : null;
   const accounts = actor ? await listAccounts(actor) : null;
+  const sections = actor ? await listTimetableSections(actor) : [];
   return (
     <Shell title={summary?.name ?? "Center home"} lede="You see this center only.">
       {summary ? (
@@ -38,6 +40,19 @@ async function DirectorHome() {
           Courses and syllabus materials
         </Link>
       </p>
+      <section className="flex flex-col gap-2">
+        <h2 className="text-xl font-semibold">Weekly timetables</h2>
+        <ul className="flex flex-col gap-2 text-lg">
+          {sections.map((section) => (
+            <li key={section.id}>
+              <Link className="underline" href={`/sections/${section.id}/timetable`}>
+                {section.name} · {section.course.title}
+              </Link>
+            </li>
+          ))}
+          {sections.length === 0 ? <li>No sections yet.</li> : null}
+        </ul>
+      </section>
       <PinResetForm showCenterCode={false} />
       <PasswordResetForm />
       {accounts ? <AccountList accounts={accounts} /> : null}

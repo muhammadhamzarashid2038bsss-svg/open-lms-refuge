@@ -3,6 +3,7 @@ import {
   canListAccounts,
   canManageCourse,
   canManageResource,
+  canManageTimetable,
   canReadContact,
   canReadLearner,
   canReadResource,
@@ -124,6 +125,12 @@ describe("role permission matrix", () => {
     expect(canManageResource(afternoonTeacher, morningFile)).toBe(false);
     expect(canManageResource(student, courseWide)).toBe(false);
     expect(canManageResource(director, morningFile)).toBe(true);
+    expect(canManageTimetable(morningTeacher, morning)).toBe(true);
+    expect(canManageTimetable(morningTeacher, afternoon)).toBe(false);
+    expect(canManageTimetable(student, morning)).toBe(false);
+    expect(canManageTimetable(director, afternoon)).toBe(true);
+    expect(canManageTimetable(otherDirector, afternoon)).toBe(false);
+    expect(canManageTimetable(admin, morning)).toBe(false);
   });
 
   it("lets an admin manage accounts and not read learner records", () => {

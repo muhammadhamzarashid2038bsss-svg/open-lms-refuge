@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
+import { TodayClasses } from "@/components/today-classes";
 import { semesterLabel } from "@/lib/lms/resources";
 import { listLearnerSections } from "@/lib/data/courses";
+import { listTodayClasses } from "@/lib/data/timetable";
 import { PhoneTools } from "@/components/phone-tools";
 import { Shell } from "@/components/ui";
 import { getActor } from "@/lib/auth/actor";
@@ -25,10 +27,12 @@ async function StudentHome() {
   if (!guard.ok) redirect(guard.redirectTo);
   const record = actor?.learnerId ? await readLearnerRecord(actor, actor.learnerId) : null;
   const sections = actor ? await listLearnerSections(actor) : [];
+  const today = actor ? await listTodayClasses(actor) : { ok: true as const, classes: [] };
   return (
     <Shell title={record ? `Hello, ${record.displayName}` : "Learner home"}>
       {record ? (
         <>
+          {today.ok ? <TodayClasses classes={today.classes} /> : <p className="text-lg">{today.message}</p>}
           <p className="text-lg">Learner code {record.learnerCode}</p>
           <section className="flex flex-col gap-2">
             <h2 className="text-xl font-semibold">Your sections</h2>

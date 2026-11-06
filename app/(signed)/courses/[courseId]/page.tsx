@@ -42,9 +42,14 @@ async function CourseDetail({ params }: { params: Promise<{ courseId: string }> 
       </p>
       <section className="flex flex-col gap-2">
         <h2 className="text-xl font-semibold">Sections</h2>
-        <ul className="flex flex-col gap-1 text-lg">
+        <ul className="flex flex-col gap-2 text-lg">
           {course.sections.map((section) => (
-            <li key={section.id}>{section.name}</li>
+            <li key={section.id}>
+              {section.name}{" "}
+              <Link className="underline" href={`/sections/${section.id}/timetable`}>
+                Weekly timetable
+              </Link>
+            </li>
           ))}
           {course.sections.length === 0 ? <li>No sections yet.</li> : null}
         </ul>
