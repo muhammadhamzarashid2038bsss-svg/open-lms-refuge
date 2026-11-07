@@ -160,3 +160,56 @@ I also learned that developing an application involves more than writing code. T
 The core timetable functionality is now implemented, and both the timetable feature and the opening-page fix have been committed and pushed to GitHub.
 
 **Week 1 completed!**
+
+## Day 6 of 20 · 2026-11-07
+
+### What I built
+
+- Built the Kiosk Mode attendance screen for teachers.
+- Created large, high-contrast one-tap buttons for Present, Absent, Late, and Excused.
+- Added the fixed list of five approved reasons for Absent and Excused: Illness, Family care, Transport or cost, Family circumstances (details not recorded), and Unknown. There is no free-text option for entering private family details.
+- Made unmarked learners visually distinct so teachers do not accidentally assume they are present or absent.
+- Built an append-only attendance history so corrections create new events without overwriting original records.
+- Generated a unique `clientEventId` for each attendance event to prevent duplicate records when the same event is submitted again.
+- Added server-side authorization so teachers can only record attendance for sections they are assigned to, while directors can manage attendance within their own center.
+- Added a read-only session history to show original attendance events and later corrections.
+- Added automated tests for attendance statuses, reason validation, duplicate event IDs, simultaneous submissions, device reuse, and learner enrollment restrictions.
+
+### What went wrong
+
+- During the initial database test, an older test expected 24 class sessions but found 28. I remembered creating additional class sessions during my previous manual testing. These were legitimate testing records rather than confirmed application defects, so I kept them instead of deleting them or resetting the database.
+- The initial automated test review revealed several gaps in coverage. For example, the tests did not verify that Excused was actually stored with the correct status or that repeated attendance saves reused the same web kiosk device. Grok added eight more automated tests without changing the application code or database schema.
+- I also encountered a recurring Vite configuration warning when running Vitest. However, it did not prevent the tests from running successfully.
+
+### What I learned
+
+- I learned how to build a fast and accessible interface for teachers using a phone or tablet at a classroom door. During manual testing, I was able to mark all 15 learners in just 24 seconds.
+- I learned why append-only attendance records are important. When a teacher makes a mistake, the original record should remain in the database, and the correction should be stored as a new event. This preserves an accurate attendance history.
+- I learned that an unmarked learner must remain different from an absent learner. The system should never automatically create an attendance record for someone the teacher has not marked.
+- I learned why unique `clientEventId` values are important for preventing duplicate attendance records when a submission is repeated or retried.
+- I learned that automated tests should verify what is actually stored in the database, not just whether the interface displays the correct result.
+- I learned how to test keyboard accessibility by using Tab to navigate between attendance buttons and Enter to select a status.
+
+### Outreach & Parallel Track
+
+- **Follow-up Success:** Myanmar Refugee Learning Centre (MRLC), one of the 5 centers I contacted on Day 1, replied and is interested in my application! They want to schedule a conversation next week. 
+- **New Outreach:** I contacted 10 additional learning centers globally to expand my network and gather feedback:
+  1. Refugee Learning Center (RLC) - Cisarua, Indonesia
+  2. Hope Learning Center (HLC) - Cisarua, West Java, Indonesia
+  3. Generation Aid Learning & Tech Hub - Kakuma Refugee Camp, Kenya
+  4. Apostoli Educational Center for Refugees & Migrants - Athens, Greece
+  5. Cahaya Surya Bakti (CSB) Learning Centers - Johor, Malaysia
+  6. The Peace Education Centre (TPEC) - Imbi, Kuala Lumpur, Malaysia
+  7. Zaatari Camp Connected Learning Hubs - Zaatari Refugee Camp, Jordan
+  8. Edu-Syria Academic Program Center - Amman / Mafraq, Jordan
+  9. Roshan Learning Center - Jakarta, Indonesia
+  10. METAdrasi Non-Formal Education Centers - Athens & Lesvos, Greece
+
+### Testing and completion
+
+- Manually tested all four attendance statuses and confirmed that corrections preserved the original events.
+- Confirmed that the five approved reasons appear for Absent and Excused, without a free-text field.
+- Verified that the session history is read-only and that all 18 manually created attendance events remained intact after automated testing.
+- Confirmed that Teacher Two could not access Morning Group attendance.
+- Added automated tests, bringing the targeted attendance and authorization test runs to 31 passing tests with no failures.
+- Ran ESLint on all 15 modified files successfully.
