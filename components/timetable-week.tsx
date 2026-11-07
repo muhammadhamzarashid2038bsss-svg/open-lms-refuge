@@ -77,6 +77,14 @@ export function TimetableWeek({ timetable }: { timetable: WeeklyTimetable }) {
                   }
                 />
                 {timetable.canManage ? (
+                  <Link
+                    className={`${secondaryButtonClass} mt-3`}
+                    href={`/sections/${timetable.sectionId}/sessions/${session.id}/attendance`}
+                  >
+                    Take attendance
+                  </Link>
+                ) : null}
+                {timetable.canManage ? (
                   <EditSessionForm
                     sectionId={timetable.sectionId}
                     weekOf={timetable.weekOf}

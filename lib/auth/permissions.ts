@@ -114,6 +114,13 @@ export function canManageTimetable(actor: Actor, section: SectionScope): boolean
   return actor.role === "TEACHER" || actor.role === "CENTER_DIRECTOR";
 }
 
+// Kiosk attendance is a teaching task for the section the staff member can
+// manage now. Learners can see the timetable. They cannot write marks.
+// Admins have no teaching role, so they cannot either.
+export function canRecordAttendance(actor: Actor, section: SectionScope): boolean {
+  return canManageTimetable(actor, section);
+}
+
 export function canManageResource(actor: Actor, resource: ResourceScope): boolean {
   if (!activeActor(actor) || !sharesCenter(actor, resource.centerId)) return false;
   if (actor.role === "CENTER_DIRECTOR") return true;

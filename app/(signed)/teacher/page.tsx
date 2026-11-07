@@ -24,7 +24,10 @@ async function TeacherHome() {
   if (!guard.ok) redirect(guard.redirectTo);
   const sections = actor ? await listAssignedSections(actor) : [];
   return (
-    <Shell title={actor ? `Hello, ${actor.displayName}` : "Teacher home"} lede="You only see sections assigned to you.">
+    <Shell
+      title={actor ? `Hello, ${actor.displayName}` : "Teacher home"}
+      lede="You only see sections assigned to you. Open a timetable and choose Take attendance on a class."
+    >
       <p className="text-lg">
         <Link className="underline" href="/courses">
           Manage courses and materials

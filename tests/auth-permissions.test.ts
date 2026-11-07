@@ -4,6 +4,7 @@ import {
   canManageCourse,
   canManageResource,
   canManageTimetable,
+  canRecordAttendance,
   canReadContact,
   canReadLearner,
   canReadResource,
@@ -131,6 +132,12 @@ describe("role permission matrix", () => {
     expect(canManageTimetable(director, afternoon)).toBe(true);
     expect(canManageTimetable(otherDirector, afternoon)).toBe(false);
     expect(canManageTimetable(admin, morning)).toBe(false);
+    expect(canRecordAttendance(morningTeacher, morning)).toBe(true);
+    expect(canRecordAttendance(morningTeacher, afternoon)).toBe(false);
+    expect(canRecordAttendance(student, morning)).toBe(false);
+    expect(canRecordAttendance(director, afternoon)).toBe(true);
+    expect(canRecordAttendance(otherDirector, afternoon)).toBe(false);
+    expect(canRecordAttendance(admin, morning)).toBe(false);
   });
 
   it("lets an admin manage accounts and not read learner records", () => {

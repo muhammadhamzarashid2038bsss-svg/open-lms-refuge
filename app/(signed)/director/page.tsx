@@ -42,6 +42,7 @@ async function DirectorHome() {
       </p>
       <section className="flex flex-col gap-2">
         <h2 className="text-xl font-semibold">Weekly timetables</h2>
+        <p className="text-lg">Choose Take attendance on a class to mark who came.</p>
         <ul className="flex flex-col gap-2 text-lg">
           {sections.map((section) => (
             <li key={section.id}>
