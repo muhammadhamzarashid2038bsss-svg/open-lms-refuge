@@ -15,10 +15,10 @@
 //   a service worker. If a cached Next.js page breaks there, use a standalone
 //   static page. Never cache the personalized attendance page or its server
 //   response.
-// - Ask navigator.storage.persist() and check the storage quota. If the
-//   browser refuses persistent storage, or the phone is out of space, fail
-//   closed and do not say the mark was saved. Do not promise that IndexedDB
-//   records can never be evicted.
+// - Storage persistence and quota checks live in storage-readiness.ts. They
+//   are not connected to the attendance screen yet. A denied request or a
+//   full phone must not be reported as a saved mark. Granted persistence
+//   still does not mean the browser can never delete IndexedDB.
 // - Give each local event a rising sequence number and keep the id of the
 //   event it corrects. Later sync uses that order. The phone clock does not
 //   choose which correction is newest.

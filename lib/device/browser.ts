@@ -10,8 +10,9 @@ import {
   parseDeviceState,
   type DeviceState,
 } from "./shared-device";
+import { DEVICE_STORAGE_KEY } from "./storage-key";
 
-const STORAGE_KEY = "olr.device.v1";
+const STORAGE_KEY = DEVICE_STORAGE_KEY;
 
 function readRaw(): string | null {
   return localStorage.getItem(STORAGE_KEY);
