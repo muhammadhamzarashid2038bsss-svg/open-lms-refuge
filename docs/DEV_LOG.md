@@ -213,3 +213,54 @@ The core timetable functionality is now implemented, and both the timetable feat
 - Confirmed that Teacher Two could not access Morning Group attendance.
 - Added automated tests, bringing the targeted attendance and authorization test runs to 31 passing tests with no failures.
 - Ran ESLint on all 15 modified files successfully.
+
+## Day 7 of 20 · 2026-11-08
+
+### What I built
+
+- Turned the app into an installable Progressive Web App (PWA) using Serwist.
+- Configured a Service Worker to cache the public kiosk shell and static application assets so the kiosk interface can load without an internet connection.
+- Established strict caching boundaries to prevent authenticated pages, private API responses, and attendance data from being cached by the Service Worker.
+- Created an IndexedDB database called `olr-local` with separate stores for device information, releases, locks, snapshots, rosters, and attendance events.
+- Implemented a migration system to copy the existing `olr.device.v1` LocalStorage backup into IndexedDB while preserving the original backup unchanged.
+- Wired the kiosk attendance system to save attendance events locally before synchronization, with storage-readiness checks to prevent the application from claiming that data was saved when the browser cannot meet the storage requirements.
+- Added support for tracking locally saved records and their waiting-to-synchronize status.
+- Implemented offline decision rules for sign-out, device locks, session expiry, and pending records.
+- Strengthened shared-device privacy by saving the local device lock before requesting server-side session revocation.
+- Added protection against another account accessing the previous user's unsynchronized records.
+- Implemented authorized device handover with permission checks and handover notes.
+- Preserved attendance ownership during handover so that transferring access to a phone does not transfer another user's attendance records.
+
+### What went wrong
+
+- During implementation, the work became more complex than the original single-stage prompt. I divided Day 7 into six stages to handle the offline decision rules, IndexedDB migration, local attendance, kiosk shell, PWA installation, and shared-device protection separately.
+- Encountered browser and storage-related issues while testing. Chrome refused to grant persistent storage, returning `false` for both `navigator.storage.persisted()` and `navigator.storage.persist()`, even after installing the PWA and testing again.
+- Because persistent storage was denied, the application correctly refused to save an offline attendance mark. It displayed a warning instead of falsely claiming that the attendance was saved.
+- Initially, the development server on `localhost:3000` did not load the kiosk shell offline because it did not have the production Service Worker. I therefore built the production application and tested it separately on `localhost:3100`.
+- Discovered that `localhost:3000` and `localhost:3100` are different browser origins, meaning their browser storage and Service Worker registrations are separate.
+- The production PWA successfully activated its Service Worker, cached the public shell and static assets, and loaded the kiosk shell while Chrome was offline.
+- Tested the shared-device handover system and discovered that not every teacher has permission to release another teacher's device lock. Only authorized staff, according to the server-side permission rules, can complete the handover.
+- I skipped the optional Vercel deployment and physical-phone test. I focused on local development and production testing using Chrome DevTools and the installed PWA.
+
+### What I learned
+
+- I learned that IndexedDB is more suitable than LocalStorage for structured application data, including attendance events, rosters, snapshots, and device records. However, IndexedDB is not encrypted automatically.
+- I learned that a Service Worker and IndexedDB have different responsibilities. The Service Worker caches the public application shell and static assets, while IndexedDB stores the application's local device data.
+- I learned how to use Chrome DevTools to simulate offline conditions, inspect Service Worker registration, examine Cache Storage, and check browser storage permissions.
+- I learned that allowing a website to save data and granting it persistent storage are two different things. A browser can allow ordinary storage while refusing to protect that storage from automatic eviction.
+- I learned why an application must never display a successful save message unless the data has actually been stored.
+- I learned that shared-device privacy requires more than signing out. The application must lock local data, preserve ownership of unsynchronized records, and prevent another account from accessing the previous user's information.
+- I learned that device handover must be controlled by server-side permissions and must not transfer ownership of attendance records.
+- I learned that an offline application must handle browser limitations honestly rather than weakening its safeguards to make a feature appear functional.
+
+### Testing and final result
+
+- All six Day 7 implementation stages were completed.
+- The relevant Day 7 automated tests passed: 104 tests with zero failures.
+- ESLint completed successfully for the Day 7 source files and tests.
+- The production build completed successfully.
+- The production Service Worker was activated, and the offline kiosk shell loaded successfully.
+- IndexedDB migration and shared-device browser acceptance tests passed.
+- Verified that the local Git branch was synchronized with `origin/main` and the working tree was clean.
+
+**Final result:** Day 7 was completed with one documented browser limitation. The offline kiosk shell, caching boundaries, IndexedDB migration, and shared-device protection were verified. However, actual offline attendance saving could not be demonstrated because Chrome refused persistent storage. The application correctly blocked the save rather than risking an inaccurate confirmation. Uploading unsynchronized attendance records remains part of Day 8.
