@@ -49,10 +49,10 @@ type StorePlan = {
   indexes: IndexPlan[];
 };
 
-/// meta holds the migration record. deviceItems, deviceReleases, and
-/// deviceLock hold the copied queue. snapshots, rosters, and events are
-/// empty until a later stage. Their indexes already include centerId and
-/// userId so those rows stay tied to one account.
+/// meta holds bookkeeping. deviceItems, deviceReleases, and deviceLock are
+/// the copied phone queue. snapshots, rosters, and events are the attendance
+/// copies. Their indexes include centerId and userId so a read can stay
+/// inside one account.
 const STORE_PLAN: StorePlan[] = [
   { name: "meta", options: { keyPath: "key" }, indexes: [] },
   {
@@ -82,11 +82,13 @@ const STORE_PLAN: StorePlan[] = [
   },
 ];
 
-/// Later stages fill these stores. Stage 2 only creates them.
+/// The attendance screen fills these after the server has allowed the class.
+/// localDeviceId names this browser only. It is not a hardware serial number.
 export type FutureSnapshotRecord = {
   id: string;
   centerId: string;
   userId: string;
+  localDeviceId: string;
   sectionId: string;
   classSessionId: string;
   authSessionId: string;
@@ -101,15 +103,19 @@ export type FutureRosterRecord = {
   id: string;
   centerId: string;
   userId: string;
+  localDeviceId: string;
   sectionId: string;
   classSessionId: string;
   learners: { learnerId: string; displayName: string; learnerCode: string }[];
 };
 
+/// A correction is a new row. It points at the earlier phone event or the
+/// earlier server record, and it never replaces that earlier row.
 export type FutureAttendanceEvent = {
   clientEventId: string;
   centerId: string;
   userId: string;
+  localDeviceId: string;
   sectionId: string;
   classSessionId: string;
   learnerId: string;
@@ -118,6 +124,7 @@ export type FutureAttendanceEvent = {
   recordedAt: string;
   sequence: number;
   correctsClientEventId: string | null;
+  correctsServerEventId: string | null;
   syncState: "pending" | "acknowledged";
 };
 
@@ -324,6 +331,37 @@ function closeDatabase(db: IDBDatabase): void {
   } catch {
     // Already closed.
   }
+}
+
+export type WorkingDb = { ok: true; db: IDBDatabase } | { ok: false; reason: "unavailable" | "corrupt" };
+
+/// Opens the database and writes the bookkeeping row the first time this
+/// browser creates it. Does not read or copy the old phone list.
+export async function openWorkingDatabase(factory: IDBFactory): Promise<WorkingDb> {
+  const opened = await openReady(factory);
+  if (!opened.ok || !("db" in opened)) {
+    const reason = !opened.ok && opened.reason === "corrupt" ? "corrupt" : "unavailable";
+    return { ok: false, reason };
+  }
+  return { ok: true, db: opened.db };
+}
+
+export function closeWorkingDatabase(db: IDBDatabase): void {
+  closeDatabase(db);
+}
+
+export function localRequest<T>(request: IDBRequest<T>): Promise<T> {
+  return requestToPromise(request);
+}
+
+/// One IndexedDB transaction. A thrown error cancels every change in it.
+export function runLocalTransaction<T>(
+  db: IDBDatabase,
+  storeNames: readonly string[],
+  mode: IDBTransactionMode,
+  run: (transaction: IDBTransaction) => Promise<T>,
+): Promise<T> {
+  return withTransaction(db, storeNames, mode, run);
 }
 
 async function readMeta(db: IDBDatabase): Promise<MigrationMeta | null | "missing"> {

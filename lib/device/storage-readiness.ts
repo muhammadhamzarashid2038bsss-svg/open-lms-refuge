@@ -93,7 +93,7 @@ export async function checkStorageReadiness(
 }
 
 /// A mark may be described as saved only when this check allows it. The
-/// attendance screen does not call this yet.
+/// attendance save asks before it writes.
 export function claimForStorage(readiness: StorageReadiness) {
   return decideMarkWrite(readiness.mayClaimSaved);
 }

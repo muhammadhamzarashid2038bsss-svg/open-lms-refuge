@@ -30,6 +30,7 @@ export function AttendanceSheetView({
   cancelled,
   saving,
   message,
+  waitingCount = null,
   onStatus,
   onReason,
   onSave,
@@ -38,6 +39,8 @@ export function AttendanceSheetView({
   cancelled: boolean;
   saving: boolean;
   message: string | null;
+  // Null means the phone has not confirmed a count. Zero is a confirmed empty queue.
+  waitingCount?: number | null;
   onStatus: (learnerId: string, status: AttendanceStatusName) => void;
   onReason: (learnerId: string, reason: AbsenceReasonName) => void;
   onSave: () => void;
@@ -117,6 +120,11 @@ export function AttendanceSheetView({
         <p aria-live="polite" className="text-lg font-semibold">
           Marked {counts.marked}. Not marked yet {counts.unmarked}. Ready to save {counts.pending}.
         </p>
+        {typeof waitingCount === "number" ? (
+          <p aria-live="polite" className="text-lg font-semibold">
+            Waiting to send: {waitingCount}
+          </p>
+        ) : null}
         {counts.unmarkedNames.length > 0 ? (
           <div>
             <p className="text-lg">Still unmarked, and not included in the save:</p>

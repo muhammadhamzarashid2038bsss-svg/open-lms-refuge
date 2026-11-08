@@ -5,6 +5,7 @@ import { AttendanceHistory } from "@/components/attendance-history";
 import { AttendanceKiosk } from "@/components/attendance-kiosk";
 import { Shell } from "@/components/ui";
 import { getActor } from "@/lib/auth/actor";
+import { readSessionClock } from "@/lib/auth/session";
 import { homeForRole } from "@/lib/auth/permissions";
 import { readAttendanceSheet } from "@/lib/data/attendance";
 
@@ -28,6 +29,9 @@ async function Attendance({ params }: { params: Promise<{ sectionId: string; ses
   if (!actor) redirect("/");
   const result = await readAttendanceSheet(actor, sectionId, sessionId);
   if (result.kind === "hidden") redirect(homeForRole(actor.role));
+  // Copied only after the server allowed this class. The phone uses it to
+  // recognize this sign-in. It is not the cookie or the PIN.
+  const clock = await readSessionClock();
   const sheet = result.sheet;
   const back = sheet.weekOf
     ? `/sections/${sheet.sectionId}/timetable?week=${encodeURIComponent(sheet.weekOf)}`
@@ -48,6 +52,8 @@ async function Attendance({ params }: { params: Promise<{ sectionId: string; ses
         sessionId={sheet.sessionId}
         cancelled={sheet.cancelled}
         learners={sheet.learners}
+        owner={{ userId: actor.id, centerId: actor.centerId }}
+        clock={clock}
       />
       <AttendanceHistory lines={sheet.history} />
     </Shell>

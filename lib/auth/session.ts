@@ -57,6 +57,38 @@ export async function revokeCurrentSession(now = new Date()): Promise<void> {
   session.destroy();
 }
 
+export type SessionClock = {
+  authSessionId: string;
+  serverNow: string;
+  lastSeenAt: string;
+  expiresAt: string;
+};
+
+/// Facts from a sign-in the server has already allowed. The phone keeps these
+/// so a later save can see that the class was opened while signed in. This
+/// does not include the cookie, the PIN, or the sealed secret, and it does
+/// not change or revoke the session.
+export async function readSessionClock(): Promise<SessionClock | null> {
+  let sessionId: string | undefined;
+  try {
+    const session = await cookieSession();
+    sessionId = session.sessionId;
+  } catch {
+    return null;
+  }
+  if (!sessionId) return null;
+  const row = await findSessionRow(sessionId);
+  if (!row) return null;
+  const serverNow = new Date();
+  if (sessionVerdict(row, serverNow) !== "ok") return null;
+  return {
+    authSessionId: row.id,
+    serverNow: serverNow.toISOString(),
+    lastSeenAt: row.lastSeenAt.toISOString(),
+    expiresAt: row.expiresAt.toISOString(),
+  };
+}
+
 export async function readSessionUserId(now?: Date): Promise<string | null> {
   let sessionId: string | undefined;
   try {

@@ -15,13 +15,13 @@
 //   a service worker. If a cached Next.js page breaks there, use a standalone
 //   static page. Never cache the personalized attendance page or its server
 //   response.
-// - Storage persistence and quota checks live in storage-readiness.ts. They
-//   are not connected to the attendance screen yet. A denied request or a
-//   full phone must not be reported as a saved mark. Granted persistence
-//   still does not mean the browser can never delete IndexedDB.
-// - Give each local event a rising sequence number and keep the id of the
-//   event it corrects. Later sync uses that order. The phone clock does not
-//   choose which correction is newest.
+// - Storage persistence and quota checks live in storage-readiness.ts. The
+//   attendance save asks them before it writes. A denied request or a full
+//   phone must not be reported as a saved mark. Granted persistence still
+//   does not mean the browser can never delete IndexedDB.
+// - Each local attendance event gets a rising sequence number and the id of
+//   the event it corrects. Later sync uses that order. The phone clock does
+//   not choose which correction is newest.
 // - If the lock cannot be written, hide the roster and do not claim that the
 //   lock or the sign-out finished. decideSignOut records that rule.
 
