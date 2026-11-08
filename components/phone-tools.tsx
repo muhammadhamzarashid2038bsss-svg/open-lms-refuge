@@ -1,17 +1,40 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { logout } from "@/app/actions/auth";
-import { lockCurrentAccount, savePracticeRecord, waitingCount } from "@/lib/device/browser";
+import { readDeviceBackup } from "@/lib/device/browser";
+import { addVerifiedPractice, performPhoneSignOut, waitingForAccount, PHONE_PRIVACY_EVENT } from "@/lib/device/phone-access";
+import { decideSignOut } from "@/lib/device/offline-decisions";
+import { revokeServerSession } from "@/lib/device/revoke-session";
+import { usePhoneSession } from "./device-gate";
 import { buttonClass, secondaryButtonClass } from "./ui";
 
 export function PhoneTools({ userId, centerId }: { userId: string; centerId: string }) {
+  const session = usePhoneSession();
   const [waiting, setWaiting] = useState<number | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const aligned = session !== null && session.userId === userId && session.centerId === centerId;
 
   useEffect(() => {
-    setWaiting(waitingCount(userId));
-  }, [userId]);
+    let cancelled = false;
+    void (async () => {
+      if (!aligned || !session) return;
+      const result = await waitingForAccount({
+        factory: indexedDB,
+        readRaw: readDeviceBackup,
+        account: { userId, centerId },
+      });
+      if (cancelled) return;
+      if (!result.ok) {
+        setWaiting(null);
+        setProblem(result.message);
+        return;
+      }
+      setWaiting(result.count);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [aligned, centerId, session, userId]);
 
   return (
     <section className="flex flex-col gap-3 rounded-lg border-2 border-zinc-950 p-4">
@@ -28,31 +51,64 @@ export function PhoneTools({ userId, centerId }: { userId: string; centerId: str
         className={secondaryButtonClass}
         type="button"
         onClick={() => {
-          const saved = savePracticeRecord(userId, centerId);
-          if (!saved) {
-            setProblem("This phone could not save the practice record.");
-            return;
-          }
-          setWaiting(waitingCount(userId));
-          setProblem(null);
+          void (async () => {
+            if (!aligned) {
+              setProblem(decideSignOut(false).message);
+              return;
+            }
+            const saved = await addVerifiedPractice({
+              factory: indexedDB,
+              readRaw: readDeviceBackup,
+              account: { userId, centerId },
+            });
+            if (!saved.ok) {
+              setProblem(saved.message);
+              return;
+            }
+            const result = await waitingForAccount({
+              factory: indexedDB,
+              readRaw: readDeviceBackup,
+              account: { userId, centerId },
+            });
+            if (!result.ok) {
+              setProblem(result.message);
+              return;
+            }
+            setWaiting(result.count);
+            setProblem(null);
+          })();
         }}
       >
         Save a practice record on this phone
       </button>
-      <form
-        action={async () => {
-          const locked = lockCurrentAccount(userId, centerId);
-          if (!locked) {
-            setProblem("This phone could not lock the saved records. Do not hand it over yet.");
-            return;
-          }
-          await logout();
+      <button
+        className={buttonClass}
+        type="button"
+        onClick={() => {
+          void (async () => {
+            if (!aligned || !session) {
+              window.dispatchEvent(
+                new CustomEvent(PHONE_PRIVACY_EVENT, {
+                  detail: { message: decideSignOut(false).message, claimLocked: false },
+                }),
+              );
+              return;
+            }
+            await performPhoneSignOut({
+              factory: indexedDB,
+              readRaw: readDeviceBackup,
+              account: { userId, centerId },
+              authSessionId: session.authSessionId,
+              revoke: revokeServerSession,
+              onPrivacy: (message, claimLocked) => {
+                window.dispatchEvent(new CustomEvent(PHONE_PRIVACY_EVENT, { detail: { message, claimLocked } }));
+              },
+            });
+          })();
         }}
       >
-        <button className={buttonClass} type="submit">
-          Sign out
-        </button>
-      </form>
+        Sign out
+      </button>
       {problem ? (
         <p role="alert" className="text-lg font-medium">
           {problem}

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { DeviceGate } from "@/components/device-gate";
 import { getActor } from "@/lib/auth/actor";
+import { readSessionClock } from "@/lib/auth/session";
 import { openingDestination } from "@/lib/device/phone-check";
 
 // This hop only exists to check the session and the phone lock. It is not a
@@ -13,7 +14,15 @@ export const instant = false;
 export default async function OpeningPage() {
   const destination = openingDestination(await getActor());
   if (destination.type === "login") redirect(destination.href);
+  const clock = await readSessionClock();
+  if (!clock) redirect("/session/clear");
   return (
-    <DeviceGate userId={destination.userId} centerId={destination.centerId} home={destination.home} mode="continue" />
+    <DeviceGate
+      userId={destination.userId}
+      centerId={destination.centerId}
+      home={destination.home}
+      mode="continue"
+      authSessionId={clock.authSessionId}
+    />
   );
 }

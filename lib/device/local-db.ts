@@ -652,3 +652,172 @@ export async function migrateLegacyDevice(factory: IDBFactory, readRaw: () => st
   if (!prepared.ok) return prepared;
   return finishLegacyMigration(factory, readRaw);
 }
+
+/// The account that last finished an online sign-in on this phone.
+/// The shell uses it to choose which classes it may list. It is not a password.
+export type ActiveAccount = {
+  userId: string;
+  centerId: string;
+  authSessionId: string;
+};
+
+function presentId(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function parseActiveAccount(value: unknown): ActiveAccount | null {
+  if (!isRecord(value) || value.key !== "activeAccount") return null;
+  if (!presentId(value.userId) || !presentId(value.centerId) || !presentId(value.authSessionId)) return null;
+  return { userId: value.userId, centerId: value.centerId, authSessionId: value.authSessionId };
+}
+
+function validQueueItem(item: DeviceItem): boolean {
+  return validateDeviceState({ lock: null, items: [item], releases: [] }) !== null;
+}
+
+function validRelease(release: DeviceRelease): boolean {
+  return validateDeviceState({ lock: null, items: [], releases: [release] }) !== null;
+}
+
+/// A new sign-out lock must name the server session. The write touches only
+/// the lock row, so practice records and attendance events stay where they are.
+export async function writeAccountLock(factory: IDBFactory, lock: DeviceLock): Promise<boolean> {
+  if (!lock.authSessionId || validateDeviceState({ lock, items: [], releases: [] }) === null) return false;
+  const opened = await openWorkingDatabase(factory);
+  if (!opened.ok) return false;
+  try {
+    await runLocalTransaction(opened.db, ["deviceLock"], "readwrite", async (tx) => {
+      await localRequest(tx.objectStore("deviceLock").put({ key: "current", lock }));
+      const stored = await localRequest(tx.objectStore("deviceLock").get("current"));
+      if (!isRecord(stored) || !isRecord(stored.lock) || stored.lock.authSessionId !== lock.authSessionId) {
+        throw new Error("lock was not stored");
+      }
+      if (stored.lock.userId !== lock.userId || stored.lock.centerId !== lock.centerId || stored.lock.lockId !== lock.lockId) {
+        throw new Error("lock was not stored");
+      }
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    closeWorkingDatabase(opened.db);
+  }
+}
+
+export async function clearAccountLock(factory: IDBFactory, active: ActiveAccount): Promise<boolean> {
+  if (!parseActiveAccount({ key: "activeAccount", ...active })) return false;
+  const opened = await openWorkingDatabase(factory);
+  if (!opened.ok) return false;
+  try {
+    await runLocalTransaction(opened.db, ["deviceLock", "meta"], "readwrite", async (tx) => {
+      await localRequest(tx.objectStore("deviceLock").put({ key: "current", lock: null }));
+      await localRequest(tx.objectStore("meta").put({ key: "activeAccount", ...active }));
+      const lockRow = await localRequest(tx.objectStore("deviceLock").get("current"));
+      const account = parseActiveAccount(await localRequest(tx.objectStore("meta").get("activeAccount")));
+      if (!isRecord(lockRow) || lockRow.lock !== null || !account) throw new Error("lock was not cleared");
+      if (account.userId !== active.userId || account.centerId !== active.centerId || account.authSessionId !== active.authSessionId) {
+        throw new Error("lock was not cleared");
+      }
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    closeWorkingDatabase(opened.db);
+  }
+}
+
+export async function writeActiveAccount(factory: IDBFactory, active: ActiveAccount): Promise<boolean> {
+  if (!parseActiveAccount({ key: "activeAccount", ...active })) return false;
+  const opened = await openWorkingDatabase(factory);
+  if (!opened.ok) return false;
+  try {
+    await runLocalTransaction(opened.db, ["meta"], "readwrite", async (tx) => {
+      await localRequest(tx.objectStore("meta").put({ key: "activeAccount", ...active }));
+      const stored = parseActiveAccount(await localRequest(tx.objectStore("meta").get("activeAccount")));
+      if (!stored || stored.userId !== active.userId || stored.centerId !== active.centerId || stored.authSessionId !== active.authSessionId) {
+        throw new Error("account was not stored");
+      }
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    closeWorkingDatabase(opened.db);
+  }
+}
+
+/// null means no online account has been stored. "unreadable" means the row
+/// is damaged, which must not be treated as permission to show another class.
+export async function readActiveAccount(factory: IDBFactory): Promise<ActiveAccount | null | "unreadable"> {
+  const opened = await openWorkingDatabase(factory);
+  if (!opened.ok) return "unreadable";
+  try {
+    const value = await runLocalTransaction(opened.db, ["meta"], "readonly", (tx) =>
+      localRequest(tx.objectStore("meta").get("activeAccount")),
+    );
+    if (value === undefined) return null;
+    return parseActiveAccount(value) ?? "unreadable";
+  } catch {
+    return "unreadable";
+  } finally {
+    closeWorkingDatabase(opened.db);
+  }
+}
+
+export async function appendDeviceItem(factory: IDBFactory, item: DeviceItem): Promise<boolean> {
+  if (!validQueueItem(item)) return false;
+  const opened = await openWorkingDatabase(factory);
+  if (!opened.ok) return false;
+  try {
+    await runLocalTransaction(opened.db, ["deviceItems", "meta"], "readwrite", async (tx) => {
+      const meta = await localRequest(tx.objectStore("meta").get("migration"));
+      if (!isRecord(meta) || meta.importStatus !== "verified" || typeof meta.itemCount !== "number") {
+        throw new Error("copy is not verified");
+      }
+      const rows = await localRequest(tx.objectStore("deviceItems").getAll());
+      if (!Array.isArray(rows)) throw new Error("items could not be read");
+      let max = -1;
+      for (const row of rows) {
+        if (!isRecord(row) || typeof row.sourceIndex !== "number") throw new Error("items could not be read");
+        max = Math.max(max, row.sourceIndex);
+      }
+      await localRequest(tx.objectStore("deviceItems").put({ ...item, sourceIndex: max + 1 }));
+      await localRequest(tx.objectStore("meta").put({ ...meta, itemCount: meta.itemCount + 1 }));
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    closeWorkingDatabase(opened.db);
+  }
+}
+
+export async function appendDeviceRelease(factory: IDBFactory, release: DeviceRelease): Promise<boolean> {
+  if (!validRelease(release)) return false;
+  const opened = await openWorkingDatabase(factory);
+  if (!opened.ok) return false;
+  try {
+    await runLocalTransaction(opened.db, ["deviceReleases", "meta"], "readwrite", async (tx) => {
+      const meta = await localRequest(tx.objectStore("meta").get("migration"));
+      if (!isRecord(meta) || meta.importStatus !== "verified" || typeof meta.releaseCount !== "number") {
+        throw new Error("copy is not verified");
+      }
+      const rows = await localRequest(tx.objectStore("deviceReleases").getAll());
+      if (!Array.isArray(rows)) throw new Error("releases could not be read");
+      let max = -1;
+      for (const row of rows) {
+        if (!isRecord(row) || typeof row.sourceIndex !== "number") throw new Error("releases could not be read");
+        max = Math.max(max, row.sourceIndex);
+        if (row.lockId === release.lockId && row.userId === release.userId && row.centerId === release.centerId) return;
+      }
+      await localRequest(tx.objectStore("deviceReleases").put({ ...release, sourceIndex: max + 1 }));
+      await localRequest(tx.objectStore("meta").put({ ...meta, releaseCount: meta.releaseCount + 1 }));
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    closeWorkingDatabase(opened.db);
+  }
+}

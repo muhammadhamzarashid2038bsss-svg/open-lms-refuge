@@ -357,6 +357,14 @@ describe("unreadable storage and failed writes", () => {
       legacyFingerprint: "legacy",
       importedFingerprint: "indexed",
     })).toMatchObject({ type: "stop" });
+    expect(decideQueueSource({
+      legacy: ready(emptyDeviceState()),
+      importStatus: "verified",
+      legacyFingerprint: null,
+      importedFingerprint: null,
+      legacyPresence: "missing",
+      importedPresence: "missing",
+    })).toEqual({ type: "indexed" });
     expect(
       waitingCountFromSource({
         source: { type: "stop", message: "stopped" },

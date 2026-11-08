@@ -397,6 +397,52 @@ describe("offline kiosk shell", () => {
     expect(catalog.ok && catalog.events).toHaveLength(1);
   });
 
+  it("signs out from the shell without deleting the pending mark or unlocking afterward", async () => {
+    const factory = new IDBFactory();
+    await authorize(factory, { owner, sectionId, classSessionId, learners });
+    const marked = await saveLocalAttendance({
+      factory,
+      storage: roomy,
+      owner,
+      sectionId,
+      classSessionId,
+      marks: [
+        {
+          learnerId: "learner-01",
+          status: "PRESENT",
+          reasonCode: null,
+          serverEventId: null,
+          clientEventId: crypto.randomUUID(),
+          recordedAt: phoneNow.toISOString(),
+        },
+      ],
+      phoneNow,
+    });
+    expect(marked.ok).toBe(true);
+    let calls = 0;
+    const doc = new FakeDocument();
+    await mountKioskShell(doc, {
+      pathname: classPath,
+      indexedDB: factory,
+      localStorage: memory(),
+      storage: roomy,
+      now: phoneNow,
+      revoke: async () => {
+        calls += 1;
+        return false;
+      },
+    });
+    expect(doc.root.text()).toContain("Demo Learner 01");
+    buttons(doc.root, "Sign out")[0]?.click();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(doc.root.text()).not.toContain("Demo Learner");
+    expect(doc.status.textContent).toMatch(/still here/i);
+    expect(calls).toBe(1);
+    const catalog = await readLocalCatalog(factory);
+    expect(catalog.ok && catalog.events).toHaveLength(1);
+    if (catalog.ok) expect(catalog.events[0]?.userId).toBe(owner.userId);
+  });
+
   it("does not describe an unreadable database as an empty class", async () => {
     const blocked = {
       open() {

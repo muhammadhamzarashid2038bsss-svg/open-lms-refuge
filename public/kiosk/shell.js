@@ -19,6 +19,66 @@ exports.DEVICE_STORAGE_KEY = void 0;
 exports.DEVICE_STORAGE_KEY = "olr.device.v1";
 
 });
+  define("lib/auth/constants.ts", function (exports, require) {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.LOGIN_MESSAGES = exports.SESSION_COOKIE = exports.IP_FAILED_ATTEMPTS_BEFORE_LOCK = exports.LOCKOUT_MS = exports.FAILED_ATTEMPTS_BEFORE_LOCK = exports.SESSION_TOUCH_MS = exports.SESSION_IDLE_MS = exports.SESSION_ABSOLUTE_MS = void 0;
+// Shared phones in a classroom are often left signed in. These limits are
+// short on purpose. A person who walks away should not leave records on screen
+// for the rest of the day, and an overnight cookie should already be dead.
+exports.SESSION_ABSOLUTE_MS = 8 * 60 * 60 * 1000;
+exports.SESSION_IDLE_MS = 30 * 60 * 1000;
+exports.SESSION_TOUCH_MS = 5 * 60 * 1000;
+// SYS-1 lockout: 15 minutes after 5 failed attempts.
+exports.FAILED_ATTEMPTS_BEFORE_LOCK = 5;
+exports.LOCKOUT_MS = 15 * 60 * 1000;
+// Many learners share one phone and one public network address. The per-account
+// lock is the rule that matters. This network limit only stops a script from
+// trying hundreds of different codes. It is high so a class mistyping PINs
+// does not lock the whole room.
+exports.IP_FAILED_ATTEMPTS_BEFORE_LOCK = 100;
+exports.SESSION_COOKIE = "olr_session";
+exports.LOGIN_MESSAGES = {
+    mismatch: "Those details do not match. Try again.",
+    locked: "Too many tries. Wait 15 minutes, then try again.",
+    deactivated: "This account is switched off. Ask a director.",
+};
+
+});
+  define("lib/auth/session-policy.ts", function (exports, require) {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.SESSION_IDLE_MS = exports.SESSION_ABSOLUTE_MS = void 0;
+exports.sessionVerdict = sessionVerdict;
+exports.shouldTouchSession = shouldTouchSession;
+exports.shouldDropSessionCookie = shouldDropSessionCookie;
+exports.sessionExpiry = sessionExpiry;
+const constants_1 = require("lib/auth/constants.ts");
+Object.defineProperty(exports, "SESSION_ABSOLUTE_MS", { enumerable: true, get: function () { return constants_1.SESSION_ABSOLUTE_MS; } });
+Object.defineProperty(exports, "SESSION_IDLE_MS", { enumerable: true, get: function () { return constants_1.SESSION_IDLE_MS; } });
+function sessionVerdict(row, now) {
+    if (row.revokedAt)
+        return "revoked";
+    if (row.expiresAt.getTime() <= now.getTime())
+        return "absolute";
+    if (now.getTime() - row.lastSeenAt.getTime() >= constants_1.SESSION_IDLE_MS)
+        return "idle";
+    return "ok";
+}
+function shouldTouchSession(row, now) {
+    return sessionVerdict(row, now) === "ok" && now.getTime() - row.lastSeenAt.getTime() >= constants_1.SESSION_TOUCH_MS;
+}
+// The proxy only checks that a cookie exists. A dead, missing, or unreadable
+// session still looks signed in, so / and /opening send the phone to each other.
+// The cookie has to be dropped. A live session must keep it.
+function shouldDropSessionCookie(verdict) {
+    return verdict !== "ok";
+}
+function sessionExpiry(now) {
+    return new Date(now.getTime() + constants_1.SESSION_ABSOLUTE_MS);
+}
+
+});
   define("lib/device/shared-device.ts", function (exports, require) {
 "use strict";
 // Records waiting to be sent live on the phone, not on the server.
@@ -105,66 +165,6 @@ function visibleItems(state, userId) {
 }
 
 });
-  define("lib/auth/constants.ts", function (exports, require) {
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.LOGIN_MESSAGES = exports.SESSION_COOKIE = exports.IP_FAILED_ATTEMPTS_BEFORE_LOCK = exports.LOCKOUT_MS = exports.FAILED_ATTEMPTS_BEFORE_LOCK = exports.SESSION_TOUCH_MS = exports.SESSION_IDLE_MS = exports.SESSION_ABSOLUTE_MS = void 0;
-// Shared phones in a classroom are often left signed in. These limits are
-// short on purpose. A person who walks away should not leave records on screen
-// for the rest of the day, and an overnight cookie should already be dead.
-exports.SESSION_ABSOLUTE_MS = 8 * 60 * 60 * 1000;
-exports.SESSION_IDLE_MS = 30 * 60 * 1000;
-exports.SESSION_TOUCH_MS = 5 * 60 * 1000;
-// SYS-1 lockout: 15 minutes after 5 failed attempts.
-exports.FAILED_ATTEMPTS_BEFORE_LOCK = 5;
-exports.LOCKOUT_MS = 15 * 60 * 1000;
-// Many learners share one phone and one public network address. The per-account
-// lock is the rule that matters. This network limit only stops a script from
-// trying hundreds of different codes. It is high so a class mistyping PINs
-// does not lock the whole room.
-exports.IP_FAILED_ATTEMPTS_BEFORE_LOCK = 100;
-exports.SESSION_COOKIE = "olr_session";
-exports.LOGIN_MESSAGES = {
-    mismatch: "Those details do not match. Try again.",
-    locked: "Too many tries. Wait 15 minutes, then try again.",
-    deactivated: "This account is switched off. Ask a director.",
-};
-
-});
-  define("lib/auth/session-policy.ts", function (exports, require) {
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.SESSION_IDLE_MS = exports.SESSION_ABSOLUTE_MS = void 0;
-exports.sessionVerdict = sessionVerdict;
-exports.shouldTouchSession = shouldTouchSession;
-exports.shouldDropSessionCookie = shouldDropSessionCookie;
-exports.sessionExpiry = sessionExpiry;
-const constants_1 = require("lib/auth/constants.ts");
-Object.defineProperty(exports, "SESSION_ABSOLUTE_MS", { enumerable: true, get: function () { return constants_1.SESSION_ABSOLUTE_MS; } });
-Object.defineProperty(exports, "SESSION_IDLE_MS", { enumerable: true, get: function () { return constants_1.SESSION_IDLE_MS; } });
-function sessionVerdict(row, now) {
-    if (row.revokedAt)
-        return "revoked";
-    if (row.expiresAt.getTime() <= now.getTime())
-        return "absolute";
-    if (now.getTime() - row.lastSeenAt.getTime() >= constants_1.SESSION_IDLE_MS)
-        return "idle";
-    return "ok";
-}
-function shouldTouchSession(row, now) {
-    return sessionVerdict(row, now) === "ok" && now.getTime() - row.lastSeenAt.getTime() >= constants_1.SESSION_TOUCH_MS;
-}
-// The proxy only checks that a cookie exists. A dead, missing, or unreadable
-// session still looks signed in, so / and /opening send the phone to each other.
-// The cookie has to be dropped. A live session must keep it.
-function shouldDropSessionCookie(verdict) {
-    return verdict !== "ok";
-}
-function sessionExpiry(now) {
-    return new Date(now.getTime() + constants_1.SESSION_ABSOLUTE_MS);
-}
-
-});
   define("lib/device/offline-decisions.ts", function (exports, require) {
 "use strict";
 // Decisions for offline kiosk attendance. Nothing here reads the phone's
@@ -209,7 +209,7 @@ const shared_device_1 = require("lib/device/shared-device.ts");
 exports.UNREADABLE_RECORDS = "This phone's saved records could not be read. They were not deleted. Do not hand the phone over yet.";
 exports.MISMATCHED_RECORDS = "This phone's saved records do not match. They were not deleted. Do not hand the phone over yet.";
 exports.UNCHECKED_RECORDS = "This phone's saved records could not be checked. They were not deleted. Do not hand the phone over yet.";
-const LOCK_FAILED = "This phone could not lock the saved records. Sign-out was not completed. Do not hand it over yet.";
+const LOCK_FAILED = "This phone could not lock the saved records. Sign-out was not completed. Do not hand the phone over yet.";
 const LOCKED_WAITING = "This phone is locked. The sign-in on the server will end when the phone can reach it. Marks waiting to send are still here.";
 const LOCKED_AND_SIGNED_OUT = "This phone is locked and the sign-in has ended. Marks waiting to send are still here.";
 const MARK_FAILED = "This phone could not save the mark. It was not stored.";
@@ -352,6 +352,12 @@ function decideQueueSource(input) {
         return { type: "stop", message: exports.UNREADABLE_RECORDS };
     if (input.importStatus === "none")
         return { type: "legacy" };
+    const emptyBackup = input.legacyPresence === "missing" &&
+        input.importedPresence === "missing" &&
+        input.legacyFingerprint === null &&
+        input.importedFingerprint === null;
+    if (emptyBackup)
+        return { type: "indexed" };
     if (!present(input.legacyFingerprint) || !present(input.importedFingerprint)) {
         return { type: "stop", message: exports.UNREADABLE_RECORDS };
     }
@@ -563,6 +569,9 @@ function copyLock(value) {
         return null;
     if (!presentString(copy.lockId) || !presentString(copy.userId) || !presentString(copy.centerId))
         return null;
+    // A missing session id is an older lock. A blank one is damaged.
+    if ("authSessionId" in copy && !presentString(copy.authSessionId))
+        return null;
     return copy;
 }
 /// Checks every field the current phone queue can hold: the lock, each
@@ -657,6 +666,12 @@ exports.inspectLocalDatabase = inspectLocalDatabase;
 exports.prepareLegacyMigration = prepareLegacyMigration;
 exports.finishLegacyMigration = finishLegacyMigration;
 exports.migrateLegacyDevice = migrateLegacyDevice;
+exports.writeAccountLock = writeAccountLock;
+exports.clearAccountLock = clearAccountLock;
+exports.writeActiveAccount = writeActiveAccount;
+exports.readActiveAccount = readActiveAccount;
+exports.appendDeviceItem = appendDeviceItem;
+exports.appendDeviceRelease = appendDeviceRelease;
 const shared_device_1 = require("lib/device/shared-device.ts");
 const legacy_validate_1 = require("lib/device/legacy-validate.ts");
 exports.LOCAL_DB_NAME = "olr-local";
@@ -1163,6 +1178,187 @@ async function migrateLegacyDevice(factory, readRaw) {
     if (!prepared.ok)
         return prepared;
     return finishLegacyMigration(factory, readRaw);
+}
+function presentId(value) {
+    return typeof value === "string" && value.trim() !== "";
+}
+function parseActiveAccount(value) {
+    if (!isRecord(value) || value.key !== "activeAccount")
+        return null;
+    if (!presentId(value.userId) || !presentId(value.centerId) || !presentId(value.authSessionId))
+        return null;
+    return { userId: value.userId, centerId: value.centerId, authSessionId: value.authSessionId };
+}
+function validQueueItem(item) {
+    return (0, legacy_validate_1.validateDeviceState)({ lock: null, items: [item], releases: [] }) !== null;
+}
+function validRelease(release) {
+    return (0, legacy_validate_1.validateDeviceState)({ lock: null, items: [], releases: [release] }) !== null;
+}
+/// A new sign-out lock must name the server session. The write touches only
+/// the lock row, so practice records and attendance events stay where they are.
+async function writeAccountLock(factory, lock) {
+    if (!lock.authSessionId || (0, legacy_validate_1.validateDeviceState)({ lock, items: [], releases: [] }) === null)
+        return false;
+    const opened = await openWorkingDatabase(factory);
+    if (!opened.ok)
+        return false;
+    try {
+        await runLocalTransaction(opened.db, ["deviceLock"], "readwrite", async (tx) => {
+            await localRequest(tx.objectStore("deviceLock").put({ key: "current", lock }));
+            const stored = await localRequest(tx.objectStore("deviceLock").get("current"));
+            if (!isRecord(stored) || !isRecord(stored.lock) || stored.lock.authSessionId !== lock.authSessionId) {
+                throw new Error("lock was not stored");
+            }
+            if (stored.lock.userId !== lock.userId || stored.lock.centerId !== lock.centerId || stored.lock.lockId !== lock.lockId) {
+                throw new Error("lock was not stored");
+            }
+        });
+        return true;
+    }
+    catch {
+        return false;
+    }
+    finally {
+        closeWorkingDatabase(opened.db);
+    }
+}
+async function clearAccountLock(factory, active) {
+    if (!parseActiveAccount({ key: "activeAccount", ...active }))
+        return false;
+    const opened = await openWorkingDatabase(factory);
+    if (!opened.ok)
+        return false;
+    try {
+        await runLocalTransaction(opened.db, ["deviceLock", "meta"], "readwrite", async (tx) => {
+            await localRequest(tx.objectStore("deviceLock").put({ key: "current", lock: null }));
+            await localRequest(tx.objectStore("meta").put({ key: "activeAccount", ...active }));
+            const lockRow = await localRequest(tx.objectStore("deviceLock").get("current"));
+            const account = parseActiveAccount(await localRequest(tx.objectStore("meta").get("activeAccount")));
+            if (!isRecord(lockRow) || lockRow.lock !== null || !account)
+                throw new Error("lock was not cleared");
+            if (account.userId !== active.userId || account.centerId !== active.centerId || account.authSessionId !== active.authSessionId) {
+                throw new Error("lock was not cleared");
+            }
+        });
+        return true;
+    }
+    catch {
+        return false;
+    }
+    finally {
+        closeWorkingDatabase(opened.db);
+    }
+}
+async function writeActiveAccount(factory, active) {
+    if (!parseActiveAccount({ key: "activeAccount", ...active }))
+        return false;
+    const opened = await openWorkingDatabase(factory);
+    if (!opened.ok)
+        return false;
+    try {
+        await runLocalTransaction(opened.db, ["meta"], "readwrite", async (tx) => {
+            await localRequest(tx.objectStore("meta").put({ key: "activeAccount", ...active }));
+            const stored = parseActiveAccount(await localRequest(tx.objectStore("meta").get("activeAccount")));
+            if (!stored || stored.userId !== active.userId || stored.centerId !== active.centerId || stored.authSessionId !== active.authSessionId) {
+                throw new Error("account was not stored");
+            }
+        });
+        return true;
+    }
+    catch {
+        return false;
+    }
+    finally {
+        closeWorkingDatabase(opened.db);
+    }
+}
+/// null means no online account has been stored. "unreadable" means the row
+/// is damaged, which must not be treated as permission to show another class.
+async function readActiveAccount(factory) {
+    const opened = await openWorkingDatabase(factory);
+    if (!opened.ok)
+        return "unreadable";
+    try {
+        const value = await runLocalTransaction(opened.db, ["meta"], "readonly", (tx) => localRequest(tx.objectStore("meta").get("activeAccount")));
+        if (value === undefined)
+            return null;
+        return parseActiveAccount(value) ?? "unreadable";
+    }
+    catch {
+        return "unreadable";
+    }
+    finally {
+        closeWorkingDatabase(opened.db);
+    }
+}
+async function appendDeviceItem(factory, item) {
+    if (!validQueueItem(item))
+        return false;
+    const opened = await openWorkingDatabase(factory);
+    if (!opened.ok)
+        return false;
+    try {
+        await runLocalTransaction(opened.db, ["deviceItems", "meta"], "readwrite", async (tx) => {
+            const meta = await localRequest(tx.objectStore("meta").get("migration"));
+            if (!isRecord(meta) || meta.importStatus !== "verified" || typeof meta.itemCount !== "number") {
+                throw new Error("copy is not verified");
+            }
+            const rows = await localRequest(tx.objectStore("deviceItems").getAll());
+            if (!Array.isArray(rows))
+                throw new Error("items could not be read");
+            let max = -1;
+            for (const row of rows) {
+                if (!isRecord(row) || typeof row.sourceIndex !== "number")
+                    throw new Error("items could not be read");
+                max = Math.max(max, row.sourceIndex);
+            }
+            await localRequest(tx.objectStore("deviceItems").put({ ...item, sourceIndex: max + 1 }));
+            await localRequest(tx.objectStore("meta").put({ ...meta, itemCount: meta.itemCount + 1 }));
+        });
+        return true;
+    }
+    catch {
+        return false;
+    }
+    finally {
+        closeWorkingDatabase(opened.db);
+    }
+}
+async function appendDeviceRelease(factory, release) {
+    if (!validRelease(release))
+        return false;
+    const opened = await openWorkingDatabase(factory);
+    if (!opened.ok)
+        return false;
+    try {
+        await runLocalTransaction(opened.db, ["deviceReleases", "meta"], "readwrite", async (tx) => {
+            const meta = await localRequest(tx.objectStore("meta").get("migration"));
+            if (!isRecord(meta) || meta.importStatus !== "verified" || typeof meta.releaseCount !== "number") {
+                throw new Error("copy is not verified");
+            }
+            const rows = await localRequest(tx.objectStore("deviceReleases").getAll());
+            if (!Array.isArray(rows))
+                throw new Error("releases could not be read");
+            let max = -1;
+            for (const row of rows) {
+                if (!isRecord(row) || typeof row.sourceIndex !== "number")
+                    throw new Error("releases could not be read");
+                max = Math.max(max, row.sourceIndex);
+                if (row.lockId === release.lockId && row.userId === release.userId && row.centerId === release.centerId)
+                    return;
+            }
+            await localRequest(tx.objectStore("deviceReleases").put({ ...release, sourceIndex: max + 1 }));
+            await localRequest(tx.objectStore("meta").put({ ...meta, releaseCount: meta.releaseCount + 1 }));
+        });
+        return true;
+    }
+    catch {
+        return false;
+    }
+    finally {
+        closeWorkingDatabase(opened.db);
+    }
 }
 
 });
@@ -2342,6 +2538,13 @@ async function storeAuthorizedClass(input) {
                 if (current === null) {
                     await (0, local_db_1.localRequest)(tx.objectStore("meta").put({ key: "device", localDeviceId: deviceId }));
                 }
+                // The shell may list classes only for the account that opened one online.
+                await (0, local_db_1.localRequest)(tx.objectStore("meta").put({
+                    key: "activeAccount",
+                    userId: input.owner.userId,
+                    centerId: input.owner.centerId,
+                    authSessionId: input.clock.authSessionId,
+                }));
                 await (0, local_db_1.localRequest)(tx.objectStore("snapshots").put({ ...snapshot, id }));
                 await (0, local_db_1.localRequest)(tx.objectStore("rosters").put(roster));
                 const storedSnapshot = parseSnapshot(await (0, local_db_1.localRequest)(tx.objectStore("snapshots").get(id)));
@@ -2445,7 +2648,15 @@ async function saveLocalAttendance(input) {
         return { ok: false, message: blocked, count: null, unreadable: false };
     try {
         const view = await withDatabase(input.factory, async (db) => {
-            const expected = await (0, local_db_1.runLocalTransaction)(db, ATTENDANCE_STORES, "readwrite", async (tx) => {
+            const expected = await (0, local_db_1.runLocalTransaction)(db, [...ATTENDANCE_STORES, "deviceLock"], "readwrite", async (tx) => {
+                const lockRow = await (0, local_db_1.localRequest)(tx.objectStore("deviceLock").get("current"));
+                if (lockRow !== undefined) {
+                    if (!isRecord(lockRow) || !("lock" in lockRow))
+                        throw new LocalStop(UNREADABLE);
+                    // A lock hides the class. Saving another mark would keep private data on screen.
+                    if (lockRow.lock !== null)
+                        throw new LocalStop("This phone is locked. The class list stays hidden.");
+                }
                 const id = attendanceRecordId(input.owner, scope.sectionId, scope.classSessionId);
                 const snapshot = parseSnapshot(await (0, local_db_1.localRequest)(tx.objectStore("snapshots").get(id)));
                 if (!snapshot)
@@ -2600,6 +2811,223 @@ async function readLocalCatalog(factory) {
 }
 
 });
+  define("lib/device/phone-access.ts", function (exports, require) {
+"use strict";
+// The verified IndexedDB queue is the only place new phone records are written.
+// olr.device.v1 stays as the backup from the moment the copy was checked.
+// An older tab can still change that backup. This module cannot stop that
+// write, so any change makes the phone stop. Neither store is deleted.
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.PHONE_PRIVACY_EVENT = void 0;
+exports.openVerifiedQueue = openVerifiedQueue;
+exports.withWaiting = withWaiting;
+exports.performPhoneSignOut = performPhoneSignOut;
+exports.addVerifiedPractice = addVerifiedPractice;
+exports.addVerifiedRelease = addVerifiedRelease;
+exports.waitingForAccount = waitingForAccount;
+const local_attendance_1 = require("lib/device/local-attendance.ts");
+const local_db_1 = require("lib/device/local-db.ts");
+const legacy_validate_1 = require("lib/device/legacy-validate.ts");
+const offline_decisions_1 = require("lib/device/offline-decisions.ts");
+const shared_device_1 = require("lib/device/shared-device.ts");
+exports.PHONE_PRIVACY_EVENT = "olr-phone-privacy";
+function failure(reason) {
+    if (reason === "mismatch" || reason === "changed")
+        return { ok: false, message: offline_decisions_1.MISMATCHED_RECORDS };
+    if (reason === "pending" || reason === "not-ready" || reason === "none")
+        return { ok: false, message: offline_decisions_1.UNCHECKED_RECORDS };
+    return { ok: false, message: offline_decisions_1.UNREADABLE_RECORDS };
+}
+/// Runs the existing copy, then checks the backup again. A pending copy, a
+/// damaged database, or a backup that no longer matches the checked hash
+/// stops the phone. The backup text is not rewritten.
+async function acceptVerifiedCopy(factory, backup, state, importedFingerprint, importedPresence) {
+    const legacy = (0, legacy_validate_1.readLegacySource)(() => backup);
+    if (legacy.status === "unreadable" || legacy.status === "invalid")
+        return failure(legacy.status);
+    const legacyFingerprint = legacy.status === "ready" ? await (0, legacy_validate_1.fingerprintText)(legacy.raw) : null;
+    const source = (0, offline_decisions_1.decideQueueSource)({
+        legacy: legacy.status === "missing" ? { status: "ready", state: (0, shared_device_1.emptyDeviceState)() } : { status: "ready", state: legacy.state },
+        importStatus: "verified",
+        legacyFingerprint,
+        importedFingerprint,
+        legacyPresence: legacy.status === "missing" ? "missing" : "present",
+        importedPresence,
+    });
+    if (source.type === "stop")
+        return { ok: false, message: source.message };
+    if (source.type !== "indexed")
+        return failure("not-ready");
+    const active = await (0, local_db_1.readActiveAccount)(factory);
+    if (active === "unreadable")
+        return failure("unreadable");
+    return { ok: true, state, active, backup };
+}
+async function openVerifiedQueue(factory, readRaw) {
+    let first;
+    try {
+        first = readRaw();
+    }
+    catch {
+        return failure("unreadable");
+    }
+    // A verified copy is not compared to the backup row by row. New practice
+    // records live only in IndexedDB. Calling the copy again would treat those
+    // new rows as damage and hide them. Only the saved hash is checked.
+    const existing = await (0, local_db_1.inspectLocalDatabase)(factory);
+    if (existing.status === "verified" && existing.state) {
+        let latest;
+        try {
+            latest = readRaw();
+        }
+        catch {
+            return failure("unreadable");
+        }
+        if (latest !== first)
+            return { ok: false, message: offline_decisions_1.MISMATCHED_RECORDS };
+        return acceptVerifiedCopy(factory, latest, existing.state, existing.fingerprint, existing.presence);
+    }
+    const migrated = await (0, local_db_1.migrateLegacyDevice)(factory, () => first);
+    if (!migrated.ok)
+        return failure(migrated.reason);
+    let latest;
+    try {
+        latest = readRaw();
+    }
+    catch {
+        return failure("unreadable");
+    }
+    if (latest !== first)
+        return { ok: false, message: offline_decisions_1.MISMATCHED_RECORDS };
+    const inspected = await (0, local_db_1.inspectLocalDatabase)(factory);
+    if (inspected.status !== "verified" || !inspected.state)
+        return failure(inspected.status);
+    return acceptVerifiedCopy(factory, latest, inspected.state, inspected.fingerprint, inspected.presence);
+}
+async function withWaiting(factory, state) {
+    let catalog;
+    try {
+        catalog = await (0, local_attendance_1.readLocalCatalog)(factory);
+    }
+    catch {
+        return failure("unreadable");
+    }
+    if (!catalog.ok)
+        return { ok: false, message: catalog.message };
+    const merged = (0, offline_decisions_1.mergeWaitingItems)(state.items.map((item) => ({
+        id: item.id,
+        userId: item.userId,
+        centerId: item.centerId,
+        createdAt: item.createdAt,
+    })), catalog.events.map((event) => ({
+        clientEventId: event.clientEventId,
+        userId: event.userId,
+        centerId: event.centerId,
+        syncState: event.syncState,
+        queuedAt: event.recordedAt,
+    })));
+    if (!merged.ok)
+        return failure("unreadable");
+    return { ok: true, state: { lock: state.lock, items: merged.items, releases: state.releases } };
+}
+/// Lock first. Hide next. Ask the server last. A failed lock does not call revoke.
+async function performPhoneSignOut(input) {
+    const queue = await openVerifiedQueue(input.factory, input.readRaw);
+    if (!queue.ok) {
+        input.onPrivacy(queue.message, false);
+        return;
+    }
+    if (input.authSessionId.trim() === "" || input.account.userId.trim() === "" || input.account.centerId.trim() === "") {
+        input.onPrivacy((0, offline_decisions_1.decideSignOut)(false).message, false);
+        return;
+    }
+    const lock = {
+        lockId: crypto.randomUUID(),
+        userId: input.account.userId,
+        centerId: input.account.centerId,
+        authSessionId: input.authSessionId,
+    };
+    const written = await (input.writeLock ?? local_db_1.writeAccountLock)(input.factory, lock);
+    const decision = (0, offline_decisions_1.decideSignOut)(written);
+    input.onPrivacy(decision.message, decision.claimLocked);
+    if (!decision.mayCallServer)
+        return;
+    let revoked = false;
+    try {
+        revoked = await input.revoke();
+    }
+    catch {
+        revoked = false;
+    }
+    input.onPrivacy((0, offline_decisions_1.decideRevokeResult)({ lockWritten: true, serverRevoked: revoked }).message, true);
+}
+async function addVerifiedPractice(input) {
+    const queue = await openVerifiedQueue(input.factory, input.readRaw);
+    if (!queue.ok)
+        return queue;
+    const item = {
+        id: crypto.randomUUID(),
+        userId: input.account.userId,
+        centerId: input.account.centerId,
+        kind: "practice",
+        summary: "Practice record. No personal details.",
+        createdAt: new Date().toISOString(),
+    };
+    const saved = await (0, local_db_1.appendDeviceItem)(input.factory, item);
+    if (!saved)
+        return failure("unavailable");
+    const checked = await openVerifiedQueue(input.factory, input.readRaw);
+    if (!checked.ok)
+        return checked;
+    return { ok: true };
+}
+async function addVerifiedRelease(input) {
+    const queue = await openVerifiedQueue(input.factory, input.readRaw);
+    if (!queue.ok)
+        return queue;
+    if (!queue.state.lock || queue.state.lock.lockId !== input.release.lockId)
+        return failure("invalid");
+    if (queue.state.lock.userId !== input.release.userId || queue.state.lock.centerId !== input.release.centerId)
+        return failure("invalid");
+    const saved = await (0, local_db_1.appendDeviceRelease)(input.factory, input.release);
+    if (!saved)
+        return failure("unavailable");
+    return { ok: true };
+}
+async function waitingForAccount(input) {
+    const queue = await openVerifiedQueue(input.factory, input.readRaw);
+    if (!queue.ok)
+        return queue;
+    const waiting = await withWaiting(input.factory, queue.state);
+    if (!waiting.ok)
+        return waiting;
+    const count = waiting.state.items.filter((item) => item.userId === input.account.userId && item.centerId === input.account.centerId).length;
+    return { ok: true, count, state: waiting.state };
+}
+
+});
+  define("lib/device/revoke-session.ts", function (exports, require) {
+"use strict";
+// The page asks the server to end the sign-in. The cookie stays in the browser's
+// own request. This function does not read the cookie, and the service worker
+// is not given the session id.
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.revokeServerSession = revokeServerSession;
+async function revokeServerSession() {
+    try {
+        const response = await fetch("/session/revoke", {
+            method: "POST",
+            credentials: "same-origin",
+            cache: "no-store",
+        });
+        return response.ok;
+    }
+    catch {
+        return false;
+    }
+}
+
+});
   define("lib/device/persistence-status.ts", function (exports, require) {
 "use strict";
 // One look at whether this phone will keep saved marks. persist() is asked
@@ -2692,8 +3120,9 @@ exports.attendanceHref = attendanceHref;
 exports.planKioskShell = planKioskShell;
 exports.mountKioskShell = mountKioskShell;
 const storage_key_1 = require("lib/device/storage-key.ts");
-const shared_device_1 = require("lib/device/shared-device.ts");
 const offline_decisions_1 = require("lib/device/offline-decisions.ts");
+const phone_access_1 = require("lib/device/phone-access.ts");
+const revoke_session_1 = require("lib/device/revoke-session.ts");
 const local_attendance_1 = require("lib/device/local-attendance.ts");
 const persistence_status_1 = require("lib/device/persistence-status.ts");
 const storage_readiness_1 = require("lib/device/storage-readiness.ts");
@@ -2715,22 +3144,6 @@ function parseAttendancePath(pathname) {
 }
 function attendanceHref(sectionId, classSessionId) {
     return `/sections/${encodeURIComponent(sectionId)}/sessions/${encodeURIComponent(classSessionId)}/attendance`;
-}
-function readPhone(storage) {
-    if (!storage)
-        return { status: "unavailable" };
-    try {
-        const raw = storage.getItem(storage_key_1.DEVICE_STORAGE_KEY);
-        if (raw === null)
-            return { status: "ready", state: (0, shared_device_1.emptyDeviceState)() };
-        const parsed = (0, shared_device_1.parseDeviceState)(raw);
-        if (!parsed)
-            return { status: "unavailable" };
-        return { status: "ready", state: parsed };
-    }
-    catch {
-        return { status: "unavailable" };
-    }
 }
 function accountKey(account) {
     return `${account.centerId}\n${account.userId}`;
@@ -2907,6 +3320,11 @@ function paintClass(doc, root, plan, drafts, message, saving, actions) {
     save.disabled = saving || pending === 0;
     save.addEventListener("click", actions.onSave);
     blocks.push(save);
+    const signOut = el(doc, "button", "Sign out");
+    signOut.type = "button";
+    signOut.setAttribute("data-action", "sign-out");
+    signOut.addEventListener("click", actions.onSignOut);
+    blocks.push(signOut);
     if (message)
         blocks.push(el(doc, "p", message, "message"));
     const history = el(doc, "section");
@@ -2948,27 +3366,111 @@ async function mountKioskShell(doc, env = {}) {
         }
     }
     void showStorage();
-    async function draw(message, drafts, saving) {
+    // Once the roster is hidden, a later paint must not put the names back.
+    let sealed = false;
+    function seal(message) {
+        sealed = true;
         if (!status || !root)
             return;
-        if (!factory) {
-            status.textContent = offline_decisions_1.UNREADABLE_RECORDS;
-            root.replaceChildren();
+        status.textContent = message;
+        root.replaceChildren();
+    }
+    function readRaw() {
+        if (!storage)
+            throw new Error("backup unreadable");
+        return storage.getItem(storage_key_1.DEVICE_STORAGE_KEY);
+    }
+    let signingOut = null;
+    function signOut() {
+        if (!factory || sealed)
+            return;
+        void (0, phone_access_1.performPhoneSignOut)({
+            factory,
+            readRaw,
+            account: { userId: signingOut?.userId ?? "", centerId: signingOut?.centerId ?? "" },
+            authSessionId: signingOut?.authSessionId ?? "",
+            revoke: env.revoke ?? revoke_session_1.revokeServerSession,
+            onPrivacy: (message) => seal(message),
+        });
+    }
+    if (typeof window !== "undefined") {
+        window.addEventListener("storage", (event) => {
+            if (event.key === storage_key_1.DEVICE_STORAGE_KEY)
+                seal(offline_decisions_1.MISMATCHED_RECORDS);
+        });
+    }
+    async function draw(message, drafts, saving) {
+        if (!status || !root || sealed)
+            return;
+        if (!factory || !storage) {
+            seal(offline_decisions_1.UNREADABLE_RECORDS);
             return;
         }
+        const queue = await (0, phone_access_1.openVerifiedQueue)(factory, readRaw);
+        if (!queue.ok) {
+            seal(queue.message);
+            return;
+        }
+        if (queue.state.lock) {
+            seal(exports.PHONE_LOCKED);
+            if (queue.state.lock.authSessionId) {
+                let revoked = false;
+                try {
+                    revoked = await (env.revoke ?? revoke_session_1.revokeServerSession)();
+                }
+                catch {
+                    revoked = false;
+                }
+                seal((0, offline_decisions_1.decideRevokeResult)({ lockWritten: true, serverRevoked: revoked }).message);
+            }
+            return;
+        }
+        if (queue.active)
+            signingOut = queue.active;
         let catalog;
         try {
             catalog = await (0, local_attendance_1.readLocalCatalog)(factory);
         }
         catch {
-            status.textContent = offline_decisions_1.UNREADABLE_RECORDS;
+            seal(offline_decisions_1.UNREADABLE_RECORDS);
+            return;
+        }
+        if (!catalog.ok) {
+            // The class list uses the same stop sentence as a broken phone queue.
+            seal(offline_decisions_1.UNREADABLE_RECORDS);
+            return;
+        }
+        if (!queue.active) {
+            status.textContent = exports.OPEN_WHILE_CONNECTED;
             root.replaceChildren();
             return;
         }
-        const plan = planKioskShell({ catalog, stored: readPhone(storage), pathname, now: now() });
-        if (plan.kind === "unreadable") {
-            status.textContent = plan.message;
+        const accounts = new Set(catalog.snapshots.map((snapshot) => accountKey(snapshot)));
+        if (accounts.size > 1) {
+            status.textContent = exports.MORE_THAN_ONE_SIGN_IN;
             root.replaceChildren();
+            return;
+        }
+        const ownedSnapshots = catalog.snapshots.filter((snapshot) => snapshot.userId === queue.active?.userId && snapshot.centerId === queue.active.centerId);
+        if (catalog.snapshots.length > 0 && ownedSnapshots.length === 0) {
+            status.textContent = exports.OPEN_WHILE_CONNECTED;
+            root.replaceChildren();
+            return;
+        }
+        const ownedCatalog = {
+            ...catalog,
+            snapshots: ownedSnapshots,
+            rosters: catalog.rosters.filter((roster) => roster.userId === queue.active?.userId && roster.centerId === queue.active.centerId),
+            events: catalog.events.filter((event) => event.userId === queue.active?.userId && event.centerId === queue.active.centerId),
+        };
+        const plan = planKioskShell({
+            catalog: ownedCatalog,
+            stored: { status: "ready", state: { ...queue.state, lock: null } },
+            pathname,
+            now: now(),
+        });
+        if (plan.kind === "unreadable") {
+            seal(plan.message);
             return;
         }
         if (plan.kind === "notice") {
@@ -2988,27 +3490,39 @@ async function mountKioskShell(doc, env = {}) {
                     item.append(el(doc, "p", session.classTitle), el(doc, "p", session.whenLabel));
                 list.append(item);
             }
-            root.replaceChildren(list);
+            const signOutButton = el(doc, "button", "Sign out");
+            signOutButton.type = "button";
+            signOutButton.setAttribute("data-action", "sign-out");
+            signOutButton.addEventListener("click", signOut);
+            root.replaceChildren(list, signOutButton);
             return;
         }
         status.textContent = "Saved on this phone. It has not been sent.";
         const current = drafts ?? plan.learners.map((learner) => ({ ...learner }));
         paintClass(doc, root, plan, current, message, saving, {
             onStatus: (learnerId, attendanceStatus) => {
+                if (sealed)
+                    return;
                 const next = current.map((draft) => (draft.learnerId === learnerId ? (0, attendance_1.chooseStatus)(draft, attendanceStatus, local_attendance_1.newLocalEventId) : draft));
                 void draw(null, next, false);
             },
             onReason: (learnerId, reason) => {
+                if (sealed)
+                    return;
                 const next = current.map((draft) => (draft.learnerId === learnerId ? (0, attendance_1.chooseReason)(draft, reason, local_attendance_1.newLocalEventId) : draft));
                 void draw(null, next, false);
             },
             onSave: () => {
+                if (sealed)
+                    return;
                 void (async () => {
                     const serverIds = new Map(plan.serverRecordIds.map((learner) => [learner.learnerId, learner.serverAttendanceRecordId]));
                     const marks = (0, attendance_1.pendingMarks)(current).map((mark) => ({ ...mark, serverEventId: serverIds.get(mark.learnerId) ?? null }));
-                    if (marks.length === 0 || !factory)
+                    if (marks.length === 0 || !factory || sealed)
                         return;
                     await draw(null, current, true);
+                    if (sealed)
+                        return;
                     const result = await (0, local_attendance_1.saveLocalAttendance)({
                         factory,
                         storage: probe(),
@@ -3018,9 +3532,10 @@ async function mountKioskShell(doc, env = {}) {
                         marks,
                         phoneNow: now(),
                     });
-                    await draw(result.ok ? result.message : result.message, null, false);
+                    await draw(result.message, null, false);
                 })();
             },
+            onSignOut: signOut,
         });
     }
     try {

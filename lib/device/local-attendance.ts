@@ -529,6 +529,15 @@ export async function storeAuthorizedClass(input: {
         if (current === null) {
           await localRequest(tx.objectStore("meta").put({ key: "device", localDeviceId: deviceId }));
         }
+        // The shell may list classes only for the account that opened one online.
+        await localRequest(
+          tx.objectStore("meta").put({
+            key: "activeAccount",
+            userId: input.owner.userId,
+            centerId: input.owner.centerId,
+            authSessionId: input.clock.authSessionId,
+          }),
+        );
         await localRequest(tx.objectStore("snapshots").put({ ...snapshot, id }));
         await localRequest(tx.objectStore("rosters").put(roster));
         const storedSnapshot = parseSnapshot(await localRequest(tx.objectStore("snapshots").get(id)));
@@ -646,7 +655,13 @@ export async function saveLocalAttendance(input: {
 
   try {
     const view = await withDatabase(input.factory, async (db) => {
-      const expected = await runLocalTransaction(db, ATTENDANCE_STORES, "readwrite", async (tx) => {
+      const expected = await runLocalTransaction(db, [...ATTENDANCE_STORES, "deviceLock"], "readwrite", async (tx) => {
+        const lockRow = await localRequest(tx.objectStore("deviceLock").get("current"));
+        if (lockRow !== undefined) {
+          if (!isRecord(lockRow) || !("lock" in lockRow)) throw new LocalStop(UNREADABLE);
+          // A lock hides the class. Saving another mark would keep private data on screen.
+          if (lockRow.lock !== null) throw new LocalStop("This phone is locked. The class list stays hidden.");
+        }
         const id = attendanceRecordId(input.owner, scope.sectionId, scope.classSessionId);
         const snapshot = parseSnapshot(await localRequest(tx.objectStore("snapshots").get(id)));
         if (!snapshot) throw new LocalStop(NO_SNAPSHOT);

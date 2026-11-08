@@ -1,87 +1,22 @@
 "use client";
 
-import type { StoredDevice } from "./phone-check";
-import {
-  addDeviceItem,
-  addRelease,
-  clearLock,
-  emptyDeviceState,
-  lockDevice,
-  parseDeviceState,
-  type DeviceState,
-} from "./shared-device";
 import { DEVICE_STORAGE_KEY } from "./storage-key";
 
-const STORAGE_KEY = DEVICE_STORAGE_KEY;
+// The backup is frozen after the IndexedDB copy is verified. This file only
+// reads it. Writing here would change the checked text and make the next
+// open look like a damaged phone. An older tab can still write. The queue
+// check compares the text and stops when it has changed.
 
-function readRaw(): string | null {
-  return localStorage.getItem(STORAGE_KEY);
+export function readDeviceBackup(): string | null {
+  return localStorage.getItem(DEVICE_STORAGE_KEY);
 }
 
-export function loadDevice(): DeviceState {
-  const raw = readRaw();
-  if (raw === null) return emptyDeviceState();
-  return parseDeviceState(raw) ?? emptyDeviceState();
-}
-
-// The opening check uses this instead of loadDevice(). A missing key is a phone
-// with nothing saved. A broken value is not an empty queue: replacing it, or
-// treating it as empty, could hide unsent records and let the next person in.
-export function readStoredDevice(): StoredDevice {
-  try {
-    const raw = readRaw();
-    if (raw === null) return { status: "ready", state: emptyDeviceState() };
-    const parsed = parseDeviceState(raw);
-    if (parsed === null) return { status: "unavailable" };
-    return { status: "ready", state: parsed };
-  } catch {
-    return { status: "unavailable" };
-  }
-}
-
-// A broken saved value is left in place. Replacing it would delete unsent records.
-export function saveDevice(state: DeviceState): boolean {
-  try {
-    const existing = readRaw();
-    if (existing !== null && parseDeviceState(existing) === null) return false;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function lockCurrentAccount(userId: string, centerId: string): boolean {
-  const lockId = crypto.randomUUID();
-  const next = lockDevice(loadDevice(), { lockId, userId, centerId });
-  return saveDevice(next);
-}
-
-export function rememberRelease(release: {
-  userId: string;
-  centerId: string;
-  lockId: string;
-  itemCount: number;
-}): boolean {
-  return saveDevice(addRelease(loadDevice(), release));
-}
-
-export function unlockCurrentDevice(): boolean {
-  return saveDevice(clearLock(loadDevice()));
-}
-
-export function savePracticeRecord(userId: string, centerId: string): boolean {
-  const item = {
-    id: crypto.randomUUID(),
-    userId,
-    centerId,
-    kind: "practice",
-    summary: "Practice record. No personal details.",
-    createdAt: new Date().toISOString(),
+/// Fires when another tab writes the backup. The `storage` event does not
+/// fire in the tab that wrote the value, so this tab also re-reads on open.
+export function watchDeviceBackup(onChanged: () => void): () => void {
+  const handler = (event: StorageEvent) => {
+    if (event.key === DEVICE_STORAGE_KEY) onChanged();
   };
-  return saveDevice(addDeviceItem(loadDevice(), item));
-}
-
-export function waitingCount(userId: string): number {
-  return loadDevice().items.filter((item) => item.userId === userId).length;
+  window.addEventListener("storage", handler);
+  return () => window.removeEventListener("storage", handler);
 }

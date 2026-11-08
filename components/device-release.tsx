@@ -4,34 +4,78 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useActionState } from "react";
 import { releaseDevice, type ReleaseState } from "@/app/actions/auth";
-import { rememberRelease, loadDevice } from "@/lib/device/browser";
-import type { DeviceState } from "@/lib/device/shared-device";
+import { readDeviceBackup } from "@/lib/device/browser";
+import { addVerifiedRelease, waitingForAccount } from "@/lib/device/phone-access";
+import { UNREADABLE_RECORDS } from "@/lib/device/offline-decisions";
+import type { DeviceLock } from "@/lib/device/shared-device";
 import { Shell, buttonClass, inputClass, labelClass } from "./ui";
 
 const initial: ReleaseState = {};
 
 export function DeviceReleaseScreen() {
-  const [snap, setSnap] = useState<DeviceState | null>(null);
+  const [lock, setLock] = useState<DeviceLock | null | undefined>(undefined);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [storedRelease, setStoredRelease] = useState(false);
   const [state, action, pending] = useActionState(releaseDevice, initial);
 
   useEffect(() => {
-    setSnap(loadDevice());
+    let cancelled = false;
+    void (async () => {
+      const queue = await waitingForAccount({
+        factory: indexedDB,
+        readRaw: readDeviceBackup,
+        account: { userId: "pending", centerId: "pending" },
+      });
+      if (cancelled) return;
+      if (!queue.ok) {
+        setProblem(queue.message);
+        setLock(null);
+        return;
+      }
+      setLock(queue.state.lock);
+      const owner = queue.state.lock;
+      setPendingCount(
+        owner
+          ? queue.state.items.filter((item) => item.userId === owner.userId && item.centerId === owner.centerId).length
+          : 0,
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    if (!state.ok || !snap?.lock) return;
-    const pendingItems = snap.items.filter(
-      (item) => item.userId === snap.lock?.userId && item.centerId === snap.lock?.centerId,
-    );
-    rememberRelease({
-      userId: snap.lock.userId,
-      centerId: snap.lock.centerId,
-      lockId: snap.lock.lockId,
-      itemCount: pendingItems.length,
-    });
-  }, [snap, state.ok]);
+    if (!state.ok || !lock || storedRelease) return;
+    let cancelled = false;
+    void (async () => {
+      const saved = await addVerifiedRelease({
+        factory: indexedDB,
+        readRaw: readDeviceBackup,
+        release: { userId: lock.userId, centerId: lock.centerId, lockId: lock.lockId, itemCount: pendingCount },
+      });
+      if (cancelled) return;
+      if (!saved.ok) {
+        setProblem(saved.message || UNREADABLE_RECORDS);
+        return;
+      }
+      setStoredRelease(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [lock, pendingCount, state.ok, storedRelease]);
 
-  if (!snap) {
+  if (problem) {
+    return (
+      <Shell title="Checking this phone">
+        <p className="text-lg">{problem}</p>
+      </Shell>
+    );
+  }
+
+  if (lock === undefined) {
     return (
       <Shell title="Checking this phone">
         <p className="text-lg">One moment.</p>
@@ -39,19 +83,15 @@ export function DeviceReleaseScreen() {
     );
   }
 
-  const pendingItems = snap.lock
-    ? snap.items.filter((item) => item.userId === snap.lock?.userId && item.centerId === snap.lock?.centerId)
-    : [];
-
   return (
     <Shell
       title="This phone is locked"
       lede="Records waiting to send were kept. They are not deleted, and the next person cannot open them."
     >
-      {snap.lock && pendingItems.length > 0 ? (
+      {lock && pendingCount > 0 ? (
         <p className="text-lg leading-7">
-          {pendingItems.length} record{pendingItems.length === 1 ? "" : "s"} still waiting. The same person can sign in
-          again, or a teacher, director, or admin can write a handover note.
+          {pendingCount} record{pendingCount === 1 ? "" : "s"} still waiting. The same person can sign in again, or a
+          teacher, director, or admin can write a handover note.
         </p>
       ) : (
         <p className="text-lg leading-7">No unsent records are blocking the next sign-in.</p>
@@ -64,16 +104,16 @@ export function DeviceReleaseScreen() {
           Staff sign-in
         </Link>
       </p>
-      {snap.lock && pendingItems.length > 0 ? (
+      {lock && pendingCount > 0 ? (
         <form action={action} className="flex flex-col gap-4">
           <h2 className="text-xl font-semibold">Handover note</h2>
           <p className="text-lg leading-7">
             A teacher, director, or admin confirms their password to write the note. This does not open their home page.
             Do not type a PIN, a password, or a family story in the reason.
           </p>
-          <input type="hidden" name="fromUserId" value={snap.lock.userId} />
-          <input type="hidden" name="centerId" value={snap.lock.centerId} />
-          <input type="hidden" name="itemCount" value={String(pendingItems.length)} />
+          <input type="hidden" name="fromUserId" value={lock.userId} />
+          <input type="hidden" name="centerId" value={lock.centerId} />
+          <input type="hidden" name="itemCount" value={String(pendingCount)} />
           <label className={labelClass}>
             Staff email
             <input className={inputClass} name="email" type="email" required />
@@ -95,13 +135,13 @@ export function DeviceReleaseScreen() {
               {state.error}
             </p>
           ) : null}
-          {state.ok ? (
+          {storedRelease ? (
             <p className="text-lg font-medium">
               The note is saved. The unsent records stay on this phone for the previous account. The next person can
               sign in.
             </p>
           ) : null}
-          <button className={buttonClass} type="submit" disabled={pending || state.ok}>
+          <button className={buttonClass} type="submit" disabled={pending || storedRelease}>
             {pending ? "Saving…" : "Save the handover note"}
           </button>
         </form>

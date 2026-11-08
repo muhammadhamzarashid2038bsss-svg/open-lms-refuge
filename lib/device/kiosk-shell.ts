@@ -8,13 +8,16 @@
 // Pending marks are never deleted here.
 
 import { DEVICE_STORAGE_KEY } from "./storage-key";
-import { emptyDeviceState, parseDeviceState } from "./shared-device";
 import {
+  MISMATCHED_RECORDS,
   UNREADABLE_RECORDS,
   assessSnapshot,
+  decideRevokeResult,
   decideSharedPhone,
   type AccountRef,
 } from "./offline-decisions";
+import { openVerifiedQueue, performPhoneSignOut } from "./phone-access";
+import { revokeServerSession } from "./revoke-session";
 import type { StoredDevice } from "./phone-check";
 import {
   applyLocalEvents,
@@ -82,19 +85,6 @@ export type ShellPlan =
       serverRecordIds: { learnerId: string; serverAttendanceRecordId: string | null }[];
       history: { clientEventId: string; displayName: string; summary: string; correction: boolean }[];
     };
-
-function readPhone(storage: { getItem(key: string): string | null } | null): StoredDevice {
-  if (!storage) return { status: "unavailable" };
-  try {
-    const raw = storage.getItem(DEVICE_STORAGE_KEY);
-    if (raw === null) return { status: "ready", state: emptyDeviceState() };
-    const parsed = parseDeviceState(raw);
-    if (!parsed) return { status: "unavailable" };
-    return { status: "ready", state: parsed };
-  } catch {
-    return { status: "unavailable" };
-  }
-}
 
 function accountKey(account: AccountRef): string {
   return `${account.centerId}\n${account.userId}`;
@@ -252,6 +242,7 @@ export type KioskEnv = {
   localStorage?: { getItem(key: string): string | null };
   storage?: StorageProbe | null;
   now?: Date;
+  revoke?: () => Promise<boolean>;
 };
 
 function el(doc: KioskDocument, tag: string, text?: string, className?: string): KioskNode {
@@ -272,6 +263,7 @@ function paintClass(
     onStatus: (learnerId: string, status: AttendanceStatusName) => void;
     onReason: (learnerId: string, reason: AbsenceReasonName) => void;
     onSave: () => void;
+    onSignOut: () => void;
   },
 ) {
   const pending = pendingMarks(drafts).length;
@@ -325,6 +317,11 @@ function paintClass(
   save.disabled = saving || pending === 0;
   save.addEventListener("click", actions.onSave);
   blocks.push(save);
+  const signOut = el(doc, "button", "Sign out");
+  signOut.type = "button";
+  signOut.setAttribute("data-action", "sign-out");
+  signOut.addEventListener("click", actions.onSignOut);
+  blocks.push(signOut);
   if (message) blocks.push(el(doc, "p", message, "message"));
   const history = el(doc, "section");
   history.append(el(doc, "h2", "On this phone"));
@@ -363,25 +360,111 @@ export async function mountKioskShell(doc: KioskDocument, env: KioskEnv = {}): P
   }
   void showStorage();
 
-  async function draw(message: string | null, drafts: LearnerDraft[] | null, saving: boolean) {
+  // Once the roster is hidden, a later paint must not put the names back.
+  let sealed = false;
+  function seal(message: string) {
+    sealed = true;
     if (!status || !root) return;
-    if (!factory) {
-      status.textContent = UNREADABLE_RECORDS;
-      root.replaceChildren();
+    status.textContent = message;
+    root.replaceChildren();
+  }
+  function readRaw(): string | null {
+    if (!storage) throw new Error("backup unreadable");
+    return storage.getItem(DEVICE_STORAGE_KEY);
+  }
+  let signingOut: { userId: string; centerId: string; authSessionId: string } | null = null;
+  function signOut() {
+    if (!factory || sealed) return;
+    void performPhoneSignOut({
+      factory,
+      readRaw,
+      account: { userId: signingOut?.userId ?? "", centerId: signingOut?.centerId ?? "" },
+      authSessionId: signingOut?.authSessionId ?? "",
+      revoke: env.revoke ?? revokeServerSession,
+      onPrivacy: (message) => seal(message),
+    });
+  }
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", (event) => {
+      if (event.key === DEVICE_STORAGE_KEY) seal(MISMATCHED_RECORDS);
+    });
+  }
+
+  async function draw(message: string | null, drafts: LearnerDraft[] | null, saving: boolean) {
+    if (!status || !root || sealed) return;
+    if (!factory || !storage) {
+      seal(UNREADABLE_RECORDS);
       return;
     }
+    const queue = await openVerifiedQueue(factory, readRaw);
+    if (!queue.ok) {
+      seal(queue.message);
+      return;
+    }
+    if (queue.state.lock) {
+      seal(PHONE_LOCKED);
+      if (queue.state.lock.authSessionId) {
+        let revoked = false;
+        try {
+          revoked = await (env.revoke ?? revokeServerSession)();
+        } catch {
+          revoked = false;
+        }
+        seal(decideRevokeResult({ lockWritten: true, serverRevoked: revoked }).message);
+      }
+      return;
+    }
+    if (queue.active) signingOut = queue.active;
     let catalog: LocalCatalog;
     try {
       catalog = await readLocalCatalog(factory);
     } catch {
-      status.textContent = UNREADABLE_RECORDS;
+      seal(UNREADABLE_RECORDS);
+      return;
+    }
+    if (!catalog.ok) {
+      // The class list uses the same stop sentence as a broken phone queue.
+      seal(UNREADABLE_RECORDS);
+      return;
+    }
+    if (!queue.active) {
+      status.textContent = OPEN_WHILE_CONNECTED;
       root.replaceChildren();
       return;
     }
-    const plan = planKioskShell({ catalog, stored: readPhone(storage), pathname, now: now() });
-    if (plan.kind === "unreadable") {
-      status.textContent = plan.message;
+    const accounts = new Set(catalog.snapshots.map((snapshot) => accountKey(snapshot)));
+    if (accounts.size > 1) {
+      status.textContent = MORE_THAN_ONE_SIGN_IN;
       root.replaceChildren();
+      return;
+    }
+    const ownedSnapshots = catalog.snapshots.filter(
+      (snapshot) => snapshot.userId === queue.active?.userId && snapshot.centerId === queue.active.centerId,
+    );
+    if (catalog.snapshots.length > 0 && ownedSnapshots.length === 0) {
+      status.textContent = OPEN_WHILE_CONNECTED;
+      root.replaceChildren();
+      return;
+    }
+    const ownedCatalog: LocalCatalog = {
+      ...catalog,
+      snapshots: ownedSnapshots,
+      rosters: catalog.rosters.filter(
+        (roster) => roster.userId === queue.active?.userId && roster.centerId === queue.active.centerId,
+      ),
+      events: catalog.events.filter(
+        (event) => event.userId === queue.active?.userId && event.centerId === queue.active.centerId,
+      ),
+    };
+    const plan = planKioskShell({
+      catalog: ownedCatalog,
+      stored: { status: "ready", state: { ...queue.state, lock: null } },
+      pathname,
+      now: now(),
+    });
+    if (plan.kind === "unreadable") {
+      seal(plan.message);
       return;
     }
     if (plan.kind === "notice") {
@@ -400,26 +483,34 @@ export async function mountKioskShell(doc: KioskDocument, env: KioskEnv = {}): P
         if (session.kind === "named") item.append(el(doc, "p", session.classTitle), el(doc, "p", session.whenLabel));
         list.append(item);
       }
-      root.replaceChildren(list);
+      const signOutButton = el(doc, "button", "Sign out");
+      signOutButton.type = "button";
+      signOutButton.setAttribute("data-action", "sign-out");
+      signOutButton.addEventListener("click", signOut);
+      root.replaceChildren(list, signOutButton);
       return;
     }
     status.textContent = "Saved on this phone. It has not been sent.";
     const current = drafts ?? plan.learners.map((learner) => ({ ...learner }));
     paintClass(doc, root, plan, current, message, saving, {
       onStatus: (learnerId, attendanceStatus) => {
+        if (sealed) return;
         const next = current.map((draft) => (draft.learnerId === learnerId ? chooseStatus(draft, attendanceStatus, newLocalEventId) : draft));
         void draw(null, next, false);
       },
       onReason: (learnerId, reason) => {
+        if (sealed) return;
         const next = current.map((draft) => (draft.learnerId === learnerId ? chooseReason(draft, reason, newLocalEventId) : draft));
         void draw(null, next, false);
       },
       onSave: () => {
+        if (sealed) return;
         void (async () => {
           const serverIds = new Map(plan.serverRecordIds.map((learner) => [learner.learnerId, learner.serverAttendanceRecordId]));
           const marks = pendingMarks(current).map((mark) => ({ ...mark, serverEventId: serverIds.get(mark.learnerId) ?? null }));
-          if (marks.length === 0 || !factory) return;
+          if (marks.length === 0 || !factory || sealed) return;
           await draw(null, current, true);
+          if (sealed) return;
           const result = await saveLocalAttendance({
             factory,
             storage: probe(),
@@ -429,9 +520,10 @@ export async function mountKioskShell(doc: KioskDocument, env: KioskEnv = {}): P
             marks,
             phoneNow: now(),
           });
-          await draw(result.ok ? result.message : result.message, null, false);
+          await draw(result.message, null, false);
         })();
       },
+      onSignOut: signOut,
     });
   }
 

@@ -27,6 +27,8 @@ export type DeviceLock = {
   lockId: string;
   userId: string;
   centerId: string;
+  // Present on a lock written at sign-out. A copied Day 3 lock does not have it.
+  authSessionId?: string;
 };
 
 export type DeviceState = {

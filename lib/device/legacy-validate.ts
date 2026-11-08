@@ -61,6 +61,8 @@ function copyLock(value: unknown): DeviceLock | null {
   const copy = jsonCopy(value);
   if (!copy) return null;
   if (!presentString(copy.lockId) || !presentString(copy.userId) || !presentString(copy.centerId)) return null;
+  // A missing session id is an older lock. A blank one is damaged.
+  if ("authSessionId" in copy && !presentString(copy.authSessionId)) return null;
   return copy as DeviceLock;
 }
 

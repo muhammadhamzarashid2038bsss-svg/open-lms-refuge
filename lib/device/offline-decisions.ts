@@ -38,7 +38,7 @@ export const UNCHECKED_RECORDS =
   "This phone's saved records could not be checked. They were not deleted. Do not hand the phone over yet.";
 
 const LOCK_FAILED =
-  "This phone could not lock the saved records. Sign-out was not completed. Do not hand it over yet.";
+  "This phone could not lock the saved records. Sign-out was not completed. Do not hand the phone over yet.";
 
 const LOCKED_WAITING =
   "This phone is locked. The sign-in on the server will end when the phone can reach it. Marks waiting to send are still here.";
@@ -250,11 +250,21 @@ export function decideQueueSource(input: {
   importStatus: "none" | "pending" | "verified";
   legacyFingerprint: string | null;
   importedFingerprint: string | null;
+  // A phone that never had a backup is verified with no text to hash.
+  // A present backup with a missing hash is still unreadable.
+  legacyPresence?: "missing" | "present" | null;
+  importedPresence?: "missing" | "present" | null;
 }): QueueSource {
   if (input.importStatus === "pending") return { type: "stop", message: UNCHECKED_RECORDS };
   if (input.legacy.status === "loading") return { type: "wait" };
   if (input.legacy.status === "unavailable") return { type: "stop", message: UNREADABLE_RECORDS };
   if (input.importStatus === "none") return { type: "legacy" };
+  const emptyBackup =
+    input.legacyPresence === "missing" &&
+    input.importedPresence === "missing" &&
+    input.legacyFingerprint === null &&
+    input.importedFingerprint === null;
+  if (emptyBackup) return { type: "indexed" };
   if (!present(input.legacyFingerprint) || !present(input.importedFingerprint)) {
     return { type: "stop", message: UNREADABLE_RECORDS };
   }
