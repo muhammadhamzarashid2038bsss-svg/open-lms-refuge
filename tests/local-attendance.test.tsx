@@ -32,6 +32,25 @@ const owner = { userId: "user-a", centerId: "center-a" };
 const sectionId = "section-1";
 const classSessionId = "session-1";
 const scope = { sectionId, classSessionId };
+const labels = {
+  sectionName: "Morning group",
+  classTitle: "Literacy class",
+  whenLabel: "Monday 9 Nov, 09:00 to 10:00",
+};
+
+function listed(
+  rows: typeof learners,
+  marks: Record<string, { serverAttendanceRecordId: string; serverStatus: AttendanceStatusName; serverReasonCode: AbsenceReasonName | null }> = {},
+) {
+  return rows.map((learner) => ({
+    learnerId: learner.learnerId,
+    displayName: learner.displayName,
+    learnerCode: learner.learnerCode,
+    serverAttendanceRecordId: marks[learner.learnerId]?.serverAttendanceRecordId ?? null,
+    serverStatus: marks[learner.learnerId]?.serverStatus ?? null,
+    serverReasonCode: marks[learner.learnerId]?.serverReasonCode ?? null,
+  }));
+}
 
 const learners = [
   { learnerId: "learner-01", displayName: "Demo Learner 01", learnerCode: "LNR-0001" },
@@ -98,8 +117,9 @@ async function prepared() {
     owner,
     sectionId,
     classSessionId,
+    ...labels,
     clock: clock(),
-    learners,
+    learners: listed(learners),
     phoneNow,
   });
   expect(stored.ok).toBe(true);
@@ -210,6 +230,18 @@ describe("local attendance", () => {
   it("keeps the earlier event and links a correction to it", async () => {
     const db = await prepared();
     const serverEventId = "server-event-0001";
+    const restored = await storeAuthorizedClass({
+      factory: db.factory,
+      storage: roomy,
+      owner,
+      sectionId,
+      classSessionId,
+      ...labels,
+      clock: clock(),
+      phoneNow,
+      learners: listed(learners, { "learner-01": { serverAttendanceRecordId: serverEventId, serverStatus: "ABSENT", serverReasonCode: "ILLNESS" } }),
+    });
+    expect(restored.ok).toBe(true);
     const original = mark("learner-01", "ABSENT", "ILLNESS", serverEventId);
     const correction = mark("learner-01", "LATE", null, serverEventId);
     await saveLocalAttendance({ factory: db.factory, storage: roomy, owner, ...scope, marks: [original], phoneNow });
@@ -236,6 +268,18 @@ describe("local attendance", () => {
   it("links a first local correction to the server record", async () => {
     const db = await prepared();
     const serverEventId = "server-event-0002";
+    const restored = await storeAuthorizedClass({
+      factory: db.factory,
+      storage: roomy,
+      owner,
+      sectionId,
+      classSessionId,
+      ...labels,
+      clock: clock(),
+      phoneNow,
+      learners: listed(learners, { "learner-02": { serverAttendanceRecordId: serverEventId, serverStatus: "EXCUSED", serverReasonCode: "FAMILY_CARE" } }),
+    });
+    expect(restored.ok).toBe(true);
     const result = await saveLocalAttendance({
       factory: db.factory,
       storage: roomy,
@@ -267,8 +311,9 @@ describe("local attendance", () => {
       owner: other,
       sectionId,
       classSessionId,
+      ...labels,
       clock: clock(),
-      learners,
+      learners: listed(learners),
       phoneNow,
     });
     await saveLocalAttendance({
@@ -329,8 +374,9 @@ describe("local attendance", () => {
       owner,
       sectionId,
       classSessionId,
+      ...labels,
       clock: expiredClock,
-      learners,
+      learners: listed(learners),
       phoneNow,
     });
     expect(expired.ok).toBe(false);
@@ -456,8 +502,9 @@ describe("local attendance", () => {
       owner,
       sectionId,
       classSessionId,
+      ...labels,
       clock: clock(),
-      learners,
+      learners: listed(learners),
       phoneNow,
       storage: { persist: async () => true, estimate: async () => ({ usage: 20, quota: 20 }) },
     });
@@ -474,13 +521,21 @@ describe("local attendance", () => {
       owner,
       sectionId,
       classSessionId,
+      ...labels,
       clock: clock(),
       phoneNow,
-      learners: [{ ...learners[0]!, note: "family story", phone: "555" } as (typeof learners)[number]],
+      learners: [Object.assign(listed([learners[0]!])[0]!, { note: "family story", phone: "555" })],
     });
     expect(stored.ok).toBe(true);
     const roster = (await rows(db.real, "rosters")) as { learners: Record<string, string>[] }[];
-    expect(Object.keys(roster[0]!.learners[0]!).sort()).toEqual(["displayName", "learnerCode", "learnerId"]);
+    expect(Object.keys(roster[0]!.learners[0]!).sort()).toEqual([
+      "displayName",
+      "learnerCode",
+      "learnerId",
+      "serverAttendanceRecordId",
+      "serverReasonCode",
+      "serverStatus",
+    ]);
     const snapshot = JSON.stringify(await rows(db.real, "snapshots"));
     expect(snapshot).not.toContain("family story");
     expect(snapshot).not.toContain("pin");

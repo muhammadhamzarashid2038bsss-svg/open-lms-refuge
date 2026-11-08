@@ -1,6 +1,7 @@
 // Attendance marks kept on the phone before a later stage can send them.
-// IndexedDB is not encrypted. This file stores the class list and the marks
-// for one signed-in center account, and nothing else about a learner.
+// IndexedDB is not encrypted. This file stores the class list, the class name,
+// the mark already on the server, and the marks for one signed-in center account.
+// It does not store a meeting link or a course title.
 //
 // A correction is a new row. The phone clock is stored as a note on the row
 // and is never used to decide which correction is newest. The rising sequence
@@ -20,6 +21,7 @@ import {
   isAbsenceReason,
   isAttendanceStatus,
   normalizeAttendanceBatch,
+  reasonAllowedFor,
   type AbsenceReasonName,
   type AttendanceLearnerRow,
   type AttendanceStatusName,
@@ -37,6 +39,9 @@ const UNREADABLE = "This phone's saved attendance could not be read. It was not 
 const EXPIRED = "This sign-in is no longer valid for saving on this phone. The marks were not stored.";
 const OTHER_ACCOUNT = "These marks belong to a different sign-in. They were not stored.";
 const NO_SNAPSHOT = "Open this class while connected before saving on this phone. The marks were not stored.";
+export const OUTDATED_SNAPSHOT = "Open this class again while connected before correcting attendance. The marks already on this phone were kept.";
+/// Rows written by this version. The IndexedDB database stays at version 1.
+export const SNAPSHOT_FORMAT = 1;
 const NOT_ON_ROSTER = "That learner is not on the saved class list. The marks were not stored.";
 const DUPLICATE = "This save id was already used for a different mark. It was not stored.";
 const BAD_LINK = "The earlier attendance record could not be linked. The mark was not stored.";
@@ -56,6 +61,12 @@ export type LocalRosterLearner = {
   learnerId: string;
   displayName: string;
   learnerCode: string;
+  /// False means this row was saved before the server mark was kept.
+  /// The nulls below are then unknown, not a genuinely unmarked learner.
+  serverKnown: boolean;
+  serverAttendanceRecordId: string | null;
+  serverStatus: AttendanceStatusName | null;
+  serverReasonCode: AbsenceReasonName | null;
 };
 
 export type LocalRoster = {
@@ -65,7 +76,25 @@ export type LocalRoster = {
   localDeviceId: string;
   sectionId: string;
   classSessionId: string;
+  formatVersion: 1 | null;
   learners: LocalRosterLearner[];
+};
+
+export type StoredSnapshot = AuthSnapshot & {
+  localDeviceId: string;
+  formatVersion: 1 | null;
+  sectionName: string | null;
+  classTitle: string | null;
+  whenLabel: string | null;
+};
+
+export type ServerMarkInput = {
+  learnerId: string;
+  displayName: string;
+  learnerCode: string;
+  serverAttendanceRecordId: string | null;
+  serverStatus: AttendanceStatusName | null;
+  serverReasonCode: AbsenceReasonName | null;
 };
 
 export type LocalAttendanceEvent = FutureAttendanceEvent & {
@@ -155,7 +184,18 @@ function sequenceOf(value: unknown, owner: AccountRef): number | null | "bad" {
   return value.next as number;
 }
 
-function parseSnapshot(value: unknown): (AuthSnapshot & { localDeviceId: string }) | null {
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function labelText(value: unknown): string | null {
+  if (!present(value)) return null;
+  const text = value.trim();
+  if (text.length < 1 || text.length > 200) return null;
+  return text;
+}
+
+function parseSnapshot(value: unknown): StoredSnapshot | null {
   if (!isRecord(value)) return null;
   const snapshot = {
     centerId: value.centerId,
@@ -174,13 +214,48 @@ function parseSnapshot(value: unknown): (AuthSnapshot & { localDeviceId: string 
   if (snapshot.revokedAt !== null && !present(snapshot.revokedAt)) return null;
   const text = Object.values(snapshot).every((item) => item === null || typeof item === "string");
   if (!text) return null;
-  return snapshot as AuthSnapshot & { localDeviceId: string };
+  const sectionName = labelText(value.sectionName);
+  const classTitle = labelText(value.classTitle);
+  const whenLabel = labelText(value.whenLabel);
+  const current = value.formatVersion === SNAPSHOT_FORMAT && sectionName !== null && classTitle !== null && whenLabel !== null;
+  return {
+    ...(snapshot as AuthSnapshot & { localDeviceId: string }),
+    formatVersion: current ? SNAPSHOT_FORMAT : null,
+    sectionName: current ? sectionName : null,
+    classTitle: current ? classTitle : null,
+    whenLabel: current ? whenLabel : null,
+  };
+}
+
+function parseServerMark(value: Record<string, unknown>): Pick<LocalRosterLearner, "serverKnown" | "serverAttendanceRecordId" | "serverStatus" | "serverReasonCode"> | null {
+  const keys = ["serverAttendanceRecordId", "serverStatus", "serverReasonCode"] as const;
+  if (!keys.every((key) => hasOwn(value, key))) {
+    return { serverKnown: false, serverAttendanceRecordId: null, serverStatus: null, serverReasonCode: null };
+  }
+  const serverAttendanceRecordId = value.serverAttendanceRecordId;
+  const serverStatus = value.serverStatus;
+  const serverReasonCode = value.serverReasonCode;
+  if (serverAttendanceRecordId === null && serverStatus === null && serverReasonCode === null) {
+    return { serverKnown: true, serverAttendanceRecordId: null, serverStatus: null, serverReasonCode: null };
+  }
+  if (typeof serverAttendanceRecordId !== "string" || !SAFE_ID.test(serverAttendanceRecordId)) return null;
+  if (typeof serverStatus !== "string" || !isAttendanceStatus(serverStatus)) return null;
+  if (serverReasonCode !== null && (typeof serverReasonCode !== "string" || !isAbsenceReason(serverReasonCode))) return null;
+  if (serverReasonCode !== null && !reasonAllowedFor(serverStatus)) return null;
+  return { serverKnown: true, serverAttendanceRecordId, serverStatus, serverReasonCode };
 }
 
 function parseLearner(value: unknown): LocalRosterLearner | null {
   if (!isRecord(value)) return null;
   if (!present(value.learnerId) || !present(value.displayName) || !present(value.learnerCode)) return null;
-  return { learnerId: value.learnerId, displayName: value.displayName, learnerCode: value.learnerCode };
+  const server = parseServerMark(value);
+  if (!server) return null;
+  return {
+    learnerId: value.learnerId,
+    displayName: value.displayName,
+    learnerCode: value.learnerCode,
+    ...server,
+  };
 }
 
 function parseRoster(value: unknown): LocalRoster | null {
@@ -191,19 +266,20 @@ function parseRoster(value: unknown): LocalRoster | null {
     if (!parsed) return null;
     learners.push(parsed);
   }
-  const roster = {
-    id: value.id,
-    centerId: value.centerId,
-    userId: value.userId,
-    localDeviceId: value.localDeviceId,
-    sectionId: value.sectionId,
-    classSessionId: value.classSessionId,
-    learners,
-  };
-  if (!present(roster.id) || !present(roster.centerId) || !present(roster.userId)) return null;
-  if (!present(roster.localDeviceId) || !DEVICE_ID.test(roster.localDeviceId)) return null;
-  if (!present(roster.sectionId) || !present(roster.classSessionId)) return null;
-  return roster;
+  const id = value.id;
+  const centerId = value.centerId;
+  const userId = value.userId;
+  const localDeviceId = value.localDeviceId;
+  const sectionId = value.sectionId;
+  const classSessionId = value.classSessionId;
+  if (!present(id) || !present(centerId) || !present(userId)) return null;
+  if (!present(localDeviceId) || !DEVICE_ID.test(localDeviceId)) return null;
+  if (!present(sectionId) || !present(classSessionId)) return null;
+  const known = learners.length === 0 || learners.every((learner) => learner.serverKnown);
+  const legacy = learners.every((learner) => !learner.serverKnown);
+  if (!known && !legacy) return null;
+  const formatVersion = value.formatVersion === SNAPSHOT_FORMAT && known ? SNAPSHOT_FORMAT : null;
+  return { id, centerId, userId, localDeviceId, sectionId, classSessionId, learners, formatVersion };
 }
 
 function parseEvent(value: unknown): LocalAttendanceEvent | null {
@@ -212,8 +288,10 @@ function parseEvent(value: unknown): LocalAttendanceEvent | null {
   if (!present(value.centerId) || !present(value.userId) || !present(value.sectionId)) return null;
   if (!present(value.classSessionId) || !present(value.learnerId) || !present(value.recordedAt)) return null;
   if (!present(value.localDeviceId) || !DEVICE_ID.test(value.localDeviceId)) return null;
-  if (!isAttendanceStatus(String(value.status))) return null;
-  if (value.reasonCode !== null && !isAbsenceReason(String(value.reasonCode))) return null;
+  const status = String(value.status);
+  if (!isAttendanceStatus(status)) return null;
+  const reasonCode = value.reasonCode === null ? null : String(value.reasonCode);
+  if (reasonCode !== null && !isAbsenceReason(reasonCode)) return null;
   if (!Number.isInteger(value.sequence) || (value.sequence as number) < 1) return null;
   if (value.correctsClientEventId !== null && !present(value.correctsClientEventId)) return null;
   if (value.correctsServerEventId !== null && !present(value.correctsServerEventId)) return null;
@@ -227,8 +305,8 @@ function parseEvent(value: unknown): LocalAttendanceEvent | null {
     sectionId: value.sectionId,
     classSessionId: value.classSessionId,
     learnerId: value.learnerId,
-    status: value.status,
-    reasonCode: value.reasonCode,
+    status,
+    reasonCode,
     recordedAt: value.recordedAt,
     sequence: value.sequence as number,
     correctsClientEventId: value.correctsClientEventId,
@@ -316,24 +394,39 @@ async function withDatabase<T>(factory: IDBFactory, run: (db: IDBDatabase) => Pr
   }
 }
 
-function cleanLearners(input: { learnerId: string; displayName: string; learnerCode: string }[]): LocalRosterLearner[] | null {
+function cleanLearners(input: ServerMarkInput[]): LocalRosterLearner[] | null {
   const learners: LocalRosterLearner[] = [];
   const seen = new Set<string>();
   for (const learner of input) {
     if (!learner || typeof learner.learnerId !== "string" || seen.has(learner.learnerId)) return null;
-    const row = parseLearner({
-      learnerId: learner.learnerId,
-      displayName: learner.displayName,
-      learnerCode: learner.learnerCode,
-    });
-    if (!row) return null;
+    const row = parseLearner(learner);
+    if (!row?.serverKnown) return null;
     seen.add(row.learnerId);
     learners.push(row);
   }
   return learners;
 }
 
-function sameSnapshot(stored: AuthSnapshot & { localDeviceId: string }, expected: AuthSnapshot & { localDeviceId: string }): boolean {
+function cleanLabels(input: { sectionName: string; classTitle: string; whenLabel: string }): Pick<StoredSnapshot, "formatVersion" | "sectionName" | "classTitle" | "whenLabel"> | null {
+  const sectionName = labelText(input.sectionName);
+  const classTitle = labelText(input.classTitle);
+  const whenLabel = labelText(input.whenLabel);
+  if (!sectionName || !classTitle || !whenLabel) return null;
+  return { formatVersion: SNAPSHOT_FORMAT, sectionName, classTitle, whenLabel };
+}
+
+function storedLearner(learner: LocalRosterLearner) {
+  return {
+    learnerId: learner.learnerId,
+    displayName: learner.displayName,
+    learnerCode: learner.learnerCode,
+    serverAttendanceRecordId: learner.serverAttendanceRecordId,
+    serverStatus: learner.serverStatus,
+    serverReasonCode: learner.serverReasonCode,
+  };
+}
+
+function sameSnapshot(stored: StoredSnapshot, expected: StoredSnapshot): boolean {
   return (
     stored.centerId === expected.centerId &&
     stored.userId === expected.userId &&
@@ -345,7 +438,11 @@ function sameSnapshot(stored: AuthSnapshot & { localDeviceId: string }, expected
     stored.phoneNowAtIssue === expected.phoneNowAtIssue &&
     stored.lastSeenAt === expected.lastSeenAt &&
     stored.expiresAt === expected.expiresAt &&
-    stored.revokedAt === expected.revokedAt
+    stored.revokedAt === expected.revokedAt &&
+    stored.formatVersion === expected.formatVersion &&
+    stored.sectionName === expected.sectionName &&
+    stored.classTitle === expected.classTitle &&
+    stored.whenLabel === expected.whenLabel
   );
 }
 
@@ -357,8 +454,13 @@ function sameRoster(stored: LocalRoster, expected: LocalRoster): boolean {
     stored.localDeviceId === expected.localDeviceId &&
     stored.sectionId === expected.sectionId &&
     stored.classSessionId === expected.classSessionId &&
+    stored.formatVersion === expected.formatVersion &&
     JSON.stringify(stored.learners) === JSON.stringify(expected.learners)
   );
+}
+
+export function rosterReady(snapshot: StoredSnapshot, roster: LocalRoster): boolean {
+  return snapshot.formatVersion === SNAPSHOT_FORMAT && roster.formatVersion === SNAPSHOT_FORMAT && roster.learners.every((learner) => learner.serverKnown);
 }
 
 function snapshotDecisionMessage(reason: string): string {
@@ -373,15 +475,19 @@ export async function storeAuthorizedClass(input: {
   owner: AccountRef;
   sectionId: string;
   classSessionId: string;
+  sectionName: string;
+  classTitle: string;
+  whenLabel: string;
   clock: AuthorizedClock;
-  learners: { learnerId: string; displayName: string; learnerCode: string }[];
+  learners: ServerMarkInput[];
   phoneNow: Date;
 }): Promise<LocalStoreResult> {
   if (!owned(input.owner) || !present(input.sectionId) || !present(input.classSessionId)) {
     return { ok: false, message: NO_SNAPSHOT, unreadable: false };
   }
   const learners = cleanLearners(input.learners);
-  if (!learners || !present(input.clock.authSessionId)) return { ok: false, message: NO_SNAPSHOT, unreadable: false };
+  const labels = cleanLabels(input);
+  if (!learners || !labels || !present(input.clock.authSessionId)) return { ok: false, message: NO_SNAPSHOT, unreadable: false };
   const id = attendanceRecordId(input.owner, input.sectionId, input.classSessionId);
   const draftSnapshot: AuthSnapshot = {
     centerId: input.owner.centerId,
@@ -409,15 +515,16 @@ export async function storeAuthorizedClass(input: {
         const current = deviceIdOf(await localRequest(tx.objectStore("meta").get("device")));
         if (current === "bad") throw new LocalStop(UNREADABLE);
         const deviceId = current ?? crypto.randomUUID();
-        const snapshot = { ...draftSnapshot, localDeviceId: deviceId };
-        const roster: LocalRoster = {
+        const snapshot: StoredSnapshot = { ...draftSnapshot, localDeviceId: deviceId, ...labels };
+        const roster = {
           id,
           centerId: input.owner.centerId,
           userId: input.owner.userId,
           localDeviceId: deviceId,
           sectionId: input.sectionId,
           classSessionId: input.classSessionId,
-          learners,
+          formatVersion: SNAPSHOT_FORMAT,
+          learners: learners.map(storedLearner),
         };
         if (current === null) {
           await localRequest(tx.objectStore("meta").put({ key: "device", localDeviceId: deviceId }));
@@ -427,8 +534,9 @@ export async function storeAuthorizedClass(input: {
         const storedSnapshot = parseSnapshot(await localRequest(tx.objectStore("snapshots").get(id)));
         const storedRoster = parseRoster(await localRequest(tx.objectStore("rosters").get(id)));
         const storedDevice = deviceIdOf(await localRequest(tx.objectStore("meta").get("device")));
-        if (!storedSnapshot || !storedRoster || storedDevice !== deviceId) throw new LocalStop(NOT_STORED);
-        if (!sameSnapshot(storedSnapshot, snapshot) || !sameRoster(storedRoster, roster)) throw new LocalStop(NOT_STORED);
+        const expectedRoster = parseRoster(roster);
+        if (!storedSnapshot || !storedRoster || !expectedRoster || storedDevice !== deviceId) throw new LocalStop(NOT_STORED);
+        if (!sameSnapshot(storedSnapshot, snapshot) || !sameRoster(storedRoster, expectedRoster)) throw new LocalStop(NOT_STORED);
         return deviceId;
       });
       const confirmed = await runLocalTransaction(db, ["snapshots", "rosters", "meta"], "readonly", async (tx) => {
@@ -549,6 +657,7 @@ export async function saveLocalAttendance(input: {
         const roster = parseRoster(await localRequest(tx.objectStore("rosters").get(id)));
         if (!roster || roster.centerId !== input.owner.centerId || roster.userId !== input.owner.userId) throw new LocalStop(UNREADABLE);
         if (roster.localDeviceId !== deviceId) throw new LocalStop(UNREADABLE);
+        if (!rosterReady(snapshot, roster)) throw new LocalStop(OUTDATED_SNAPSHOT);
         const allowed = new Set(roster.learners.map((learner) => learner.learnerId));
         if (normalized.marks.some((mark) => !allowed.has(mark.learnerId))) throw new LocalStop(NOT_ON_ROSTER);
 
@@ -568,15 +677,16 @@ export async function saveLocalAttendance(input: {
             planned.push(current);
             continue;
           }
+          const baseline = roster.learners.find((learner) => learner.learnerId === mark.learnerId);
+          if (!baseline?.serverKnown) throw new LocalStop(OUTDATED_SNAPSHOT);
           const serverEventId = serverIds.get(mark.learnerId) ?? null;
+          // The saved class, not the button, names the original server row.
+          if (serverEventId !== baseline.serverAttendanceRecordId) throw new LocalStop(BAD_LINK);
           const previous = latestFor(existing, mark.learnerId, scope);
           let correctsClientEventId: string | null = null;
           let correctsServerEventId: string | null = null;
           if (previous) correctsClientEventId = previous.clientEventId;
-          else if (serverEventId !== null && serverEventId.trim() !== "") {
-            if (!SAFE_ID.test(serverEventId)) throw new LocalStop(BAD_LINK);
-            correctsServerEventId = serverEventId;
-          }
+          else if (serverEventId !== null) correctsServerEventId = serverEventId;
           const event: LocalAttendanceEvent = {
             clientEventId: mark.clientEventId,
             centerId: input.owner.centerId,
@@ -627,5 +737,59 @@ export async function saveLocalAttendance(input: {
   } catch (error) {
     const failed = refusal(error, NOT_STORED);
     return { ok: false, message: failed.message, count: null, unreadable: failed.unreadable };
+  }
+}
+
+export type LocalCatalog =
+  | {
+      ok: true;
+      deviceId: string | null;
+      snapshots: (StoredSnapshot & { id: string })[];
+      rosters: LocalRoster[];
+      events: LocalAttendanceEvent[];
+    }
+  | { ok: false; message: string };
+
+/// Reads every local attendance row. A row that cannot be checked fails the
+/// whole read. It does not come back as an empty class list.
+export async function readLocalCatalog(factory: IDBFactory): Promise<LocalCatalog> {
+  try {
+    return await withDatabase(factory, (db) =>
+      runLocalTransaction(db, ["meta", "snapshots", "rosters", "events"], "readonly", async (tx) => {
+        const device = deviceIdOf(await localRequest(tx.objectStore("meta").get("device")));
+        if (device === "bad") throw new LocalStop(UNREADABLE);
+        const snapshotRows = await localRequest(tx.objectStore("snapshots").getAll());
+        const rosterRows = await localRequest(tx.objectStore("rosters").getAll());
+        const eventRows = await localRequest(tx.objectStore("events").getAll());
+        if (!Array.isArray(snapshotRows) || !Array.isArray(rosterRows) || !Array.isArray(eventRows)) {
+          throw new LocalStop(UNREADABLE);
+        }
+        const snapshots: (StoredSnapshot & { id: string })[] = [];
+        for (const row of snapshotRows) {
+          const parsed = parseSnapshot(row);
+          if (!parsed || !isRecord(row) || !present(row.id)) throw new LocalStop(UNREADABLE);
+          snapshots.push({ ...parsed, id: String(row.id) });
+        }
+        const rosters: LocalRoster[] = [];
+        for (const row of rosterRows) {
+          const parsed = parseRoster(row);
+          if (!parsed) throw new LocalStop(UNREADABLE);
+          rosters.push(parsed);
+        }
+        const grouped = new Map<string, unknown[]>();
+        for (const row of eventRows) {
+          if (!isRecord(row) || !present(row.centerId) || !present(row.userId)) throw new LocalStop(UNREADABLE);
+          const key = `${row.centerId}:${row.userId}`;
+          const list = grouped.get(key) ?? [];
+          list.push(row);
+          grouped.set(key, list);
+        }
+        const events: LocalAttendanceEvent[] = [];
+        for (const rows of grouped.values()) events.push(...eventsFrom(rows));
+        return { ok: true, deviceId: device, snapshots, rosters, events };
+      }),
+    );
+  } catch (error) {
+    return { ok: false, message: refusal(error, UNREADABLE).message };
   }
 }

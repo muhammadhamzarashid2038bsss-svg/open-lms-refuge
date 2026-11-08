@@ -11,10 +11,9 @@
 // that was already wrong by the same amount. It does not detect a later change.
 //
 // Later stages still owe these rules:
-// - Prove a cached /kiosk-shell can run at an attendance address before adding
-//   a service worker. If a cached Next.js page breaks there, use a standalone
-//   static page. Never cache the personalized attendance page or its server
-//   response.
+// - The offline shell is a standalone document, not a Next.js page, so it can
+//   be shown at an attendance address without Next.js hydration. Stage 5 still
+//   must not cache the personalized attendance page or its server response.
 // - Storage persistence and quota checks live in storage-readiness.ts. The
 //   attendance save asks them before it writes. A denied request or a full
 //   phone must not be reported as a saved mark. Granted persistence still

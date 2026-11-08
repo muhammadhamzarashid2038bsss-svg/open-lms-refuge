@@ -84,6 +84,9 @@ const STORE_PLAN: StorePlan[] = [
 
 /// The attendance screen fills these after the server has allowed the class.
 /// localDeviceId names this browser only. It is not a hardware serial number.
+/// formatVersion lives on the row. The IndexedDB database version stays 1 so an
+/// older phone is not wiped. A row with no formatVersion was saved before the
+/// class name and server mark were kept. It is unknown, not unmarked.
 export type FutureSnapshotRecord = {
   id: string;
   centerId: string;
@@ -97,6 +100,10 @@ export type FutureSnapshotRecord = {
   lastSeenAt: string;
   expiresAt: string;
   revokedAt: string | null;
+  formatVersion?: 1;
+  sectionName?: string;
+  classTitle?: string;
+  whenLabel?: string;
 };
 
 export type FutureRosterRecord = {
@@ -106,7 +113,15 @@ export type FutureRosterRecord = {
   localDeviceId: string;
   sectionId: string;
   classSessionId: string;
-  learners: { learnerId: string; displayName: string; learnerCode: string }[];
+  formatVersion?: 1;
+  learners: {
+    learnerId: string;
+    displayName: string;
+    learnerCode: string;
+    serverAttendanceRecordId?: string | null;
+    serverStatus?: string | null;
+    serverReasonCode?: string | null;
+  }[];
 };
 
 /// A correction is a new row. It points at the earlier phone event or the

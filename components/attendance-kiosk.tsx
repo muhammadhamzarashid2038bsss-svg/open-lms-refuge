@@ -31,6 +31,9 @@ const UNAVAILABLE = "Local attendance saving is unavailable on this phone. The m
 export function AttendanceKiosk({
   sectionId,
   sessionId,
+  sectionName,
+  classTitle,
+  whenLabel,
   cancelled,
   learners,
   owner,
@@ -38,6 +41,9 @@ export function AttendanceKiosk({
 }: {
   sectionId: string;
   sessionId: string;
+  sectionName: string;
+  classTitle: string;
+  whenLabel: string;
   cancelled: boolean;
   learners: AttendanceLearnerRow[];
   owner: AccountRef;
@@ -69,11 +75,18 @@ export function AttendanceKiosk({
           owner,
           sectionId,
           classSessionId: sessionId,
+          sectionName,
+          classTitle,
+          whenLabel,
           clock,
+          // Null means this learner had no server row when the class was opened.
           learners: learners.map((learner) => ({
             learnerId: learner.id,
             displayName: learner.displayName,
             learnerCode: learner.learnerCode,
+            serverAttendanceRecordId: learner.saved?.eventId ?? null,
+            serverStatus: learner.saved?.status ?? null,
+            serverReasonCode: learner.saved?.reasonCode ?? null,
           })),
           phoneNow: new Date(),
         });
@@ -99,7 +112,7 @@ export function AttendanceKiosk({
     return () => {
       stop = true;
     };
-  }, [clock, learners, owner, sectionId, sessionId]);
+  }, [classTitle, clock, learners, owner, sectionId, sectionName, sessionId, whenLabel]);
 
   function update(learnerId: string, next: (draft: LearnerDraft) => LearnerDraft) {
     touched.current = true;

@@ -50,6 +50,9 @@ async function Attendance({ params }: { params: Promise<{ sectionId: string; ses
       <AttendanceKiosk
         sectionId={sheet.sectionId}
         sessionId={sheet.sessionId}
+        sectionName={sheet.sectionName}
+        classTitle={sheet.title}
+        whenLabel={sheet.whenLabel}
         cancelled={sheet.cancelled}
         learners={sheet.learners}
         owner={{ userId: actor.id, centerId: actor.centerId }}
