@@ -23,7 +23,7 @@ const UNREADABLE =
   "This phone's saved records could not be read. They were not deleted. Do not hand the phone over yet.";
 
 export function openingDestination(actor: { id: string; centerId: string; role: RoleName } | null):
-  | { type: "login"; href: "/" }
+  | { type: "login"; href: "/" | "/session/clear" }
   | { type: "phone"; userId: string; centerId: string; home: string } {
   // /session/clear deletes a cookie that no longer matches an account, then
   // shows "/". That page is the door to staff sign-in and learner sign-in.

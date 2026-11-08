@@ -14,7 +14,10 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "generated/**",
     // Built from lib/device/kiosk-shell.ts. The source is linted; this copy is the browser script.
-    "public/kiosk/**",
+    "public/kiosk/shell.js",
+    // Built by `serwist build` after `next build`.
+    "public/sw.js",
+    "public/sw.js.map",
   ]),
 ]);
 

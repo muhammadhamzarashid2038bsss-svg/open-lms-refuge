@@ -17,6 +17,10 @@
 /.next/
 /out/
 
+# Generated after next build. Do not serve a worker that was built by hand.
+/public/sw.js
+/public/sw.js.map
+
 # production
 /build
 

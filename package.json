@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && serwist build serwist.config.mjs",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
@@ -25,15 +25,19 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@serwist/cli": "^9.5.13",
+    "@serwist/next": "^9.5.13",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^24.19.2",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
     "fake-indexeddb": "^6.2.7",
     "prisma": "^7.10.1",
+    "serwist": "^9.5.13",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5",

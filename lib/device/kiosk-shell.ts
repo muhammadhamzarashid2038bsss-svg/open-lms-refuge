@@ -26,6 +26,7 @@ import {
   type LocalCatalog,
   type LocalRoster,
 } from "./local-attendance";
+import { persistenceLines, readPersistenceOnce } from "./persistence-status";
 import { browserStorageProbe, type StorageProbe } from "./storage-readiness";
 import {
   ABSENCE_REASONS,
@@ -347,6 +348,20 @@ export async function mountKioskShell(doc: KioskDocument, env: KioskEnv = {}): P
   const pathname = env.pathname ?? globalThis.location?.pathname ?? "";
   const now = () => env.now ?? new Date();
   const probe = () => (env.storage === undefined ? browserStorageProbe() : env.storage);
+
+  // One storage question for the person installing the app. It does not decide
+  // whether a mark may be saved: the save path still asks for itself.
+  async function showStorage() {
+    const slot = doc.getElementById("kiosk-storage");
+    if (!slot) return;
+    const browser = typeof navigator === "undefined" ? null : (navigator.storage ?? null);
+    try {
+      slot.textContent = persistenceLines(await readPersistenceOnce(browser)).join(" ");
+    } catch {
+      slot.textContent = "This phone could not say whether saved data may stay. Local attendance saving is unavailable.";
+    }
+  }
+  void showStorage();
 
   async function draw(message: string | null, drafts: LearnerDraft[] | null, saving: boolean) {
     if (!status || !root) return;

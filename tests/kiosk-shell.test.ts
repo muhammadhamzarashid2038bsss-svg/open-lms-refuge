@@ -506,8 +506,9 @@ describe("offline kiosk shell", () => {
     // The shell script reads the page clock. A saved sign-in goes idle after
     // 30 minutes, so this page stays at the moment the class was saved.
     class SavedClassClock extends Date {
-      constructor(...args: ConstructorParameters<typeof Date>) {
-        super(args.length === 0 ? phoneNow.getTime() : Reflect.construct(Date, args).getTime());
+      constructor(...args: unknown[]) {
+        const supplied = args.length === 0 ? null : (Reflect.construct(Date, args) as Date);
+        super(supplied === null ? phoneNow.getTime() : supplied.getTime());
       }
 
       static override now(): number {

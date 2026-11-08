@@ -281,7 +281,7 @@ function classifyExisting(
   marks: { learnerId: string; status: AttendanceStatusName; reasonCode: AbsenceReasonName | null; clientEventId: string }[],
   sessionId: string,
   recordedById: string,
-): Promise<{ ok: true; already: StoredRow[]; freshIds: Set<string> } | { ok: false }> {
+): { ok: true; already: StoredRow[]; freshIds: Set<string> } | { ok: false } {
   const byId = new Map(rows.map((row) => [row.clientEventId, row]));
   const already: StoredRow[] = [];
   const freshIds = new Set<string>();

@@ -401,9 +401,9 @@ function stripIndex<T extends { sourceIndex: number }>(rows: T[]): Omit<T, "sour
   return [...rows]
     .sort((left, right) => left.sourceIndex - right.sourceIndex)
     .map((row) => {
-      const record = { ...row };
-      delete record.sourceIndex;
-      return record;
+      const copy = { ...row } as Omit<T, "sourceIndex"> & { sourceIndex?: number };
+      delete copy.sourceIndex;
+      return copy;
     });
 }
 
@@ -504,7 +504,9 @@ function isFailure(value: SourceIdentity | MigrationResult): value is MigrationR
   return "ok" in value && value.ok === false;
 }
 
-async function openReady(factory: IDBFactory): Promise<{ ok: true; db: IDBDatabase; meta: MigrationMeta } | MigrationResult> {
+async function openReady(
+  factory: IDBFactory,
+): Promise<{ ok: true; db: IDBDatabase; meta: MigrationMeta } | { ok: false; reason: "unavailable" | "corrupt" }> {
   const opened = await connect(factory);
   if (!opened.ok) return { ok: false, reason: "unavailable" };
   try {

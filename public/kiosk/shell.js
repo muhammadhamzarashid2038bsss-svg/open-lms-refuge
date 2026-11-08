@@ -918,9 +918,9 @@ function stripIndex(rows) {
     return [...rows]
         .sort((left, right) => left.sourceIndex - right.sourceIndex)
         .map((row) => {
-        const record = { ...row };
-        delete record.sourceIndex;
-        return record;
+        const copy = { ...row };
+        delete copy.sourceIndex;
+        return copy;
     });
 }
 async function readCopy(db) {
@@ -2600,6 +2600,81 @@ async function readLocalCatalog(factory) {
 }
 
 });
+  define("lib/device/persistence-status.ts", function (exports, require) {
+"use strict";
+// One look at whether this phone will keep saved marks. persist() is asked
+// at most once, and it is not asked again when the browser already agreed.
+// A refusal leaves local attendance saving unavailable. There is no server fallback.
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.readPersistenceOnce = readPersistenceOnce;
+exports.persistenceLines = persistenceLines;
+function finiteByte(value) {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+async function readPersistenceOnce(storage) {
+    const snapshot = {
+        persisted: null,
+        request: "unsupported",
+        usageBytes: null,
+        quotaBytes: null,
+    };
+    if (!storage)
+        return snapshot;
+    if (typeof storage.persisted === "function") {
+        try {
+            snapshot.persisted = await storage.persisted();
+        }
+        catch {
+            snapshot.persisted = null;
+        }
+    }
+    if (snapshot.persisted === true) {
+        snapshot.request = "already-kept";
+    }
+    else if (typeof storage.persist === "function") {
+        try {
+            const granted = await storage.persist();
+            snapshot.request = granted ? "granted" : "denied";
+            if (granted)
+                snapshot.persisted = true;
+        }
+        catch {
+            snapshot.request = "failed";
+        }
+    }
+    if (typeof storage.estimate === "function") {
+        try {
+            const estimate = await storage.estimate();
+            if (finiteByte(estimate?.usage))
+                snapshot.usageBytes = estimate.usage;
+            if (finiteByte(estimate?.quota))
+                snapshot.quotaBytes = estimate.quota;
+        }
+        catch {
+            snapshot.usageBytes = null;
+            snapshot.quotaBytes = null;
+        }
+    }
+    return snapshot;
+}
+function persistenceLines(snapshot) {
+    const kept = snapshot.persisted === true ? "yes" : snapshot.persisted === false ? "no" : "unknown";
+    const request = snapshot.request === "granted"
+        ? "The browser agreed to keep saved data."
+        : snapshot.request === "already-kept"
+            ? "Saved data is already allowed to stay."
+            : snapshot.request === "denied"
+                ? "This phone did not allow saved data to stay. Local attendance saving is unavailable."
+                : snapshot.request === "failed"
+                    ? "This phone could not say whether saved data may stay. Local attendance saving is unavailable."
+                    : "This phone cannot keep saved data. Local attendance saving is unavailable.";
+    const space = snapshot.usageBytes !== null && snapshot.quotaBytes !== null
+        ? `Storage used: ${snapshot.usageBytes} bytes. Storage available to this site: ${snapshot.quotaBytes} bytes.`
+        : "Storage space could not be read.";
+    return [`Kept on this phone: ${kept}.`, request, space];
+}
+
+});
   define("lib/device/kiosk-shell.ts", function (exports, require) {
 "use strict";
 // Offline attendance shell. This file is plain logic plus a small page painter.
@@ -2620,6 +2695,7 @@ const storage_key_1 = require("lib/device/storage-key.ts");
 const shared_device_1 = require("lib/device/shared-device.ts");
 const offline_decisions_1 = require("lib/device/offline-decisions.ts");
 const local_attendance_1 = require("lib/device/local-attendance.ts");
+const persistence_status_1 = require("lib/device/persistence-status.ts");
 const storage_readiness_1 = require("lib/device/storage-readiness.ts");
 const attendance_1 = require("lib/lms/attendance.ts");
 exports.OPEN_WHILE_CONNECTED = "Open this class once while connected.";
@@ -2857,6 +2933,21 @@ async function mountKioskShell(doc, env = {}) {
     const pathname = env.pathname ?? globalThis.location?.pathname ?? "";
     const now = () => env.now ?? new Date();
     const probe = () => (env.storage === undefined ? (0, storage_readiness_1.browserStorageProbe)() : env.storage);
+    // One storage question for the person installing the app. It does not decide
+    // whether a mark may be saved: the save path still asks for itself.
+    async function showStorage() {
+        const slot = doc.getElementById("kiosk-storage");
+        if (!slot)
+            return;
+        const browser = typeof navigator === "undefined" ? null : (navigator.storage ?? null);
+        try {
+            slot.textContent = (0, persistence_status_1.persistenceLines)(await (0, persistence_status_1.readPersistenceOnce)(browser)).join(" ");
+        }
+        catch {
+            slot.textContent = "This phone could not say whether saved data may stay. Local attendance saving is unavailable.";
+        }
+    }
+    void showStorage();
     async function draw(message, drafts, saving) {
         if (!status || !root)
             return;
