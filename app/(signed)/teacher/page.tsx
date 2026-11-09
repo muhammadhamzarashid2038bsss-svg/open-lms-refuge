@@ -33,6 +33,16 @@ async function TeacherHome() {
           Manage courses and materials
         </Link>
       </p>
+      <p className="text-lg">
+        <Link className="underline" href="/teacher/records">
+          Save a grade or note on this phone
+        </Link>
+      </p>
+      <p className="text-lg">
+        <Link className="underline" href="/teacher/conflicts">
+          Review grade and note conflicts
+        </Link>
+      </p>
       <ul className="flex flex-col gap-2 text-lg">
         {sections.map((section) => (
           <li key={section.id}>

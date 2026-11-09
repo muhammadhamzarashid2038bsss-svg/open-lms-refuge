@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canEditAssignedRecords,
   canListAccounts,
   canManageCourse,
   canManageResource,
@@ -103,6 +104,12 @@ describe("role permission matrix", () => {
     expect(canResetPin(afternoonTeacher, learner)).toBe(false);
     expect(canResetPassword(morningTeacher, { id: "t2", role: "TEACHER", centerId: centerA })).toBe(false);
     expect(canReadContact(morningTeacher, learner)).toBe(false);
+    expect(canEditAssignedRecords(morningTeacher, morning)).toBe(true);
+    expect(canEditAssignedRecords(afternoonTeacher, morning)).toBe(false);
+    expect(canEditAssignedRecords(director, morning)).toBe(false);
+    expect(canEditAssignedRecords(admin, morning)).toBe(false);
+    expect(canEditAssignedRecords(student, morning)).toBe(false);
+    expect(canEditAssignedRecords(switchedOff, morning)).toBe(false);
   });
 
   it("lets a director see their center, including contact, and not another center", () => {

@@ -102,7 +102,7 @@ function fromExisting(event: SyncWireEvent, row: StoredRow, actorId: string): Ev
   return { clientEventId: event.clientEventId, outcome: "already_accepted", attendanceId: row.id };
 }
 
-async function registerOfflinePhone(
+export async function registerOfflinePhone(
   actor: Actor,
   localDeviceId: string,
   now: Date,

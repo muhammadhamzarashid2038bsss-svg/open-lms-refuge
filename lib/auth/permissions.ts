@@ -121,6 +121,15 @@ export function canRecordAttendance(actor: Actor, section: SectionScope): boolea
   return canManageTimetable(actor, section);
 }
 
+// Grades and progress notes belong to the teacher assigned to that section now.
+// A director, an admin, or a learner is not given this job only because they
+// can sign in. Conflict review uses the same rule.
+export function canEditAssignedRecords(actor: Actor, section: SectionScope): boolean {
+  if (!activeActor(actor) || actor.role !== "TEACHER") return false;
+  if (!sharesCenter(actor, section.centerId)) return false;
+  return teacherHasSection(actor, section.id);
+}
+
 export function canManageResource(actor: Actor, resource: ResourceScope): boolean {
   if (!activeActor(actor) || !sharesCenter(actor, resource.centerId)) return false;
   if (actor.role === "CENTER_DIRECTOR") return true;

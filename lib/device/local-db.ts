@@ -25,7 +25,13 @@ import {
 } from "./legacy-validate";
 
 export const LOCAL_DB_NAME = "olr-local";
-export const LOCAL_DB_VERSION = 1;
+/// Version 2 adds grade and note stores. The upgrade only creates stores that
+/// are missing. It does not delete attendance, locks, handover notes, or the
+/// old localStorage backup.
+export const LOCAL_DB_VERSION = 2;
+/// The Day 7 copy row. It stays at 1 so a phone that already verified its
+/// queue is not treated as damaged after the database version moves to 2.
+export const LEGACY_META_SCHEMA = 1;
 
 export const LOCAL_STORE_NAMES = [
   "meta",
@@ -35,6 +41,8 @@ export const LOCAL_STORE_NAMES = [
   "snapshots",
   "rosters",
   "events",
+  "recordMutations",
+  "recordCounters",
 ] as const;
 
 type StoreName = (typeof LOCAL_STORE_NAMES)[number];
@@ -80,12 +88,28 @@ const STORE_PLAN: StorePlan[] = [
       { name: "bySequence", keyPath: ["centerId", "userId", "sequence"] },
     ],
   },
+  // Grades and notes are editable records. They stay out of the attendance
+  // event store and out of the homework file queue so a retry of one cannot
+  // be mistaken for the other.
+  {
+    name: "recordMutations",
+    options: { keyPath: "clientMutationId" },
+    indexes: [
+      { name: "byOwner", keyPath: ["centerId", "userId", "localDeviceId"] },
+      { name: "byRecord", keyPath: ["centerId", "userId", "localDeviceId", "entityType", "recordId"] },
+    ],
+  },
+  {
+    name: "recordCounters",
+    options: { keyPath: "id" },
+    indexes: [{ name: "byOwner", keyPath: ["centerId", "userId", "localDeviceId"] }],
+  },
 ];
 
 /// The attendance screen fills these after the server has allowed the class.
 /// localDeviceId names this browser only. It is not a hardware serial number.
-/// formatVersion lives on the row. The IndexedDB database version stays 1 so an
-/// older phone is not wiped. A row with no formatVersion was saved before the
+/// formatVersion lives on the attendance row. The database version can move
+/// forward by adding stores. A row with no formatVersion was saved before the
 /// class name and server mark were kept. It is unknown, not unmarked.
 export type FutureSnapshotRecord = {
   id: string;
@@ -184,7 +208,7 @@ type SourceIdentity = {
 function emptyMeta(): MigrationMeta {
   return {
     key: "migration",
-    schemaVersion: LOCAL_DB_VERSION,
+    schemaVersion: LEGACY_META_SCHEMA,
     importStatus: "none",
     legacyPresence: null,
     legacyFingerprint: null,
@@ -199,7 +223,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parseMeta(value: unknown): MigrationMeta | null {
   if (!isRecord(value)) return null;
-  if (value.key !== "migration" || value.schemaVersion !== LOCAL_DB_VERSION) return null;
+  if (value.key !== "migration" || value.schemaVersion !== LEGACY_META_SCHEMA) return null;
   if (value.importStatus !== "none" && value.importStatus !== "pending" && value.importStatus !== "verified") return null;
   if (value.legacyPresence !== null && value.legacyPresence !== "missing" && value.legacyPresence !== "present") return null;
   if (value.legacyFingerprint !== null && typeof value.legacyFingerprint !== "string") return null;
@@ -215,7 +239,7 @@ function parseMeta(value: unknown): MigrationMeta | null {
   if (value.legacyPresence === "present" && (!value.legacyFingerprint || typeof value.legacyFingerprint !== "string")) return null;
   return {
     key: "migration",
-    schemaVersion: LOCAL_DB_VERSION,
+    schemaVersion: LEGACY_META_SCHEMA,
     importStatus: value.importStatus,
     legacyPresence: value.legacyPresence,
     legacyFingerprint: value.legacyFingerprint,
@@ -293,6 +317,8 @@ function withTransaction<T>(
 }
 
 function createSchema(db: IDBDatabase): void {
+  // Additive only. An existing store is left in place, including its rows.
+  // deleteDatabase is never called here.
   for (const plan of STORE_PLAN) {
     if (db.objectStoreNames.contains(plan.name)) continue;
     const store = db.createObjectStore(plan.name, plan.options);
@@ -575,7 +601,7 @@ export async function inspectLocalDatabase(factory: IDBFactory): Promise<LocalDb
 function pendingMeta(source: SourceIdentity): MigrationMeta {
   return {
     key: "migration",
-    schemaVersion: LOCAL_DB_VERSION,
+    schemaVersion: LEGACY_META_SCHEMA,
     importStatus: "pending",
     legacyPresence: source.presence,
     legacyFingerprint: source.fingerprint,

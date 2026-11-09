@@ -656,7 +656,7 @@ async function fingerprintText(raw) {
 // and the caller must stop. This module never deletes olr.device.v1 and
 // never calls deleteDatabase. Nothing here runs on startup.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.LOCAL_STORE_NAMES = exports.LOCAL_DB_VERSION = exports.LOCAL_DB_NAME = void 0;
+exports.LOCAL_STORE_NAMES = exports.LEGACY_META_SCHEMA = exports.LOCAL_DB_VERSION = exports.LOCAL_DB_NAME = void 0;
 exports.openWorkingDatabase = openWorkingDatabase;
 exports.closeWorkingDatabase = closeWorkingDatabase;
 exports.localRequest = localRequest;
@@ -675,7 +675,13 @@ exports.appendDeviceRelease = appendDeviceRelease;
 const shared_device_1 = require("lib/device/shared-device.ts");
 const legacy_validate_1 = require("lib/device/legacy-validate.ts");
 exports.LOCAL_DB_NAME = "olr-local";
-exports.LOCAL_DB_VERSION = 1;
+/// Version 2 adds grade and note stores. The upgrade only creates stores that
+/// are missing. It does not delete attendance, locks, handover notes, or the
+/// old localStorage backup.
+exports.LOCAL_DB_VERSION = 2;
+/// The Day 7 copy row. It stays at 1 so a phone that already verified its
+/// queue is not treated as damaged after the database version moves to 2.
+exports.LEGACY_META_SCHEMA = 1;
 exports.LOCAL_STORE_NAMES = [
     "meta",
     "deviceItems",
@@ -684,6 +690,8 @@ exports.LOCAL_STORE_NAMES = [
     "snapshots",
     "rosters",
     "events",
+    "recordMutations",
+    "recordCounters",
 ];
 const LEGACY_STORES = ["meta", "deviceItems", "deviceReleases", "deviceLock"];
 /// meta holds bookkeeping. deviceItems, deviceReleases, and deviceLock are
@@ -717,11 +725,27 @@ const STORE_PLAN = [
             { name: "bySequence", keyPath: ["centerId", "userId", "sequence"] },
         ],
     },
+    // Grades and notes are editable records. They stay out of the attendance
+    // event store and out of the homework file queue so a retry of one cannot
+    // be mistaken for the other.
+    {
+        name: "recordMutations",
+        options: { keyPath: "clientMutationId" },
+        indexes: [
+            { name: "byOwner", keyPath: ["centerId", "userId", "localDeviceId"] },
+            { name: "byRecord", keyPath: ["centerId", "userId", "localDeviceId", "entityType", "recordId"] },
+        ],
+    },
+    {
+        name: "recordCounters",
+        options: { keyPath: "id" },
+        indexes: [{ name: "byOwner", keyPath: ["centerId", "userId", "localDeviceId"] }],
+    },
 ];
 function emptyMeta() {
     return {
         key: "migration",
-        schemaVersion: exports.LOCAL_DB_VERSION,
+        schemaVersion: exports.LEGACY_META_SCHEMA,
         importStatus: "none",
         legacyPresence: null,
         legacyFingerprint: null,
@@ -735,7 +759,7 @@ function isRecord(value) {
 function parseMeta(value) {
     if (!isRecord(value))
         return null;
-    if (value.key !== "migration" || value.schemaVersion !== exports.LOCAL_DB_VERSION)
+    if (value.key !== "migration" || value.schemaVersion !== exports.LEGACY_META_SCHEMA)
         return null;
     if (value.importStatus !== "none" && value.importStatus !== "pending" && value.importStatus !== "verified")
         return null;
@@ -762,7 +786,7 @@ function parseMeta(value) {
         return null;
     return {
         key: "migration",
-        schemaVersion: exports.LOCAL_DB_VERSION,
+        schemaVersion: exports.LEGACY_META_SCHEMA,
         importStatus: value.importStatus,
         legacyPresence: value.legacyPresence,
         legacyFingerprint: value.legacyFingerprint,
@@ -834,6 +858,8 @@ function withTransaction(db, storeNames, mode, run) {
     });
 }
 function createSchema(db) {
+    // Additive only. An existing store is left in place, including its rows.
+    // deleteDatabase is never called here.
     for (const plan of STORE_PLAN) {
         if (db.objectStoreNames.contains(plan.name))
             continue;
@@ -1093,7 +1119,7 @@ async function inspectLocalDatabase(factory) {
 function pendingMeta(source) {
     return {
         key: "migration",
-        schemaVersion: exports.LOCAL_DB_VERSION,
+        schemaVersion: exports.LEGACY_META_SCHEMA,
         importStatus: "pending",
         legacyPresence: source.presence,
         legacyFingerprint: source.fingerprint,

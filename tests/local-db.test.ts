@@ -64,7 +64,7 @@ describe("IndexedDB phone queue", () => {
     expect(DEVICE_STORAGE_KEY).toBe("olr.device.v1");
   });
 
-  it("creates version 1 with the documented stores and indexes", async () => {
+  it("creates the current version with the documented stores and indexes", async () => {
     const { indexedDB, deleted } = trackedFactory();
     const opened = await openLocalDatabase(indexedDB);
     expect(opened).toMatchObject({ ok: true, version: LOCAL_DB_VERSION });

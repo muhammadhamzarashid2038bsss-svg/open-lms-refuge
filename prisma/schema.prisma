@@ -656,9 +656,11 @@ model GradeEntryVersion {
   preservedFromConflict Boolean    @default(false)
   createdAt             DateTime   @default(now())
 
-  conflictsAsA     SyncConflict[] @relation("GradeConflictA")
-  conflictsAsB     SyncConflict[] @relation("GradeConflictB")
-  conflictsShowing SyncConflict[] @relation("GradeConflictShown")
+  conflictsAsA       SyncConflict[] @relation("GradeConflictA")
+  conflictsAsB       SyncConflict[] @relation("GradeConflictB")
+  conflictsShowing   SyncConflict[] @relation("GradeConflictShown")
+  /// The copy written when a teacher resolved the conflict. The two originals stay.
+  conflictsResolved  SyncConflict[] @relation("GradeConflictResolved")
 
   @@index([gradeEntryId, syncedAt])
   @@map("grade_entry_versions")
@@ -788,9 +790,11 @@ model ProgressNoteVersion {
   preservedFromConflict Boolean      @default(false)
   createdAt             DateTime     @default(now())
 
-  conflictsAsA     SyncConflict[] @relation("NoteConflictA")
-  conflictsAsB     SyncConflict[] @relation("NoteConflictB")
-  conflictsShowing SyncConflict[] @relation("NoteConflictShown")
+  conflictsAsA      SyncConflict[] @relation("NoteConflictA")
+  conflictsAsB      SyncConflict[] @relation("NoteConflictB")
+  conflictsShowing  SyncConflict[] @relation("NoteConflictShown")
+  /// The copy written when a teacher resolved the conflict. The two originals stay.
+  conflictsResolved SyncConflict[] @relation("NoteConflictResolved")
 
   @@index([progressNoteId, syncedAt])
   @@map("progress_note_versions")
@@ -943,6 +947,13 @@ model SyncConflict {
   shownNoteVersionId  String?              @db.Uuid
   shownNoteVersion    ProgressNoteVersion? @relation("NoteConflictShown", fields: [shownNoteVersionId], references: [id], onDelete: Restrict)
 
+  /// Set when a teacher resolves a grade conflict. Points at the new copy, not at either original.
+  resolvedGradeVersionId String?            @unique @db.Uuid
+  resolvedGradeVersion   GradeEntryVersion? @relation("GradeConflictResolved", fields: [resolvedGradeVersionId], references: [id], onDelete: Restrict)
+  /// Set when a teacher resolves a note conflict. Points at the new copy, not at either original.
+  resolvedNoteVersionId  String?              @unique @db.Uuid
+  resolvedNoteVersion    ProgressNoteVersion? @relation("NoteConflictResolved", fields: [resolvedNoteVersionId], references: [id], onDelete: Restrict)
+
   @@index([state, entityType])
   @@index([gradeEntryId])
   @@index([progressNoteId])
@@ -980,6 +991,9 @@ model JsonSyncItem {
   entityId         String             @db.Uuid
   clientMutationId String
   status           JsonSyncItemStatus
+  /// SHA-256 of a grade or note mutation. Empty for attendance.
+  /// The same mutation id with a different hash is refused instead of being treated as already saved.
+  contentFingerprint String?          @db.VarChar(64)
   createdAt        DateTime           @default(now())
 
   @@unique([deviceId, clientMutationId])
