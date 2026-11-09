@@ -315,12 +315,14 @@ describe("attendance sync runner", () => {
       rejections: [],
       nextAttemptAt: null,
     });
-    let listener: (() => void) | null = null;
+    // A plain `let` written inside this callback is narrowed to `never`, so the
+    // saved function could not be called. The object keeps the real callback type.
+    const onlineListener: { notify: (() => void) | null } = { notify: null };
     const controls = bindAttendanceSync({
       subscribeOnline: (next) => {
-        listener = next;
+        onlineListener.notify = next;
         return () => {
-          listener = null;
+          onlineListener.notify = null;
         };
       },
       schedule: () => () => undefined,
@@ -341,7 +343,7 @@ describe("attendance sync runner", () => {
         return current;
       },
     });
-    listener?.();
+    onlineListener.notify?.();
     await current;
     controls.stop();
     expect(calls).toEqual(["/api/sync/health", "/api/sync"]);

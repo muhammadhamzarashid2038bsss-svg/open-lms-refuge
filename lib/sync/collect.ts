@@ -19,7 +19,13 @@ export type PracticeCandidate = {
   centerId: string;
 };
 
-export type CollectCandidate = FutureAttendanceEvent | PracticeCandidate;
+// Practice rows are the only candidates with `kind`. Attendance rows leave it
+// absent. That tag is what separates the two: a practice row is held back and
+// is never read as a mark to upload. Centers share phones, so a practice
+// record must not leave the device as if it were attendance.
+type AttendanceCandidate = FutureAttendanceEvent & { kind?: undefined };
+
+export type CollectCandidate = AttendanceCandidate | PracticeCandidate;
 
 export type CollectHoldReason =
   | "practice"
@@ -82,7 +88,7 @@ function readableEvent(value: CollectCandidate): FutureAttendanceEvent | null {
   if (value.correctsClientEventId !== null && !present(value.correctsClientEventId)) return null;
   if (value.correctsServerEventId !== null && !present(value.correctsServerEventId)) return null;
   if (value.correctsClientEventId !== null && value.correctsServerEventId !== null) return null;
-  return value as FutureAttendanceEvent;
+  return value;
 }
 
 export function collectEligibleEvents(input: CollectInput): CollectResult {
