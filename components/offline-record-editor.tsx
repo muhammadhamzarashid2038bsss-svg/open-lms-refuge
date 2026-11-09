@@ -1,11 +1,26 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { RecordCatalog } from "@/lib/data/record-catalog";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import type { CatalogNote, RecordCatalog } from "@/lib/data/record-catalog";
+import { draftForNoteChoice, noteSaveInput, type NoteDraft } from "@/lib/device/note-draft";
 import { listLocalRecords, saveLocalGrade, saveLocalNote } from "@/lib/device/local-records";
 import { SKILL_GAPS } from "@/lib/sync/record-batch";
 import { syncLocalRecords } from "@/lib/sync/record-sync";
 import { buttonClass, inputClass, labelClass, secondaryButtonClass } from "./ui";
+
+type Notice = { tone: "ok" | "error"; text: string };
+
+const NOT_SAVED = "This edit was not saved on this phone.";
+const NO_FACTORY = "This phone cannot safely keep an offline edit. This edit was not saved.";
+
+function ResultLine({ notice, noticeRef }: { notice: Notice | null; noticeRef: RefObject<HTMLParagraphElement | null> }) {
+  if (!notice) return null;
+  return (
+    <p ref={noticeRef} role={notice.tone === "error" ? "alert" : "status"} className="text-lg font-medium">
+      {notice.text}
+    </p>
+  );
+}
 
 const skillLabel: Record<(typeof SKILL_GAPS)[number], string> = {
   READING: "Reading",
@@ -34,21 +49,51 @@ export function OfflineRecordEditor({
   const [gaps, setGaps] = useState<string[]>([]);
   const [customLabel, setCustomLabel] = useState("");
   const [noteId, setNoteId] = useState("");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [gradeNotice, setGradeNotice] = useState<Notice | null>(null);
+  const [noteNotice, setNoteNotice] = useState<Notice | null>(null);
+  const [sendNotice, setSendNotice] = useState<Notice | null>(null);
+  const [gradeBusy, setGradeBusy] = useState(false);
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [sendBusy, setSendBusy] = useState(false);
+  const gradeNoticeRef = useRef<HTMLParagraphElement>(null);
+  const noteNoticeRef = useRef<HTMLParagraphElement>(null);
+  const sendNoticeRef = useRef<HTMLParagraphElement>(null);
   const owner = useMemo(() => ({ centerId, userId }), [centerId, userId]);
+
+  // The result used to render after the other form. On a phone that leaves
+  // it below the visible screen, so a tap looked like a frozen button.
+  useEffect(() => {
+    gradeNoticeRef.current?.scrollIntoView({ block: "nearest" });
+  }, [gradeNotice]);
+  useEffect(() => {
+    noteNoticeRef.current?.scrollIntoView({ block: "nearest" });
+  }, [noteNotice]);
+  useEffect(() => {
+    sendNoticeRef.current?.scrollIntoView({ block: "nearest" });
+  }, [sendNotice]);
 
   const grade = catalog.grades.find((item) => item.assignmentId === assignmentId && item.learnerId === learnerId);
   const note = catalog.notes.find((item) => item.id === noteId);
 
-  function factoryOrError(): IDBFactory | null {
-    const factory = globalThis.indexedDB;
-    if (!factory) {
-      setError("This phone cannot safely keep an offline edit. This edit was not saved.");
-      setMessage("");
-      return null;
-    }
-    return factory;
+  function notesFor(nextSectionId: string, nextLearnerId: string): CatalogNote[] {
+    return catalog.notes.filter((item) => item.sectionId === nextSectionId && item.learnerId === nextLearnerId);
+  }
+
+  function showNote(draft: NoteDraft) {
+    setNoteId(draft.noteId);
+    setBody(draft.body);
+    setGaps(draft.skillGaps);
+    setCustomLabel(draft.customSkillLabel);
+  }
+
+  function keepOrClearNote(nextSectionId: string, nextLearnerId: string) {
+    const visible = notesFor(nextSectionId, nextLearnerId);
+    if (visible.some((item) => item.id === noteId)) return;
+    showNote(draftForNoteChoice("", visible));
+  }
+
+  function browserFactory(): IDBFactory | null {
+    return globalThis.indexedDB ?? null;
   }
 
   return (
@@ -62,9 +107,11 @@ export function OfflineRecordEditor({
             value={section?.id ?? ""}
             onChange={(event) => {
               const next = catalog.sections.find((item) => item.id === event.target.value);
+              const nextLearnerId = next?.learners[0]?.id ?? "";
               setSectionId(event.target.value);
               setAssignmentId(next?.assignments[0]?.id ?? "");
-              setLearnerId(next?.learners[0]?.id ?? "");
+              setLearnerId(nextLearnerId);
+              keepOrClearNote(event.target.value, nextLearnerId);
             }}
           >
             {catalog.sections.map((item) => (
@@ -86,7 +133,14 @@ export function OfflineRecordEditor({
         </label>
         <label className={labelClass}>
           Learner
-          <select className={inputClass} value={learnerId} onChange={(event) => setLearnerId(event.target.value)}>
+          <select
+            className={inputClass}
+            value={learnerId}
+            onChange={(event) => {
+              setLearnerId(event.target.value);
+              keepOrClearNote(section?.id ?? "", event.target.value);
+            }}
+          >
             {(section?.learners ?? []).map((item) => (
               <option key={item.id} value={item.id}>
                 {item.learnerCode} · {item.displayName}
@@ -109,9 +163,15 @@ export function OfflineRecordEditor({
         <button
           className={buttonClass}
           type="button"
+          disabled={gradeBusy}
           onClick={() => {
-            const factory = factoryOrError();
-            if (!factory || !section) return;
+            const factory = browserFactory();
+            if (!factory || !section) {
+              setGradeNotice({ tone: "error", text: factory ? NOT_SAVED : NO_FACTORY });
+              return;
+            }
+            setGradeBusy(true);
+            setGradeNotice(null);
             void saveLocalGrade(
               factory,
               owner,
@@ -123,34 +183,38 @@ export function OfflineRecordEditor({
                 recordId: grade?.id ?? null,
                 baseVector: grade?.versionVector ?? {},
               },
-            ).then((result) => {
-              if (result.ok) {
-                setMessage(result.message);
-                setError("");
-              } else {
-                setError(result.message);
-                setMessage("");
-              }
-            });
+            )
+              .then((result) => {
+                setGradeNotice({ tone: result.ok ? "ok" : "error", text: result.message });
+              })
+              .catch(() => {
+                setGradeNotice({ tone: "error", text: NOT_SAVED });
+              })
+              .finally(() => {
+                setGradeBusy(false);
+              });
           }}
         >
-          Save grade on this phone
+          {gradeBusy ? "Saving…" : "Save grade on this phone"}
         </button>
+        <ResultLine notice={gradeNotice} noticeRef={gradeNoticeRef} />
       </section>
 
       <section className="flex flex-col gap-4">
         <h2 className="text-xl font-semibold">Save a progress note on this phone</h2>
         <label className={labelClass}>
           Existing note
-          <select className={inputClass} value={noteId} onChange={(event) => setNoteId(event.target.value)}>
+          <select
+            className={inputClass}
+            value={noteId}
+            onChange={(event) => showNote(draftForNoteChoice(event.target.value, notesFor(section?.id ?? "", learnerId)))}
+          >
             <option value="">New note</option>
-            {catalog.notes
-              .filter((item) => item.sectionId === section?.id && item.learnerId === learnerId)
-              .map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.body.slice(0, 60)}
-                </option>
-              ))}
+            {notesFor(section?.id ?? "", learnerId).map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.body.slice(0, 60)}
+              </option>
+            ))}
           </select>
         </label>
         {note?.provisional ? (
@@ -182,62 +246,79 @@ export function OfflineRecordEditor({
         <button
           className={buttonClass}
           type="button"
+          disabled={noteBusy}
           onClick={() => {
-            const factory = factoryOrError();
-            if (!factory || !section) return;
-            void saveLocalNote(factory, owner, {
-              sectionId: section.id,
-              learnerId,
-              body,
-              skillGaps: gaps,
-              customSkillLabel: customLabel.length > 0 ? customLabel : null,
-              recordId: note?.id ?? null,
-              baseVector: note?.versionVector ?? {},
-            }).then((result) => {
-              if (result.ok) {
-                setMessage(result.message);
-                setError("");
-              } else {
-                setError(result.message);
-                setMessage("");
-              }
-            });
+            const factory = browserFactory();
+            if (!factory || !section) {
+              setNoteNotice({ tone: "error", text: factory ? NOT_SAVED : NO_FACTORY });
+              return;
+            }
+            setNoteBusy(true);
+            setNoteNotice(null);
+            void saveLocalNote(
+              factory,
+              owner,
+              noteSaveInput(
+                { noteId, body, skillGaps: gaps, customSkillLabel: customLabel },
+                section.id,
+                learnerId,
+                note?.versionVector,
+              ),
+            )
+              .then((result) => {
+                setNoteNotice({ tone: result.ok ? "ok" : "error", text: result.message });
+              })
+              .catch(() => {
+                setNoteNotice({ tone: "error", text: NOT_SAVED });
+              })
+              .finally(() => {
+                setNoteBusy(false);
+              });
           }}
         >
-          Save note on this phone
+          {noteBusy ? "Saving…" : "Save note on this phone"}
         </button>
+        <ResultLine notice={noteNotice} noticeRef={noteNoticeRef} />
       </section>
 
-      {error ? (
-        <p role="alert" className="text-lg font-medium">
-          {error}
-        </p>
-      ) : null}
-      {message ? <p className="text-lg font-medium">{message}</p> : null}
       <button
         className={secondaryButtonClass}
         type="button"
+        disabled={sendBusy}
         onClick={() => {
-          const factory = factoryOrError();
-          if (!factory) return;
-          void syncLocalRecords({ factory, account: owner }).then(async (result) => {
-            if (result.ok) {
-              setMessage(result.message);
-              setError("");
-            } else {
-              setError(result.message);
-              setMessage("");
-            }
-            const listed = await listLocalRecords(factory, owner);
-            if (listed.ok) {
-              const waiting = listed.mutations.filter((item) => item.syncState === "pending").length;
-              if (waiting > 0) setError((current) => current || `${waiting} edit${waiting === 1 ? " is" : "s are"} still waiting on this phone.`);
-            }
-          });
+          const factory = browserFactory();
+          if (!factory) {
+            setSendNotice({ tone: "error", text: NO_FACTORY });
+            return;
+          }
+          setSendBusy(true);
+          setSendNotice(null);
+          void syncLocalRecords({ factory, account: owner })
+            .then(async (result) => {
+              let text = result.message;
+              const listed = await listLocalRecords(factory, owner);
+              if (listed.ok) {
+                const waiting = listed.mutations.filter((item) => item.syncState === "pending").length;
+                if (waiting > 0 && result.ok) {
+                  text = `${result.message} ${waiting} edit${waiting === 1 ? " is" : "s are"} still waiting on this phone.`;
+                }
+                if (waiting > 0 && !result.ok) {
+                  text = result.message || `${waiting} edit${waiting === 1 ? " is" : "s are"} still waiting on this phone.`;
+                }
+              }
+              setSendNotice({ tone: result.ok ? "ok" : "error", text });
+            })
+            .catch(() => {
+              setSendNotice({ tone: "error", text: "The saved edits were not sent." });
+            })
+            .finally(() => {
+              setSendBusy(false);
+            });
         }}
       >
-        Send saved edits
+        {sendBusy ? "Sending…" : "Send saved edits"}
       </button>
+      <ResultLine notice={sendNotice} noticeRef={sendNoticeRef} />
     </div>
   );
 }

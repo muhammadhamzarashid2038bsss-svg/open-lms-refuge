@@ -15,6 +15,11 @@ import { canonicalVector, parseVersionVector, type VersionVector } from "@/lib/s
 import { isUuid } from "@/lib/lms/timetable";
 
 const SAVED = decideMarkWrite(true).message;
+/// Chrome and Edge on a shared center phone usually refuse the persistence
+/// promise until the site is installed. The row can still be stored and read
+/// back when the measured free space covers it. This sentence must not say
+/// "Saved on this phone": that wording is only for a granted promise.
+const HELD_WITHOUT_PROMISE = "This edit is on this phone, waiting to send. This browser did not promise to keep it.";
 const NOT_SAVED = "This edit was not saved on this phone.";
 const NO_ROOM = "This phone does not have enough free space. This edit was not saved.";
 const DENIED = "This phone did not allow saved data to stay. This edit was not saved.";
@@ -102,6 +107,16 @@ function readinessMessage(readiness: StorageReadiness): string | null {
   if (readiness.estimate === "ready" && !readiness.enoughRoom) return NO_ROOM;
   if (readiness.persistence === "denied") return DENIED;
   return UNAVAILABLE;
+}
+
+/// A grade or note is written when the measured free space covers the row.
+/// The stronger saved sentence still requires the persistence promise.
+/// Blocking the write on that promise made the save button look frozen in
+/// production Chrome and Edge, where the promise is refused and the phone
+/// still has room.
+function writeBlocked(readiness: StorageReadiness): string | null {
+  if (readiness.readyForWrite) return null;
+  return readinessMessage(readiness);
 }
 
 function deviceIdOf(value: unknown): string | null | "bad" {
@@ -206,8 +221,9 @@ async function writeEdit(factory: IDBFactory, owner: Owner, draft: EditDraft, op
   if (!present(owner.centerId) || !present(owner.userId)) return { ok: false, message: NOT_SAVED };
   const storage = options.storage === undefined ? browserStorageProbe() : options.storage;
   const readiness = await checkStorageReadiness(bytesFor(draft.content), storage);
-  const blocked = readinessMessage(readiness);
+  const blocked = writeBlocked(readiness);
   if (blocked) return { ok: false, message: blocked };
+  const savedWording = readiness.mayClaimSaved;
 
   try {
     const mutation = await withDb(factory, async (db) => {
@@ -281,7 +297,7 @@ async function writeEdit(factory: IDBFactory, owner: Owner, draft: EditDraft, op
       if (!confirmed) throw new LocalStop(NOT_SAVED);
       return written;
     });
-    return { ok: true, message: SAVED, mutation };
+    return { ok: true, message: savedWording ? SAVED : HELD_WITHOUT_PROMISE, mutation };
   } catch (error) {
     if (error instanceof LocalStop) return { ok: false, message: error.message };
     return { ok: false, message: NOT_SAVED };

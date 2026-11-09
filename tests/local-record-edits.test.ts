@@ -53,16 +53,16 @@ describe("offline grade and note edits", () => {
 
   it("does not claim a save when storage or read-back fails", async () => {
     const { indexedDB } = trackedFactory();
-    const denied = await saveLocalGrade(
+    const full = await saveLocalGrade(
       indexedDB,
       owner,
       { assignmentId, learnerId, points: "8", academicNote: null },
-      { storage: { persist: async () => false, estimate: async () => ({ quota: 5000, usage: 0 }) } },
+      { storage: { persist: async () => false, estimate: async () => ({ quota: 10, usage: 10 }) } },
     );
-    expect(denied.ok).toBe(false);
-    if (denied.ok) return;
-    expect(denied.message).not.toContain("Saved on this phone");
-    expect(denied.message.toLowerCase()).toContain("not saved");
+    expect(full.ok).toBe(false);
+    if (full.ok) return;
+    expect(full.message).not.toContain("Saved on this phone");
+    expect(full.message.toLowerCase()).toContain("not saved");
     const unread = await saveLocalGrade(
       indexedDB,
       owner,
@@ -74,6 +74,22 @@ describe("offline grade and note edits", () => {
     expect(unread.message).not.toContain("Saved on this phone");
     const listed = await listLocalRecords(indexedDB, owner);
     expect(listed.ok && listed.mutations).toEqual([]);
+  });
+
+  it("stores a grade when the browser has room but will not promise to keep it", async () => {
+    const { indexedDB } = trackedFactory();
+    const held = await saveLocalGrade(
+      indexedDB,
+      owner,
+      { assignmentId, learnerId, points: "8", academicNote: null },
+      { storage: { persist: async () => false, estimate: async () => ({ quota: 5000, usage: 0 }) } },
+    );
+    expect(held.ok).toBe(true);
+    if (!held.ok) return;
+    expect(held.message).toBe("This edit is on this phone, waiting to send. This browser did not promise to keep it.");
+    expect(held.message).not.toContain("Saved on this phone");
+    const listed = await listLocalRecords(indexedDB, owner);
+    expect(listed.ok && listed.mutations).toHaveLength(1);
   });
 
   it("hides edits from another account and does not write them into attendance", async () => {
