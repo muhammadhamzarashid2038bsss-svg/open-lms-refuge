@@ -6,6 +6,7 @@ import { addVerifiedPractice, performPhoneSignOut, waitingForAccount, PHONE_PRIV
 import { decideSignOut } from "@/lib/device/offline-decisions";
 import { revokeServerSession } from "@/lib/device/revoke-session";
 import { usePhoneSession } from "./device-gate";
+import { ATTENDANCE_SYNC_EVENT } from "@/lib/sync/trigger";
 import { buttonClass, secondaryButtonClass } from "./ui";
 
 export function PhoneTools({ userId, centerId }: { userId: string; centerId: string }) {
@@ -30,9 +31,29 @@ export function PhoneTools({ userId, centerId }: { userId: string; centerId: str
         return;
       }
       setWaiting(result.count);
+      setProblem(null);
     })();
+    const refresh = () => {
+      void (async () => {
+        if (!aligned || !session) return;
+        const result = await waitingForAccount({
+          factory: indexedDB,
+          readRaw: readDeviceBackup,
+          account: { userId, centerId },
+        });
+        if (cancelled) return;
+        if (!result.ok) {
+          setWaiting(null);
+          setProblem(result.message);
+          return;
+        }
+        setWaiting(result.count);
+      })();
+    };
+    window.addEventListener(ATTENDANCE_SYNC_EVENT, refresh);
     return () => {
       cancelled = true;
+      window.removeEventListener(ATTENDANCE_SYNC_EVENT, refresh);
     };
   }, [aligned, centerId, session, userId]);
 

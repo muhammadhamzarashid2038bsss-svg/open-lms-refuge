@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { AttendanceSync } from "@/components/attendance-sync";
 import { endSession } from "@/app/actions/auth";
 import { readDeviceBackup, watchDeviceBackup } from "@/lib/device/browser";
 import { MISMATCHED_RECORDS, decideRevokeResult } from "@/lib/device/offline-decisions";
@@ -112,5 +113,12 @@ export function DeviceGate({
   const session = { userId, centerId, authSessionId };
   if (problem) return <p className="p-4 text-lg text-zinc-950">{problem}</p>;
   if (!ready) return <p className="p-4 text-lg text-zinc-950">Checking this phone…</p>;
-  return <PhoneSessionContext.Provider value={session}>{children}</PhoneSessionContext.Provider>;
+  return (
+    <PhoneSessionContext.Provider value={session}>
+      <div className="mx-auto w-full max-w-lg px-4 pt-4">
+        <AttendanceSync userId={userId} centerId={centerId} />
+      </div>
+      {children}
+    </PhoneSessionContext.Provider>
+  );
 }
