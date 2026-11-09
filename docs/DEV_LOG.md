@@ -320,3 +320,58 @@ Day 7 was completed with one documented browser limitation. The offline kiosk sh
 ### End-of-day result
 
 Day 8 is technically complete. The sync client, authenticated server endpoint, foreground runner, status panel, retry handling, and safety checks were implemented. All 72 relevant tests passed, ESLint passed, and the work was committed and pushed to GitHub. But the full manual browser-to-database acceptance test remains pending because of the persistent-storage limitation carried over from Day 7. This is documented rather than being reported as a successful browser test. I can move on to Day 9 while keeping that acceptance check on the outstanding verification list.
+
+## Day 9 of 20 · 2026-11-10
+
+### What I built
+
+- Built version-vector conflict handling for both GradeEntry and ProgressNote records.
+- Implemented a version-vector comparison function that identifies whether an incoming edit is causally later, older, equal, or concurrent with the current version.
+- Added per-device counters and version history so the system can track the order of edits without relying on phone timestamps.
+- Implemented server-side conflict detection. When two devices make independent offline edits to the same record, the system preserves both complete versions instead of silently overwriting one.
+- Created SyncConflict records and a teacher-facing conflict screen where an authorized teacher can review both versions and choose which one to keep or enter a merged version.
+- Implemented conflict resolution using a new version vector that merges the previous counters and increments the resolving device's counter. The original versions and resolution history are preserved.
+- Added safeguards for repeated uploads, including mutation IDs and content fingerprints, so the same edit is not applied twice.
+- Added authorization checks so only an appropriately assigned teacher can edit and resolve records for their section.
+- Updated the local IndexedDB database to store record mutations and per-device counters without deleting existing offline data.
+- Added database-level checks to ensure conflict versions and resolution versions belong to the correct grade or progress note.
+- Fixed the local record-saving behavior for grades and progress notes. Chrome and Edge refused to promise persistent storage, so these records can now still be saved when the browser reports sufficient available space. The interface displays a warning that the browser has not guaranteed it will keep the data.
+- Fixed the ProgressNote editor so selecting an existing note loads its complete text, skill gaps, custom label, and original record ID. Selecting another note replaces the form content, while selecting New note clears it. Selecting a note does not automatically save anything.
+
+### What went wrong
+
+- The first major challenge was browser storage. Both Chrome and Edge refused to grant persistent storage, which initially prevented me from saving grade and progress note edits offline. We changed the saving behavior to allow these records to be stored when sufficient browser space is available, while keeping a clear warning that the browser has not promised to retain them. Attendance still uses the stronger persistent-storage requirement.
+- My first attempt to test GradeEntry and ProgressNote conflict handling was affected by the storage restriction. After fixing the local saving behavior, I was able to save different versions in Chrome and Edge and synchronize them separately.
+- During the ProgressNote test, the saved note disappeared from the records page after refreshing, even though the sync system had acknowledged it. A database investigation confirmed that the note was successfully stored, including its skill gaps and version history. The actual problem was in the editor: it loaded the saved note into the existing-note menu but did not populate the text box and skill-gap selections when the note was selected.
+- The first editor fix appeared to work in development, but my browser was still using an older production build on port 3100. After rebuilding the production app, I tested the corrected behavior in both Chrome and Edge. I also added a test that renders the actual form and checks the dropdown interaction, rather than only testing the helper function.
+- I used Chrome and Edge as two independent browser environments to simulate two devices editing the same records offline. This allowed me to test the complete workflow: saving different versions, synchronizing them separately, detecting conflicts, resolving them, and making another edit afterward.
+- I also encountered older TypeScript errors in the sync code that were preventing the production build. These were corrected before continuing with the production browser testing.
+
+### Testing and results
+
+**Automated testing:**
+- Added and ran tests for normal updates, concurrent grade and progress note edits, repeated uploads, equal and dominating version vectors, incorrect phone clocks, conflict resolution followed by another edit, and unauthorized access.
+- Added database trigger tests to verify that original conflict versions and resolution versions belong to the correct record.
+- Added tests for selecting an existing progress note, switching between notes, selecting New note, and saving an edit while retaining the original record ID.
+- Final focused editor and local-record tests passed: 13 tests across 3 test files.
+- TypeScript check (`npx tsc --noEmit`) passed.
+- ESLint passed on the changed files.
+- `git diff --check` passed.
+- The production build completed successfully after the earlier TypeScript issues were corrected.
+
+**Manual two-browser testing:**
+
+- **GradeEntry:** Saved 75 in Chrome and 50 in Edge while both were offline. Synchronized Chrome first and Edge second. The system detected the conflict and displayed both versions. I resolved it by choosing 75. The conflict disappeared, and a later edit changing the grade to 95 was accepted without creating another conflict.
+- **ProgressNote:** Created and synchronized a reading progress note, then selected that same note in both browsers. Saved different offline versions in Chrome and Edge, using "familiar words" in one version and "similar words" in the other. After synchronizing them separately, the conflict screen displayed both complete versions. I resolved the conflict by choosing the Chrome version. Both browsers displayed the selected version afterward.
+- **Post-resolution ProgressNote test:** Made another edit to the resolved note in Chrome and synchronized it. No new conflict appeared, and after refreshing Edge, it also displayed the latest version.
+
+Both GradeEntry and ProgressNote successfully passed the manual two-browser conflict detection, resolution, and subsequent-edit tests.
+
+### What I learned
+
+- I learned what a Version Vector is: it allows the system to track which device made changes and the causal order of those changes without relying on phone clocks, which may be incorrect.
+- I learned the difference between a normal update and a concurrent edit. A later edit can be accepted normally when it follows the previous version, but two independent offline edits create a conflict that requires a human decision.
+- I learned that a conflict is not necessarily a system failure. It is a situation where the system must preserve the different versions and allow an authorized person to decide what should happen.
+- I learned that synchronization acknowledging an edit does not automatically mean the user interface is displaying the saved record correctly. The database, synchronization process, and editor must all work together.
+- I also learned that browser storage permissions are important for offline applications. Saving something in IndexedDB does not guarantee that the browser will keep it permanently, even when the save operation succeeds.
+
