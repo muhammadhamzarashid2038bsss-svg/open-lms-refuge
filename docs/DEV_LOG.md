@@ -263,4 +263,60 @@ The core timetable functionality is now implemented, and both the timetable feat
 - IndexedDB migration and shared-device browser acceptance tests passed.
 - Verified that the local Git branch was synchronized with `origin/main` and the working tree was clean.
 
-**Final result:** Day 7 was completed with one documented browser limitation. The offline kiosk shell, caching boundaries, IndexedDB migration, and shared-device protection were verified. However, actual offline attendance saving could not be demonstrated because Chrome refused persistent storage. The application correctly blocked the save rather than risking an inaccurate confirmation. Uploading unsynchronized attendance records remains part of Day 8.
+### End-of-day result
+
+Day 7 was completed with one documented browser limitation. The offline kiosk shell, caching boundaries, IndexedDB migration, and shared-device protection were verified. However, actual offline attendance saving could not be demonstrated because Chrome refused persistent storage. The application correctly blocked the save rather than risking an inaccurate confirmation. Uploading unsynchronized attendance records remains part of Day 8.
+
+## Day 8 of 20 · 2026-11-09
+
+### What I built
+
+- Built the foreground **Sync-When-Connected engine** in a new `lib/sync` module. It uploads locally saved attendance records when the signed-in page can successfully reach the server.
+- Added an authenticated health endpoint. The app checks for a valid JSON response from the server instead of relying only on `navigator.onLine`, because the browser can report that it is online even when the application server is unreachable.
+- Built the `/api/sync` endpoint to receive attendance batches securely. The server identifies the user and centre from the authenticated session rather than trusting identity information supplied by the browser.
+- Reused the existing unique `clientEventId` constraint on attendance records to make uploads idempotent. This prevents repeated uploads from creating duplicate attendance records. No database schema change or migration was needed.
+- Added server-side checks for each attendance event, including the user's permissions, centre, class session, section, learner enrolment, and correction references.
+- Implemented per-record results so the server can distinguish between accepted records, records already accepted, permanently rejected records, and records that can be retried.
+- Added gzip compression to reduce the amount of data sent over mobile connections. Batches are limited to 25 attendance events, with payload-size limits to prevent oversized requests. Added a plain JSON fallback when compression would exceed the compressed-size limit but the uncompressed payload is still acceptable.
+- Added retry handling with exponential backoff and jitter for temporary failures. Automatic retries are capped, while the user can still manually retry temporary failures using **Sync now**.
+- Built a foreground sync runner that starts when the signed-in page loads, when the browser comes back online, and when a retry is due. It does not depend on background synchronization or Service Worker uploads.
+- Added an **Attendance sync** status panel to signed-in pages. It displays attendance waiting to upload, permanently refused records, retry information, the last confirmed sync time, and a **Sync now** button.
+- Made the acknowledgement process cautious. A local attendance record is marked as acknowledged only when the server confirms the exact submitted records and the local database update succeeds and is verified. Records are never deleted just because an upload was attempted.
+- Preserved the existing shared-device protections. The sync engine uploads only pending attendance records belonging to the currently signed-in account and the actual local device. It does not upload another account's records or the separate practice activity records.
+- Added tests for the sync client, server endpoint, upload runner, retry behaviour, duplicate submissions, partial failures, interrupted uploads, and shared-device isolation.
+
+### What went wrong
+
+- The initial architecture review showed that the database already had a unique constraint on `AttendanceRecord.clientEventId`. I did not need to introduce another database field or migration for idempotency.
+- During implementation, I identified a compression edge case: a gzip payload could exceed the compressed-size limit even when the original JSON payload was still within the allowed size. The implementation was corrected to fall back to plain JSON in that situation.
+- I also added a narrow same-origin check to the sync endpoint so that requests from foreign websites are refused.
+- The actual browser-to-database acceptance test was not completed. Cursor tested the implementation through automated tests, but it did not perform the complete signed-in browser workflow of saving an attendance record offline, reconnecting, synchronizing it, and manually checking the resulting database record.
+- This browser limitation is connected to the storage issue discovered on Day 7. Chrome refused the app's request for persistent browser storage, so the app correctly refused to save a new offline attendance mark when durable storage could not be confirmed. The sync engine cannot upload an attendance record that was never safely saved.
+- The Day 7 production-build test on `localhost:3100` was necessary to verify Service Worker and offline-shell behaviour. The development origin on `localhost:3000` did not have the same production Service Worker behaviour. However, that production-origin test does not count as a completed Day 8 browser-to-database sync test.
+
+### What I learned
+
+- I learned that `navigator.onLine` does not prove that the application server is reachable. The app must make an actual request and check the response before attempting synchronization.
+- I learned how idempotency works. Every attendance event has a unique `clientEventId`, allowing the server to recognize a repeated upload instead of creating a duplicate record.
+- I learned why a sync engine must handle each record separately. One rejected or temporarily failed record should not prevent other valid records in the same batch from being processed.
+- I learned that an HTTP success response alone is not enough to safely mark local records as synchronized. The app must confirm which records the server accepted and verify that the local acknowledgement was saved.
+- I learned why local attendance records should not be deleted immediately after uploading. Keeping them allows the app to retry safely if the response is interrupted or local acknowledgement fails.
+- I learned that compression can reduce mobile data usage, but the application still needs payload-size limits and a fallback when compression is unavailable or produces an oversized payload.
+- I learned that foreground synchronization is different from background synchronization. This implementation syncs while the authenticated page is open; it does not promise to upload attendance after the app has been closed.
+
+### Testing and final result
+
+- The sync client tests passed: 22 tests.
+- The server-side attendance sync tests passed: 20 tests.
+- The sync runner and panel tests passed: 19 tests.
+- The shared-device regression tests passed: 11 tests.
+- **Total: 72 relevant tests passed, with 0 failures.**
+- ESLint passed for the changed files.
+- The tests covered duplicate uploads, authorization, partial results, retryable failures, acknowledgement rules, and shared-device isolation.
+- No database reset or reseed was performed.
+- No database schema migration was required.
+- The local attendance records remain stored on the device after synchronization; the engine does not delete them.
+
+### End-of-day result
+
+Day 8 is technically complete. The sync client, authenticated server endpoint, foreground runner, status panel, retry handling, and safety checks were implemented. All 72 relevant tests passed, ESLint passed, and the work was committed and pushed to GitHub. But the full manual browser-to-database acceptance test remains pending because of the persistent-storage limitation carried over from Day 7. This is documented rather than being reported as a successful browser test. I can move on to Day 9 while keeping that acceptance check on the outstanding verification list.
