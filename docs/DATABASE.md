@@ -179,7 +179,7 @@ The demo includes one correction. The first event says absent and its phone cloc
 
 ### Assignment
 
-A paper task, a digital upload, or an in-class paper exam, with a maximum score. Each demo section has four: a homework, a quiz, a photo homework, and a midterm.
+A task with a maximum score. The kind is Paper (a mark, no file), Digital (a file the teacher grades later), Both (a paper mark now and a digital file later), or an in-class paper exam. Both is its own kind. It is not stored as Digital. Existing in-class exam rows stay. Each demo section has four: a homework, a quiz, a photo homework, and a midterm. The gradebook shows every kind in one table. The mark is still a `GradeEntry`. A file upload stays a separate queue.
 
 ### GradeEntry
 
@@ -203,7 +203,7 @@ The demo has one open grade conflict. One phone saved 16. The office laptop save
 
 ### Submission
 
-Metadata for one digital homework file. `clientSubmissionId` is the phone’s id for that upload. `uploadState` is queued, uploading, stored, or failed. The private `storageKey` is where the file belongs in object storage. Object storage is a file cupboard outside PostgreSQL. The checksum, size, and MIME type describe the file. There is no column for the file bytes.
+Metadata for one digital homework file. `clientSubmissionId` is the phone’s id for that upload. A retry with the same id and the same size, type, and checksum reuses this row. A retry with different details is refused. `uploadState` is queued, uploading, stored, or failed. The private `storageKey` is an opaque cupboard path, not a public web address and not the file itself. The checksum, size, and MIME type are the claim made at the start. The server marks the row stored only after it has read the stored bytes, checked the size, and calculated the SHA-256 itself. There is no column for the file bytes.
 
 The demo checksums are the SHA-256 fingerprint of a short fake label, not of a real photo. SHA-256 is a standard fingerprint function built into Node. The four demo rows are photo metadata for the morning photo homework. Three say stored. One is still queued.
 

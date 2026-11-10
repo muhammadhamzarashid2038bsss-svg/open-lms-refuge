@@ -105,6 +105,11 @@ enum AssignmentKind {
   PAPER
   DIGITAL
   IN_CLASS_EXAM
+  /// Hybrid task under LMS-4. The teacher records a paper mark now, and a
+  /// learner file can be attached later. This is not DIGITAL. DIGITAL is a
+  /// file the teacher grades after review. Existing PAPER and IN_CLASS_EXAM
+  /// rows stay as they are.
+  BOTH
 }
 
 /// What the gradebook shows. The file queue has its own state for retries.
@@ -583,6 +588,9 @@ model Assignment {
   sectionId   String         @db.Uuid
   section     Section        @relation(fields: [sectionId], references: [id], onDelete: Restrict)
   title       String
+  /// PAPER is a mark with no file. DIGITAL is a file graded later.
+  /// BOTH is a paper mark plus a later file. IN_CLASS_EXAM is an existing
+  /// paper exam. All four use one GradeEntry per learner.
   kind        AssignmentKind
   dueAt       DateTime?
   maxPoints   Decimal        @db.Decimal(6, 2)

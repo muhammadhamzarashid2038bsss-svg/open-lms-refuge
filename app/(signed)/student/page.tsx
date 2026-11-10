@@ -36,6 +36,11 @@ async function StudentHome() {
           <p className="text-lg">Learner code {record.learnerCode}</p>
           <section className="flex flex-col gap-2">
             <h2 className="text-xl font-semibold">Your sections</h2>
+            <p className="text-lg">
+              <Link className="underline" href="/student/homework">
+                Homework files
+              </Link>
+            </p>
             <ul className="flex flex-col gap-2 text-lg">
               {sections.map((section) => (
                 <li key={section.id}>

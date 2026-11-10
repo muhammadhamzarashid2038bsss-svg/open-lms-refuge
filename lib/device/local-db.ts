@@ -25,10 +25,10 @@ import {
 } from "./legacy-validate";
 
 export const LOCAL_DB_NAME = "olr-local";
-/// Version 2 adds grade and note stores. The upgrade only creates stores that
-/// are missing. It does not delete attendance, locks, handover notes, or the
-/// old localStorage backup.
-export const LOCAL_DB_VERSION = 2;
+/// Version 2 adds grade and note stores. Version 3 adds the homework file
+/// queue. The upgrade only creates stores that are missing. It does not delete
+/// attendance, locks, handover notes, grades, or the old localStorage backup.
+export const LOCAL_DB_VERSION = 3;
 /// The Day 7 copy row. It stays at 1 so a phone that already verified its
 /// queue is not treated as damaged after the database version moves to 2.
 export const LEGACY_META_SCHEMA = 1;
@@ -43,6 +43,7 @@ export const LOCAL_STORE_NAMES = [
   "events",
   "recordMutations",
   "recordCounters",
+  "fileQueue",
 ] as const;
 
 type StoreName = (typeof LOCAL_STORE_NAMES)[number];
@@ -103,6 +104,16 @@ const STORE_PLAN: StorePlan[] = [
     name: "recordCounters",
     options: { keyPath: "id" },
     indexes: [{ name: "byOwner", keyPath: ["centerId", "userId", "localDeviceId"] }],
+  },
+  // Homework files stay out of the attendance event store and out of the
+  // grade mutation store. A retry uses clientSubmissionId, not the filename.
+  {
+    name: "fileQueue",
+    options: { keyPath: "clientSubmissionId" },
+    indexes: [
+      { name: "byOwner", keyPath: ["centerId", "userId", "localDeviceId"] },
+      { name: "byAssignment", keyPath: ["centerId", "userId", "learnerId", "assignmentId"] },
+    ],
   },
 ];
 
