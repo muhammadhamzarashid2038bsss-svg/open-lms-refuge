@@ -10,6 +10,7 @@ import {
   canReadLearner,
   canReadResource,
   canReadSection,
+  canViewPerformance,
   canResetPassword,
   canResetPin,
   canSetActive,
@@ -110,6 +111,18 @@ describe("role permission matrix", () => {
     expect(canEditAssignedRecords(admin, morning)).toBe(false);
     expect(canEditAssignedRecords(student, morning)).toBe(false);
     expect(canEditAssignedRecords(switchedOff, morning)).toBe(false);
+  });
+
+  it("lets only the assigned teacher and the center director read performance", () => {
+    expect(canViewPerformance(morningTeacher, morning)).toBe(true);
+    expect(canViewPerformance(morningTeacher, afternoon)).toBe(false);
+    expect(canViewPerformance(afternoonTeacher, morning)).toBe(false);
+    expect(canViewPerformance(director, morning)).toBe(true);
+    expect(canViewPerformance(director, afternoon)).toBe(true);
+    expect(canViewPerformance(otherDirector, morning)).toBe(false);
+    expect(canViewPerformance(student, morning)).toBe(false);
+    expect(canViewPerformance(admin, morning)).toBe(false);
+    expect(canViewPerformance(switchedOff, morning)).toBe(false);
   });
 
   it("lets a director see their center, including contact, and not another center", () => {

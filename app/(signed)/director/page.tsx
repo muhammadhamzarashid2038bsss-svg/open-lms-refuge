@@ -36,6 +36,11 @@ async function DirectorHome() {
         </p>
       ) : null}
       <p className="text-lg">
+        <Link className="underline" href="/director/performance">
+          Center performance
+        </Link>
+      </p>
+      <p className="text-lg">
         <Link className="underline" href="/courses">
           Courses and syllabus materials
         </Link>

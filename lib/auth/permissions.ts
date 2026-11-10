@@ -91,6 +91,16 @@ export function canReadSection(actor: Actor, section: SectionScope): boolean {
   return false;
 }
 
+// LMS-7 reads performance on the server. A learner can open a section timetable,
+// but Day 11 does not give learners this dashboard. Admins manage accounts and
+// do not receive a back door into grades. Hiding a link is not the check.
+export function canViewPerformance(actor: Actor, section: SectionScope): boolean {
+  if (!activeActor(actor) || !sharesCenter(actor, section.centerId)) return false;
+  if (actor.role === "TEACHER") return teacherHasSection(actor, section.id);
+  if (actor.role === "CENTER_DIRECTOR") return true;
+  return false;
+}
+
 export function canReadResource(actor: Actor, resource: ResourceScope): boolean {
   if (!activeActor(actor) || !sharesCenter(actor, resource.centerId)) return false;
   if (actor.role === "CENTER_DIRECTOR") return true;

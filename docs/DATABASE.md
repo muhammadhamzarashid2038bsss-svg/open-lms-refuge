@@ -237,7 +237,7 @@ The demo includes one report for the afternoon group, dated the day Teacher Two 
 
 One learner’s page inside that report. The requirements call this the Student Transition Profile. It stores counts and a trend label, not a copied essay. Notes stay in `ProgressNote` and are linked, so a later reader opens the real note.
 
-The seed’s trend label compares the first two scores with the last two. That is only so the demo numbers have a rule you can check. The dashboard’s official Improving / Steady / Declining rule is still to be written.
+The seed’s trend label compares the first two scores with the last two. That is only so the demo numbers have a rule you can check. The dashboard’s official Improving / Steady / Declining rule is in docs/DASHBOARD_METRICS.md. The seed label is not that rule.
 
 ### TransitionProfileNote
 

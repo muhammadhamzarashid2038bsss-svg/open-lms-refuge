@@ -53,6 +53,10 @@ async function TeacherHome() {
             <Link className="underline" href={`/teacher/sections/${section.id}/gradebook`}>
               Gradebook
             </Link>
+            {" · "}
+            <Link className="underline" href={`/teacher/sections/${section.id}/performance`}>
+              Performance
+            </Link>
           </li>
         ))}
         {sections.length === 0 ? <li>No section is assigned to you right now.</li> : null}
