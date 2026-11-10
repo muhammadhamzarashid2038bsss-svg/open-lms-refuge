@@ -375,3 +375,118 @@ Both GradeEntry and ProgressNote successfully passed the manual two-browser conf
 - I learned that synchronization acknowledging an edit does not automatically mean the user interface is displaying the saved record correctly. The database, synchronization process, and editor must all work together.
 - I also learned that browser storage permissions are important for offline applications. Saving something in IndexedDB does not guarantee that the browser will keep it permanently, even when the save operation succeeds.
 
+## Day 10 of 20 · 2026-11-10 (End of Week 2!)
+
+### What I built
+
+- Built the Hybrid Assignment Portal, allowing teachers to create assignments marked as Paper, Digital, or Both. Preserved the existing In-class exam assignment type.
+- Added a new `BOTH` assignment kind to the Prisma schema through a small, additive database migration. Existing assignment records were preserved without resetting or reseeding the database.
+- Built a section gradebook with one row per learner and columns for the section's assignments. It displays existing grades, maximum marks, conflict information, and digital submission status in one table.
+- Implemented offline paper grade entry by reusing the existing GradeEntry local-saving functionality, the Day 8 record synchronization engine, and the Day 9 version-vector conflict handling. No separate grading or synchronization system was created.
+- Built the teacher assignment creation form with server-side authorization so teachers can only create assignments for sections they are currently assigned to.
+- Built the server-side digital homework submission system using Cloudflare R2 as the selected private storage provider. The implementation uses the official AWS SDK v3 because R2 provides an S3-compatible API.
+- Created authenticated API routes for starting a submission, uploading a file through a short-lived authorized URL, confirming the upload, and requesting a short-lived download link.
+- Implemented server-side file verification. The server checks the actual stored file size and independently calculates its SHA-256 checksum. A submission is marked as stored only after the file passes verification and the database confirms the finalization.
+- Added file validation for JPEG, PNG, WebP, and PDF, with a maximum stored file size of 1 MB. Unsupported formats such as SVG, HTML, executables, and archives are rejected.
+- Built the learner-facing Homework files page, allowing learners to see their Digital and Both assignments and select files from their devices.
+- Implemented browser-side photo compression using browser-native image processing. The target is to reduce photographs below 500 KB when readability can be preserved. PDFs are not compressed.
+- Created a separate offline file-upload queue in IndexedDB. Upgraded the existing `olr-local` database from version 2 to version 3 by adding only the new `fileQueue` store and its indexes, without deleting or replacing existing attendance or record stores.
+- Added file ownership checks using the signed-in account, centre, learner, and local device. The existing shared-device lock and storage-readiness safeguards are reused.
+- Implemented a foreground file-upload process that is completely separate from the JSON attendance and grade synchronization batches. It handles upload authorization, progress, retries, expired upload links, duplicate submissions, and server finalization.
+- Ensured that a queued file remains on the phone after an upload attempt. The local file is removed only after the server confirms that the submission is finalized and marked as stored.
+- Extended the teacher's section gradebook to show digital submission statuses: Not submitted, Waiting to upload, Uploading, Submitted, and Upload failed.
+- Corrected a gradebook status issue where a file waiting in the server queue was initially displayed as Uploading. The system now distinguishes between a file waiting to upload and one actually being uploaded.
+
+### What went wrong
+
+- The initial architecture audit revealed that the database already contained the Assignment, Submission, GradeEntry, and FileUploadQueueItem models. However, teachers could not create assignments through the application, and there was no learner-facing digital homework upload interface. I reused the existing database structures rather than creating unnecessary duplicate tables.
+- The existing assignment type supported Paper, Digital, and In-class exam, but not Both. I therefore added Both as a new enum value through an additive migration. The migration was applied successfully without resetting or reseeding the database.
+- During the paper gradebook testing, I discovered an existing grade conflict for Demo Learner 03. I deliberately avoided changing that conflicting record and used other learners for the ten-mark offline synchronization test.
+- During the initial learner file testing, I used a small 4-byte JPEG named `sheet.jpg`. It was accepted and saved locally, but it did not provide a meaningful photo-compression test. I later selected a larger 1.4 MB PNG to test the actual preparation process.
+- The photo-compression test reduced the 1.4 MB image to 532 KB. The application did not force the image below 500 KB because doing so could affect readability. It retained the prepared image because it was still below the 1 MB maximum and displayed a warning explaining that the 500 KB target had not been reached. However, the selected picture was an anime wallpaper rather than a worksheet, so I did not independently verify handwriting readability.
+- The first teacher gradebook test used Chrome, but the existing shared-device lock prevented me from switching directly from the learner account to Teacher One because an older unsynchronized record was still present. I did not bypass the protection or clear browser data. Instead, I used Edge as a separate browser environment to test the teacher gradebook.
+- During the teacher gradebook test, the fourth learner's seeded digital submission appeared as Uploading. A read-only database investigation showed that its actual state was `QUEUED`, with no upload attempts or errors. I corrected the status mapping so the teacher now sees Waiting to upload instead.
+- The development database proxy stopped accepting connections during testing. It was restarted without resetting or reseeding the database. The existing demo data remained intact.
+- A development overlay also reported a hydration difference in the existing attendance status line during one page reload. The attendance component was not changed as part of Day 10.
+- The biggest remaining limitation is that I did not create a real Cloudflare account, bucket, or credentials. Therefore, the R2 integration was tested using a mock storage service rather than a real cloud upload. Actual browser uploads, downloads, CORS configuration, and server-side verification against a real R2 object remain to be tested.
+
+### What I learned
+
+- I learned that different types of offline data require different synchronization approaches. Small structured records such as attendance and grades can use JSON batches, but photographs and documents require a separate file-upload process.
+- I learned why a file should not be removed from the phone immediately after a successful upload request. The server must independently verify the stored file and confirm the Submission record before the application acknowledges completion.
+- I learned how presigned URLs work. They allow the server to authorize a temporary upload or download without exposing permanent storage credentials or making learner files publicly accessible.
+- I learned that SHA-256 checksums can be used to verify that the file received by the server matches the file originally selected by the learner. The server must calculate its own checksum instead of trusting the phone's claim.
+- I learned how IndexedDB can store actual file data using Blob objects, while keeping file submissions separate from attendance and grade mutations. I also learned why database upgrades must preserve existing local records.
+- I learned that image compression involves balancing file size and readability. Reducing a photograph as much as possible is not useful if it makes handwritten work impossible to read.
+- I learned that a unified gradebook does not mean every type of work needs the same record. A digital submission is evidence of completed work, while its grade remains a separate GradeEntry record.
+- I learned that browser storage warnings must be communicated honestly. A file can be saved in IndexedDB without the browser promising to retain it permanently.
+
+### Testing and final result
+
+**Paper assignment and gradebook testing:**
+- Manually opened the Morning Group section gradebook and confirmed that it displayed 15 learners, their learner codes, four seeded assignments, and existing grades.
+- Created a separate Paper assignment for the offline grade-entry test.
+- Entered ten marks while Chrome was offline. The application displayed the warning that the edits were on the phone and waiting to send, but the browser had not promised to keep them.
+- Reconnected to the internet and clicked Send saved edits. The application confirmed that the records had been sent.
+- Refreshed the gradebook and confirmed that all ten marks remained displayed correctly.
+- Skipped Learner 03 because of the existing unresolved grade conflict.
+
+**Assignment creation testing:**
+- Confirmed that teachers can create Paper, Digital, and Both assignments.
+- Created a temporary Both assignment in the browser and verified that it appeared as a separate gradebook column. I removed that temporary assignment after testing.
+
+**Learner file-upload and offline queue testing:**
+- Signed in as Learner 01 and opened the Homework files page.
+- Confirmed that the Digital assignment appeared while the Paper assignment was excluded.
+- Selected an SVG file and confirmed that the application rejected it because its format was unsupported.
+- Selected the initial small `sheet.jpg` test file. It was saved locally with a waiting-to-send warning.
+- Refreshed the page and signed out and back in as the same learner. The queued file remained visible.
+- Selected a larger 1.4 MB PNG photograph. The browser prepared it to 532 KB and saved it in the local queue. The application correctly warned that the 500 KB target had not been reached, but the file was still below the 1 MB maximum.
+- Did not click Send pending submissions because real Cloudflare R2 storage had not been configured.
+
+**Teacher gradebook and submission-status testing:**
+- Opened the Morning Group gradebook in Edge as Teacher One.
+- Confirmed that the first three learners displayed Submitted for their seeded Demo photo homework records.
+- Investigated the fourth learner's record and confirmed that its database status was `QUEUED`, not `UPLOADING`.
+- Corrected the status display and manually verified that the fourth learner now showed Waiting to upload, while the remaining learners showed Not submitted.
+- Confirmed that the teacher-facing gradebook distinguishes between a digital file submission and its separate grade.
+
+**Automated testing and verification:**
+- Gradebook tests: 11 passed.
+- Submission backend tests: 18 passed.
+- Learner file and offline queue tests: 14 passed.
+- Local database tests: 10 passed.
+- Local record-edit tests: 7 passed.
+- **Total: 60 tests passed across 5 test files, with 0 failures.**
+
+Additional checks:
+- TypeScript (`npx tsc --noEmit`) passed.
+- ESLint passed on the changed source and test files.
+- `git diff --check` reported no whitespace errors.
+- The production build completed successfully, including the new learner homework page, teacher gradebook page, and submission API routes.
+- Confirmed that the production build did not perform a database reset, migration, or reseed.
+- Confirmed that the existing attendance synchronization and Day 9 version-vector code were preserved.
+
+**Real Cloudflare R2 testing remains pending.** The implementation has not yet been tested against a real bucket. Actual presigned uploads and downloads, bucket CORS, server verification of real uploaded objects, and interrupted real uploads still require cloud configuration.
+
+### End-of-day result
+
+Day 10 was completed with the Hybrid Assignment Portal, offline paper gradebook, private digital submission backend, learner file queue, browser photo preparation, and teacher submission-status display implemented.
+
+The ten-mark offline grade-entry test passed manually, and the learner file queue and photo preparation were also tested in the browser. Automated tests, TypeScript, ESLint, and the production build all passed.
+
+The implementation was committed and pushed to GitHub. Real Cloudflare R2 acceptance testing remains pending until the private bucket and credentials are configured.
+
+---
+
+### Week 2 Review: 3 Decisions That Shaped the Project
+
+1. **Decision:** Used version vectors instead of relying on phone timestamps for offline edits.
+**Why:** During Day 9, I implemented version-vector conflict handling for grades and progress notes. Phone clocks can be incorrect, and relying on timestamps could cause the system to overwrite a newer edit with an older one. Version vectors allow the server to understand the causal order of changes made by different devices. When two devices edit the same record independently while offline, the system preserves both complete versions and allows an authorized teacher to resolve the conflict. I manually tested this using Chrome and Edge and confirmed that both versions were preserved and that later edits worked after conflict resolution.
+
+2. **Decision:** Kept file uploads separate from the JSON synchronization engine.
+**Why:** During Days 8 and 10, I established two different synchronization workflows. Attendance records and grades are relatively small pieces of structured data, so they can be sent through the existing JSON record-sync engine. Photographs and documents are much larger and may take longer to upload or fail partway through. Sending them through the same JSON batch could delay smaller records and make retries more complicated. I therefore built a separate IndexedDB file queue and foreground upload process. The file remains on the phone until the server verifies its contents and confirms that the Submission record has been finalized.
+
+3. **Decision:** Compressed photographs in the browser before uploading them.**
+**Why:** Refugee learning centres and learners may depend on mobile data and unreliable internet connections. Uploading unnecessarily large photographs can consume expensive data and take longer on weak connections. Preparing photographs on the phone can reduce the amount of data transferred before an upload begins. I tested this with a 1.4 MB PNG, which the application reduced to 532 KB. The 500 KB target was not reached, but the application retained the prepared image under the 1 MB maximum instead of forcing further compression that could affect readability. This taught me that saving data is important, but preserving the quality of a learner's submitted work is more important than achieving a particular file size.
+
