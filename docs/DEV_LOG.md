@@ -490,3 +490,56 @@ The implementation was committed and pushed to GitHub. Real Cloudflare R2 accept
 3. **Decision:** Compressed photographs in the browser before uploading them.**
 **Why:** Refugee learning centres and learners may depend on mobile data and unreliable internet connections. Uploading unnecessarily large photographs can consume expensive data and take longer on weak connections. Preparing photographs on the phone can reduce the amount of data transferred before an upload begins. I tested this with a 1.4 MB PNG, which the application reduced to 532 KB. The 500 KB target was not reached, but the application retained the prepared image under the 1 MB maximum instead of forcing further compression that could affect readability. This taught me that saving data is important, but preserving the quality of a learner's submitted work is more important than achieving a particular file size.
 
+## Day 11 of 20 · 2026-11-11
+
+### What I built
+
+- Built the Performance Dashboard with individual learner views, section performance views, and a center wide performance view for the Director.
+- Added grade performance calculations for paper assignments, in class exams, and digital assignments. Grades are converted into percentages so assignments with different maximum marks can be compared.
+- Added section grade averages using each learner's own settled grade average, so learners with more graded assignments do not have extra weight in the section average.
+- Added attendance calculations using eligible past sessions. Cancelled sessions and future sessions are excluded. The dashboard also separates confirmed attendance from recording coverage and shows unmarked sessions.
+- Implemented the academic trajectory labels: Improving, Steady, Declining, and Insufficient data. The calculation uses up to the latest eight settled marks, requires at least four marks, and compares the medians of earlier and later results using the approved 10 percentage point threshold.
+- Ensured missing grades, ungraded assignments, and marks with open conflicts do not incorrectly affect the grade average or academic trajectory.
+- Expanded the dashboard to include file receipt trends for digital assignments and the file submission part of Both assignments. Paper assignments are not treated as file submissions.
+- Added a section level file receipt table and an individual learner file receipt table. These show expected files, received files, receipt dates, and the received by now rate.
+- Documented the measurement rules in `docs/DASHBOARD_METRICS.md`, including how attendance, grades, academic trajectories, and file receipts are calculated.
+- Added strict server side authorization. Teachers can only access their currently assigned sections, while Directors can see performance across their own center.
+- Added automated tests for dashboard calculations, missing data, cancelled sessions, and access permissions.
+
+### What went wrong
+
+- The original dashboard implementation did not fully cover the submission trends required by LMS-7. I investigated the database structure and discovered that submission records do not preserve a complete history of every upload attempt. Instead of presenting an unreliable attempt history, we expanded the dashboard with assignment level file receipt tables using the server recorded receipt time.
+- I had to clarify the difference between files received by now and files received on time. The dashboard measures whether the server has received and stored a file, even when it arrives after the due date. It is not an on time submission rate.
+- I also approved additional rules for file receipt calculations. Only learners who are active now are included, and a learner is expected to submit a file only when their enrollment started on or before the assignment due date. Future assignments and assignments without due dates are excluded from the rate.
+- During the final quality checks, the production build detected a missing `receivedAt` value in a stored file test fixture. The test fixture was corrected, and the production build passed afterward.
+- Before committing, a staged diff check also detected an extra blank line at the end of `lib/lms/dashboard-metrics.ts`. I removed it and repeated the check successfully.
+- I manually checked the dashboard calculations instead of relying only on the automated tests.
+
+### What I learned
+
+- I learned how to calculate academic trajectories without inventing false precision. A learner needs enough settled grade marks before the dashboard can reasonably identify a direction of progress.
+- I learned that missing grades, unresolved conflicts, and cancelled sessions must be handled carefully so they do not distort performance calculations.
+- I learned the difference between attendance confirmation and attendance recording coverage. A session can be included in the eligible total without having an attendance mark yet.
+- I learned that submission trends and academic trajectories are separate measurements. Receiving a homework file does not automatically mean that the learner has received a grade.
+- I learned that dashboard metrics must match what the database can reliably measure. When the database does not preserve historical upload attempts, the dashboard should not pretend that it can show them.
+- I also learned that a dashboard is not just about displaying percentages and tables. Its calculations must be understandable, tested, and protected by server side permissions.
+
+### Testing and results
+
+**Automated checks**
+- Focused dashboard tests passed: 22 tests across two test files.
+- TypeScript check passed using `npx tsc --noEmit`.
+- ESLint passed.
+- Production build passed using `npm run build`.
+- `git diff --check` passed after the final correction.
+
+**Manual browser tests**
+- Hand calculated Demo Learner 01's attendance. The dashboard showed 8 Present out of 17 eligible sessions, giving 47.1% confirmed attendance. Recording coverage was 76.5%, matching the 13 recorded attendance statuses out of 17 sessions.
+- Confirmed that one cancelled class was excluded from the eligible attendance total.
+- Checked Demo Learner 03, who had three settled marks. The dashboard correctly displayed Insufficient data because at least four settled marks are required for an academic trajectory.
+- Confirmed that the open grade conflict was excluded from the settled grade average. The learner's displayed grade average of 71.0% matched the three settled marks.
+- Tested the section file receipt table for Morning Group. It showed 15 expected files and 3 received files, giving a received by now rate of 20.0%.
+- Checked individual file receipt records for two learners. Demo Learner 01 showed one received file out of one expected file, while Demo Learner 04 showed zero received files out of one expected file.
+- Confirmed that Paper assignments were not included in the file receipt calculations.
+- Signed in as Teacher Two and attempted to access the Morning Group performance page. Access was denied.
+- Signed in as Director and confirmed that the Center Performance page displayed both sections.
