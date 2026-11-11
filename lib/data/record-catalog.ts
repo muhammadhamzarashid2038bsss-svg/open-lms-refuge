@@ -23,13 +23,16 @@ export type CatalogGrade = {
   provisional: boolean;
 };
 
+// The list identifies a note. It does not carry the note text or an older
+// custom label. Opening one note loads that text and records the view.
 export type CatalogNote = {
   id: string;
   sectionId: string;
   learnerId: string;
-  body: string;
   skillGaps: string[];
-  customSkillLabel: string | null;
+  customSkillTagId: string | null;
+  customSkillTagName: string | null;
+  customSkillTagActive: boolean;
   versionVector: VersionVector;
   provisional: boolean;
 };
@@ -38,6 +41,7 @@ export type RecordCatalog = {
   sections: CatalogSection[];
   grades: CatalogGrade[];
   notes: CatalogNote[];
+  skillTags: { id: string; name: string }[];
 };
 
 function pointsText(value: Prisma.Decimal | string | number): string {
@@ -47,8 +51,8 @@ function pointsText(value: Prisma.Decimal | string | number): string {
 export async function loadRecordCatalog(actor: Actor): Promise<RecordCatalog | null> {
   if (!actor.active || actor.role !== "TEACHER") return null;
   const sectionIds = actor.assignedSectionIds;
-  if (sectionIds.length === 0) return { sections: [], grades: [], notes: [] };
-  const [sections, grades, notes, openConflicts] = await Promise.all([
+  if (sectionIds.length === 0) return { sections: [], grades: [], notes: [], skillTags: [] };
+  const [sections, grades, notes, openConflicts, skillTags] = await Promise.all([
     prisma.section.findMany({
       where: { id: { in: sectionIds } },
       orderBy: { name: "asc" },
@@ -80,9 +84,9 @@ export async function loadRecordCatalog(actor: Actor): Promise<RecordCatalog | n
         id: true,
         sectionId: true,
         learnerId: true,
-        body: true,
         skillGaps: true,
-        customSkillLabel: true,
+        customSkillTagId: true,
+        customSkillTag: { select: { name: true, active: true } },
         versionVector: true,
       },
     }),
@@ -96,9 +100,31 @@ export async function loadRecordCatalog(actor: Actor): Promise<RecordCatalog | n
       },
       select: { gradeEntryId: true, progressNoteId: true },
     }),
+    prisma.centerSkillTag.findMany({
+      where: { centerId: actor.centerId, active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
   ]);
   const openGrades = new Set(openConflicts.map((row) => row.gradeEntryId).filter((id): id is string => id !== null));
   const openNotes = new Set(openConflicts.map((row) => row.progressNoteId).filter((id): id is string => id !== null));
+  const visibleNotes = notes.flatMap((note) => {
+    const versionVector = parseVersionVector(note.versionVector);
+    if (!versionVector) return [];
+    return [{
+      id: note.id,
+      sectionId: note.sectionId,
+      learnerId: note.learnerId,
+      skillGaps: [...note.skillGaps],
+      customSkillTagId: note.customSkillTagId,
+      customSkillTagName: note.customSkillTag?.name ?? null,
+      customSkillTagActive: note.customSkillTag?.active ?? false,
+      versionVector,
+      provisional: openNotes.has(note.id),
+    }];
+  });
+  // Loading this list is not opening a note, so it writes no view record.
+  // The note text stays on the server until one note is requested.
   return {
     sections: sections.map((section) => ({
       id: section.id,
@@ -123,19 +149,7 @@ export async function loadRecordCatalog(actor: Actor): Promise<RecordCatalog | n
         provisional: openGrades.has(grade.id),
       }];
     }),
-    notes: notes.flatMap((note) => {
-      const versionVector = parseVersionVector(note.versionVector);
-      if (!versionVector) return [];
-      return [{
-        id: note.id,
-        sectionId: note.sectionId,
-        learnerId: note.learnerId,
-        body: note.body,
-        skillGaps: [...note.skillGaps],
-        customSkillLabel: note.customSkillLabel,
-        versionVector,
-        provisional: openNotes.has(note.id),
-      }];
-    }),
+    notes: visibleNotes,
+    skillTags,
   };
 }

@@ -41,6 +41,16 @@ async function DirectorHome() {
         </Link>
       </p>
       <p className="text-lg">
+        <Link className="underline" href="/director/notes">
+          Read progress notes
+        </Link>
+      </p>
+      <p className="text-lg">
+        <Link className="underline" href="/director/skill-tags">
+          Skill tags
+        </Link>
+      </p>
+      <p className="text-lg">
         <Link className="underline" href="/courses">
           Courses and syllabus materials
         </Link>

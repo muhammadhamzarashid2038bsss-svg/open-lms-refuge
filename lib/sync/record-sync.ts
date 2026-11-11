@@ -46,7 +46,8 @@ function toWire(mutation: LocalRecordMutation): GradeMutation | NoteMutation | n
     learnerId: mutation.content.learnerId,
     body: mutation.content.body,
     skillGaps: mutation.content.skillGaps,
-    customSkillLabel: mutation.content.customSkillLabel,
+    customSkillLabel: mutation.content.customSkillLabel ?? null,
+    customSkillTagId: "customSkillTagId" in mutation.content ? mutation.content.customSkillTagId : null,
   };
 }
 

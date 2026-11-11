@@ -26,9 +26,10 @@ import {
 
 export const LOCAL_DB_NAME = "olr-local";
 /// Version 2 adds grade and note stores. Version 3 adds the homework file
-/// queue. The upgrade only creates stores that are missing. It does not delete
-/// attendance, locks, handover notes, grades, or the old localStorage backup.
-export const LOCAL_DB_VERSION = 3;
+/// queue. Version 4 adds the note-view receipt queue. The upgrade only creates
+/// stores that are missing. It does not delete attendance, locks, handover
+/// notes, grades, files, or the old localStorage backup.
+export const LOCAL_DB_VERSION = 4;
 /// The Day 7 copy row. It stays at 1 so a phone that already verified its
 /// queue is not treated as damaged after the database version moves to 2.
 export const LEGACY_META_SCHEMA = 1;
@@ -44,6 +45,7 @@ export const LOCAL_STORE_NAMES = [
   "recordMutations",
   "recordCounters",
   "fileQueue",
+  "noteViewEvents",
 ] as const;
 
 type StoreName = (typeof LOCAL_STORE_NAMES)[number];
@@ -114,6 +116,13 @@ const STORE_PLAN: StorePlan[] = [
       { name: "byOwner", keyPath: ["centerId", "userId", "localDeviceId"] },
       { name: "byAssignment", keyPath: ["centerId", "userId", "learnerId", "assignmentId"] },
     ],
+  },
+  // Note-view receipts stay out of the grade and note edit store. A view
+  // cannot be replayed as an edit, and the row has no note text.
+  {
+    name: "noteViewEvents",
+    options: { keyPath: "clientEventId" },
+    indexes: [{ name: "byOwner", keyPath: ["centerId", "userId", "localDeviceId"] }],
   },
 ];
 

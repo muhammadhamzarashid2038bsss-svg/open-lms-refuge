@@ -140,6 +140,22 @@ export function canEditAssignedRecords(actor: Actor, section: SectionScope): boo
   return teacherHasSection(actor, section.id);
 }
 
+// Reading a progress note is separate from editing one. The assigned teacher
+// and the center director can read. A director does not gain the edit or
+// conflict-resolution job through this check. Admins and learners do not.
+export function canViewProgressNote(actor: Actor, note: { centerId: string; sectionId: string }): boolean {
+  if (!activeActor(actor) || !sharesCenter(actor, note.centerId)) return false;
+  if (actor.role === "CENTER_DIRECTOR") return true;
+  if (actor.role === "TEACHER") return teacherHasSection(actor, note.sectionId);
+  return false;
+}
+
+// The director keeps the center's short skill-tag list. Teachers only choose
+// from tags that are still active.
+export function canManageSkillTags(actor: Actor, centerId: string): boolean {
+  return activeActor(actor) && actor.role === "CENTER_DIRECTOR" && sharesCenter(actor, centerId);
+}
+
 export function canManageResource(actor: Actor, resource: ResourceScope): boolean {
   if (!activeActor(actor) || !sharesCenter(actor, resource.centerId)) return false;
   if (actor.role === "CENTER_DIRECTOR") return true;

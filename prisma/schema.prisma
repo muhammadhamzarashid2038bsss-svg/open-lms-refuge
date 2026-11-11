@@ -212,6 +212,8 @@ enum AuditEntityType {
   USER
   ATTENDANCE
   SUBMISSION
+  /// A center-owned skill category. The audit row stores this id, not the label.
+  SKILL_TAG
 }
 
 /// Editable records that can conflict. Attendance is not here: it is append-only.
@@ -237,6 +239,8 @@ enum JsonSyncEntityType {
   GRADE_ENTRY
   PROGRESS_NOTE
   LESSON_PROGRESS
+  /// A progress-note view receipt. It is not a note edit and cannot open a conflict.
+  NOTE_VIEW
 }
 
 enum JsonSyncItemStatus {
@@ -272,6 +276,7 @@ model Center {
   auditLogs        AuditLog[]
   jsonSyncBatches  JsonSyncBatch[]
   deviceHandovers  DeviceHandover[]
+  skillTags        CenterSkillTag[]
 
   @@map("centers")
 }
@@ -288,6 +293,27 @@ model CenterOptionalField {
 
   @@unique([centerId, fieldKey])
   @@map("center_optional_fields")
+}
+
+/// A short learning-skill category chosen by the center, such as "map reading".
+/// Teachers pick from this list. They do not type a new category on a note.
+/// A deactivated tag stays so older notes can still show its name.
+model CenterSkillTag {
+  id            String    @id @default(uuid()) @db.Uuid
+  centerId      String    @db.Uuid
+  center        Center    @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  name          String    @db.VarChar(40)
+  active        Boolean   @default(true)
+  deactivatedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  progressNotes        ProgressNote[]
+  progressNoteVersions ProgressNoteVersion[]
+
+  @@unique([centerId, name])
+  @@index([centerId, active])
+  @@map("center_skill_tags")
 }
 
 model User {
@@ -754,8 +780,13 @@ model ProgressNote {
   /// Academic progress only. Do not record legal status, addresses, or family circumstances.
   body             String         @db.VarChar(2000)
   skillGaps        SkillGap[]
-  /// Short label only when skillGaps includes CUSTOM, for example "map reading".
+  /// Legacy free-text label. Older notes and conflict copies keep it, including
+  /// the synthetic "map reading" label. New saves leave this empty.
   customSkillLabel String?        @db.VarChar(80)
+  /// Center-owned category used by new saves when skillGaps includes CUSTOM.
+  /// Empty when the row still uses the legacy label.
+  customSkillTagId String?        @db.Uuid
+  customSkillTag   CenterSkillTag? @relation(fields: [customSkillTagId], references: [id], onDelete: Restrict)
 
   deviceId         String         @db.Uuid
   device           Device         @relation(fields: [deviceId], references: [id], onDelete: Restrict)
@@ -774,6 +805,7 @@ model ProgressNote {
   @@index([learnerId, sectionId])
   @@index([sectionId])
   @@index([deviceId])
+  @@index([customSkillTagId])
   @@map("progress_notes")
 }
 
@@ -787,7 +819,10 @@ model ProgressNoteVersion {
   author                User         @relation("ProgressNoteVersionAuthor", fields: [authorId], references: [id], onDelete: Restrict)
   body                  String       @db.VarChar(2000)
   skillGaps             SkillGap[]
+  /// Same legacy-or-tag rule as ProgressNote. A conflict copy is not rewritten.
   customSkillLabel      String?      @db.VarChar(80)
+  customSkillTagId      String?      @db.Uuid
+  customSkillTag        CenterSkillTag? @relation(fields: [customSkillTagId], references: [id], onDelete: Restrict)
 
   deviceId              String       @db.Uuid
   device                Device       @relation(fields: [deviceId], references: [id], onDelete: Restrict)
@@ -805,6 +840,7 @@ model ProgressNoteVersion {
   conflictsResolved SyncConflict[] @relation("NoteConflictResolved")
 
   @@index([progressNoteId, syncedAt])
+  @@index([customSkillTagId])
   @@map("progress_note_versions")
 }
 

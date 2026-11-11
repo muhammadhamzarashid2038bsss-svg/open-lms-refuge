@@ -675,10 +675,11 @@ exports.appendDeviceRelease = appendDeviceRelease;
 const shared_device_1 = require("lib/device/shared-device.ts");
 const legacy_validate_1 = require("lib/device/legacy-validate.ts");
 exports.LOCAL_DB_NAME = "olr-local";
-/// Version 2 adds grade and note stores. The upgrade only creates stores that
-/// are missing. It does not delete attendance, locks, handover notes, or the
-/// old localStorage backup.
-exports.LOCAL_DB_VERSION = 2;
+/// Version 2 adds grade and note stores. Version 3 adds the homework file
+/// queue. Version 4 adds the note-view receipt queue. The upgrade only creates
+/// stores that are missing. It does not delete attendance, locks, handover
+/// notes, grades, files, or the old localStorage backup.
+exports.LOCAL_DB_VERSION = 4;
 /// The Day 7 copy row. It stays at 1 so a phone that already verified its
 /// queue is not treated as damaged after the database version moves to 2.
 exports.LEGACY_META_SCHEMA = 1;
@@ -692,6 +693,8 @@ exports.LOCAL_STORE_NAMES = [
     "events",
     "recordMutations",
     "recordCounters",
+    "fileQueue",
+    "noteViewEvents",
 ];
 const LEGACY_STORES = ["meta", "deviceItems", "deviceReleases", "deviceLock"];
 /// meta holds bookkeeping. deviceItems, deviceReleases, and deviceLock are
@@ -739,6 +742,23 @@ const STORE_PLAN = [
     {
         name: "recordCounters",
         options: { keyPath: "id" },
+        indexes: [{ name: "byOwner", keyPath: ["centerId", "userId", "localDeviceId"] }],
+    },
+    // Homework files stay out of the attendance event store and out of the
+    // grade mutation store. A retry uses clientSubmissionId, not the filename.
+    {
+        name: "fileQueue",
+        options: { keyPath: "clientSubmissionId" },
+        indexes: [
+            { name: "byOwner", keyPath: ["centerId", "userId", "localDeviceId"] },
+            { name: "byAssignment", keyPath: ["centerId", "userId", "learnerId", "assignmentId"] },
+        ],
+    },
+    // Note-view receipts stay out of the grade and note edit store. A view
+    // cannot be replayed as an edit, and the row has no note text.
+    {
+        name: "noteViewEvents",
+        options: { keyPath: "clientEventId" },
         indexes: [{ name: "byOwner", keyPath: ["centerId", "userId", "localDeviceId"] }],
     },
 ];

@@ -2,6 +2,23 @@ import { afterAll, describe, expect, it } from "vitest";
 import { Prisma } from "../generated/prisma/client";
 import { prisma } from "../lib/db";
 
+// Same id shape as uid() in prisma/seed.ts. The seed writes one grade per
+// learner per demo assignment, uid(3000) through uid(3119). The open conflict
+// grade is uid(3008), which is already inside that range.
+function seededGradeId(n: number): string {
+  return `00000000-0000-4000-8000-${n.toString(16).padStart(12, "0")}`;
+}
+
+const seededGradeIds = Array.from({ length: 120 }, (_, offset) => seededGradeId(3000 + offset));
+// Morning is section 0 (uid 1100–1103). Afternoon is section 1 (uid 1110–1113).
+const seededAssignmentIds = [0, 1].flatMap((sectionIndex) =>
+  [0, 1, 2, 3].map((assignmentIndex) => seededGradeId(1100 + sectionIndex * 10 + assignmentIndex)),
+);
+// Morning is section 0 (uid 1000–1011). Afternoon is section 1 (uid 1020–1031).
+const seededSessionIds = [0, 1].flatMap((sectionIndex) =>
+  Array.from({ length: 12 }, (_, sessionIndex) => seededGradeId(1000 + sectionIndex * 20 + sessionIndex)),
+);
+
 afterAll(async () => {
   await prisma.$disconnect();
 });
@@ -42,13 +59,35 @@ describe("phase 1 demo database", () => {
 
   it("keeps several weeks of attendance, grades, assignments, and resources", async () => {
     const center = await prisma.center.findUniqueOrThrow({ where: { code: "DEMO" } });
+    // Later class saves stay in this development database. Their event ids are
+    // random. The seed rows are the only ones whose ids start with demo-att-.
     expect(
-      await prisma.attendanceRecord.count({ where: { learner: { centerId: center.id } } }),
+      await prisma.attendanceRecord.count({
+        where: { learner: { centerId: center.id }, clientEventId: { startsWith: "demo-att-" } },
+      }),
     ).toBe(331);
-    expect(await prisma.gradeEntry.count({ where: { learner: { centerId: center.id } } })).toBe(120);
-    expect(await prisma.assignment.count({ where: { section: { course: { centerId: center.id } } } })).toBe(8);
+    // Later grade saves stay in this development database. Their ids are random.
+    // The original demo grades are only uid(3000) through uid(3119).
+    expect(
+      await prisma.gradeEntry.count({
+        where: { learner: { centerId: center.id }, id: { in: seededGradeIds } },
+      }),
+    ).toBe(120);
+    // Later teacher-created assignments stay in this development database.
+    // The original demo assignments are uid(1100)–uid(1103) and uid(1110)–uid(1113).
+    expect(
+      await prisma.assignment.count({
+        where: { section: { course: { centerId: center.id } }, id: { in: seededAssignmentIds } },
+      }),
+    ).toBe(8);
     expect(await prisma.resource.count({ where: { course: { centerId: center.id } } })).toBe(6);
-    expect(await prisma.classSession.count({ where: { section: { course: { centerId: center.id } } } })).toBe(24);
+    // Later timetable saves stay in this development database. Their ids are random.
+    // The original demo sessions are uid(1000)–uid(1011) and uid(1020)–uid(1031).
+    expect(
+      await prisma.classSession.count({
+        where: { section: { course: { centerId: center.id } }, id: { in: seededSessionIds } },
+      }),
+    ).toBe(24);
   });
 
   it("stores an attendance correction as a second row and trusts server receipt time", async () => {

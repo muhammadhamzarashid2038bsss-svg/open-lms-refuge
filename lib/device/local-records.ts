@@ -44,6 +44,7 @@ export type StoredNoteContent = {
   body: string;
   skillGaps: SkillGapName[];
   customSkillLabel: string | null;
+  customSkillTagId: string | null;
 };
 
 export type LocalRecordMutation = {
@@ -354,7 +355,7 @@ export async function saveLocalNote(
     learnerId: string;
     body: string;
     skillGaps: string[];
-    customSkillLabel: string | null;
+    customSkillTagId: string | null;
     recordId?: string | null;
     baseVector?: unknown;
   },
@@ -362,14 +363,14 @@ export async function saveLocalNote(
 ): Promise<LocalRecordSaveResult> {
   if (!owned(owner) || !isUuid(input.sectionId) || !isUuid(input.learnerId)) return { ok: false, message: NOT_SAVED };
   const body = input.body.trim();
-  const label = input.customSkillLabel?.trim() ?? "";
-  if (body.length < 1 || body.length > 2000 || label.length > 80) return { ok: false, message: NOT_SAVED };
+  if (body.length < 1 || body.length > 2000) return { ok: false, message: NOT_SAVED };
   if (input.skillGaps.length > SKILL_GAPS.length || input.skillGaps.some((gap, index) => !SKILL_GAPS.includes(gap as SkillGapName) || input.skillGaps.indexOf(gap) !== index)) {
     return { ok: false, message: NOT_SAVED };
   }
   const skillGaps = [...input.skillGaps].sort() as SkillGapName[];
-  const customSkillLabel = label.length > 0 ? label : null;
-  if (skillGaps.includes("CUSTOM") !== (customSkillLabel !== null)) return { ok: false, message: NOT_SAVED };
+  const customSkillTagId = input.customSkillTagId && isUuid(input.customSkillTagId) ? input.customSkillTagId.toLowerCase() : null;
+  if (input.customSkillTagId !== null && customSkillTagId === null) return { ok: false, message: NOT_SAVED };
+  if (skillGaps.includes("CUSTOM") !== (customSkillTagId !== null)) return { ok: false, message: NOT_SAVED };
   const baseVector = parseVector(input.baseVector ?? {});
   if (!baseVector) return { ok: false, message: NOT_SAVED };
   const requestedId = input.recordId && isUuid(input.recordId) ? input.recordId.toLowerCase() : crypto.randomUUID();
@@ -383,7 +384,8 @@ export async function saveLocalNote(
         learnerId: input.learnerId.toLowerCase(),
         body,
         skillGaps,
-        customSkillLabel,
+        customSkillLabel: null,
+        customSkillTagId,
       },
       baseVector,
       createdOffline: true,

@@ -81,6 +81,7 @@ function fingerprintOf(mutation: RecordMutation): string {
       : {
           body: mutation.body,
           customSkillLabel: mutation.customSkillLabel,
+          ...(mutation.customSkillTagId ? { customSkillTagId: mutation.customSkillTagId } : {}),
           learnerId: mutation.learnerId,
           sectionId: mutation.sectionId,
           skillGaps: mutation.skillGaps,
@@ -188,9 +189,28 @@ function noteContentMatches(
   body: string,
   skillGaps: string[],
   customSkillLabel: string | null,
+  customSkillTagId: string | null,
   mutation: NoteMutation,
 ): boolean {
-  return body === mutation.body && (customSkillLabel ?? null) === mutation.customSkillLabel && [...skillGaps].sort().join(",") === mutation.skillGaps.join(",");
+  return (
+    body === mutation.body &&
+    (customSkillLabel ?? null) === mutation.customSkillLabel &&
+    (customSkillTagId ?? null) === mutation.customSkillTagId &&
+    [...skillGaps].sort().join(",") === mutation.skillGaps.join(",")
+  );
+}
+
+/// New saves name a center tag. A typed label is refused here. A repeated
+/// upload of an older saved mutation is handled before this check.
+async function noteTagAllowed(tx: Tx, centerId: string, mutation: NoteMutation): Promise<boolean> {
+  const custom = mutation.skillGaps.includes("CUSTOM");
+  if (!custom) return mutation.customSkillLabel === null && mutation.customSkillTagId === null;
+  if (mutation.customSkillLabel !== null || !mutation.customSkillTagId) return false;
+  const tag = await tx.centerSkillTag.findUnique({
+    where: { id: mutation.customSkillTagId },
+    select: { centerId: true, active: true },
+  });
+  return tag !== null && tag.centerId === centerId && tag.active;
 }
 
 async function replayResult(tx: Tx, item: {
@@ -546,6 +566,7 @@ async function applyNote(
   const centerId = section.course.centerId;
   if (centerId !== actor.centerId) return rejected(mutation.clientMutationId, "wrong_center");
   if (!canEditAssignedRecords(actor, { id: section.id, centerId })) return rejected(mutation.clientMutationId, "forbidden");
+  if (!(await noteTagAllowed(tx, centerId, mutation))) return rejected(mutation.clientMutationId, "invalid_note");
 
   const enrollment = await tx.enrollment.findFirst({
     where: { sectionId: section.id, learnerId: mutation.learnerId, status: "ACTIVE" },
@@ -572,6 +593,7 @@ async function applyNote(
         body: mutation.body,
         skillGaps: mutation.skillGaps,
         customSkillLabel: mutation.customSkillLabel,
+        customSkillTagId: mutation.customSkillTagId,
         deviceId,
         versionVector: mutation.versionVector,
         deviceRecordedAt: recordedAt,
@@ -587,6 +609,7 @@ async function applyNote(
         body: mutation.body,
         skillGaps: mutation.skillGaps,
         customSkillLabel: mutation.customSkillLabel,
+        customSkillTagId: mutation.customSkillTagId,
         deviceId,
         versionVector: mutation.versionVector,
         deviceRecordedAt: recordedAt,
@@ -617,7 +640,7 @@ async function applyNote(
   const decision = decide(
     currentVector,
     mutation.versionVector,
-    noteContentMatches(locked.body, locked.skillGaps, locked.customSkillLabel, mutation),
+    noteContentMatches(locked.body, locked.skillGaps, locked.customSkillLabel, locked.customSkillTagId, mutation),
     deviceId,
   );
   const open = await tx.syncConflict.findFirst({
@@ -668,11 +691,12 @@ async function applyNote(
     return (
       parsed !== null &&
       compareVersionVectors(parsed, currentVector) === "equal" &&
-      noteContentMatches(version.body, version.skillGaps, version.customSkillLabel, {
+      noteContentMatches(version.body, version.skillGaps, version.customSkillLabel, version.customSkillTagId, {
         ...mutation,
         body: locked.body,
         skillGaps: [...locked.skillGaps].sort() as NoteMutation["skillGaps"],
         customSkillLabel: locked.customSkillLabel,
+        customSkillTagId: locked.customSkillTagId,
       })
     );
   });
@@ -687,6 +711,7 @@ async function applyNote(
         body: locked.body,
         skillGaps: locked.skillGaps,
         customSkillLabel: locked.customSkillLabel,
+        customSkillTagId: locked.customSkillTagId,
         deviceId: locked.deviceId,
         versionVector: currentVector,
         deviceRecordedAt: locked.deviceRecordedAt,
@@ -706,6 +731,7 @@ async function applyNote(
       body: mutation.body,
       skillGaps: mutation.skillGaps,
       customSkillLabel: mutation.customSkillLabel,
+      customSkillTagId: mutation.customSkillTagId,
       deviceId,
       versionVector: mutation.versionVector,
       deviceRecordedAt: recordedAt,
@@ -723,6 +749,7 @@ async function applyNote(
         body: mutation.body,
         skillGaps: mutation.skillGaps,
         customSkillLabel: mutation.customSkillLabel,
+        customSkillTagId: mutation.customSkillTagId,
         deviceId,
         versionVector: mutation.versionVector,
         deviceRecordedAt: recordedAt,
@@ -756,6 +783,7 @@ async function applyNote(
           body: mutation.body,
           skillGaps: mutation.skillGaps,
           customSkillLabel: mutation.customSkillLabel,
+          customSkillTagId: mutation.customSkillTagId,
           deviceId,
           versionVector: mutation.versionVector,
           deviceRecordedAt: recordedAt,
@@ -767,6 +795,7 @@ async function applyNote(
           body: versionA.body,
           skillGaps: versionA.skillGaps,
           customSkillLabel: versionA.customSkillLabel,
+          customSkillTagId: versionA.customSkillTagId,
           deviceId: versionA.deviceId,
           versionVector: currentVector,
           deviceRecordedAt: versionA.deviceRecordedAt,

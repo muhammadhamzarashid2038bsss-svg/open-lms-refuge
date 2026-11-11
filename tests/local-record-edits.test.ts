@@ -193,7 +193,7 @@ describe("offline grade and note edits", () => {
     const saved = await saveLocalNote(
       indexedDB,
       owner,
-      { sectionId, learnerId, body: "Day9 local note", skillGaps: ["READING"], customSkillLabel: null },
+      { sectionId, learnerId, body: "Day9 local note", skillGaps: ["READING"], customSkillTagId: null },
       { storage: granted },
     );
     expect(saved.ok).toBe(true);

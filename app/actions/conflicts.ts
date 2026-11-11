@@ -26,7 +26,7 @@ export async function resolveConflictAction(_prev: ConflictFormState, formData: 
     academicNote: text(formData, "academicNote"),
     body: text(formData, "body"),
     skillGaps: gaps,
-    customSkillLabel: text(formData, "customSkillLabel"),
+    customSkillTagId: text(formData, "customSkillTagId"),
   };
   const result = await resolveConflict(actor, input);
   if (!result.ok) return { error: result.message };

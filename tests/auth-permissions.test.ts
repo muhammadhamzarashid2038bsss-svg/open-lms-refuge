@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   canEditAssignedRecords,
+  canManageSkillTags,
+  canViewProgressNote,
   canListAccounts,
   canManageCourse,
   canManageResource,
@@ -111,6 +113,21 @@ describe("role permission matrix", () => {
     expect(canEditAssignedRecords(admin, morning)).toBe(false);
     expect(canEditAssignedRecords(student, morning)).toBe(false);
     expect(canEditAssignedRecords(switchedOff, morning)).toBe(false);
+    const morningNote = { centerId: morning.centerId, sectionId: morning.id };
+    const afternoonNote = { centerId: afternoon.centerId, sectionId: afternoon.id };
+    expect(canViewProgressNote(morningTeacher, morningNote)).toBe(true);
+    expect(canViewProgressNote(afternoonTeacher, morningNote)).toBe(false);
+    expect(canViewProgressNote(director, morningNote)).toBe(true);
+    expect(canViewProgressNote(director, afternoonNote)).toBe(true);
+    expect(canViewProgressNote(otherDirector, morningNote)).toBe(false);
+    expect(canViewProgressNote(student, morningNote)).toBe(false);
+    expect(canViewProgressNote(admin, morningNote)).toBe(false);
+    expect(canViewProgressNote(switchedOff, morningNote)).toBe(false);
+    expect(canManageSkillTags(director, centerA)).toBe(true);
+    expect(canManageSkillTags(otherDirector, centerA)).toBe(false);
+    expect(canManageSkillTags(morningTeacher, centerA)).toBe(false);
+    expect(canManageSkillTags(admin, centerA)).toBe(false);
+    expect(canManageSkillTags(switchedOff, centerA)).toBe(false);
   });
 
   it("lets only the assigned teacher and the center director read performance", () => {

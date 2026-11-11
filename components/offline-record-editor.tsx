@@ -2,9 +2,18 @@
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { CatalogNote, RecordCatalog } from "@/lib/data/record-catalog";
+import { listLocalNoteViews, queueNoteViews } from "@/lib/device/note-views";
 import { draftForNoteChoice, noteSaveInput, type NoteDraft } from "@/lib/device/note-draft";
+import {
+  decideNoteOpen,
+  openedNoteFromResponse,
+  viewStatusText,
+  type RememberedNote,
+} from "@/lib/device/note-open";
 import { listLocalRecords, saveLocalGrade, saveLocalNote } from "@/lib/device/local-records";
+import { SKILL_TAG_GUIDANCE } from "@/lib/lms/skill-tags";
 import { SKILL_GAPS } from "@/lib/sync/record-batch";
+import { syncLocalNoteViews } from "@/lib/sync/note-view-sync";
 import { syncLocalRecords } from "@/lib/sync/record-sync";
 import { buttonClass, inputClass, labelClass, secondaryButtonClass } from "./ui";
 
@@ -12,6 +21,7 @@ type Notice = { tone: "ok" | "error"; text: string };
 
 const NOT_SAVED = "This edit was not saved on this phone.";
 const NO_FACTORY = "This phone cannot safely keep an offline edit. This edit was not saved.";
+const NOT_KEPT = "This phone could not record that the note was opened. Nothing already stored was deleted.";
 
 function ResultLine({ notice, noticeRef }: { notice: Notice | null; noticeRef: RefObject<HTMLParagraphElement | null> }) {
   if (!notice) return null;
@@ -27,8 +37,15 @@ const skillLabel: Record<(typeof SKILL_GAPS)[number], string> = {
   WRITING: "Writing",
   SPEAKING: "Speaking",
   NUMBER_SENSE: "Number sense",
-  CUSTOM: "A short custom label",
+  CUSTOM: "A center skill tag",
 };
+
+function noteOptionLabel(item: CatalogNote, index: number): string {
+  const names = item.skillGaps.map((gap) => (gap in skillLabel ? skillLabel[gap as (typeof SKILL_GAPS)[number]] : "Skill"));
+  const tag = item.customSkillTagName ? ` · ${item.customSkillTagName}` : "";
+  const text = names.length > 0 ? `${names.join(", ")}${tag}` : "Saved note";
+  return `${text} (${index + 1})`;
+}
 
 export function OfflineRecordEditor({
   centerId,
@@ -47,7 +64,8 @@ export function OfflineRecordEditor({
   const [academicNote, setAcademicNote] = useState("");
   const [body, setBody] = useState("");
   const [gaps, setGaps] = useState<string[]>([]);
-  const [customLabel, setCustomLabel] = useState("");
+  const [customSkillTagId, setCustomSkillTagId] = useState("");
+  const [legacyCustomLabel, setLegacyCustomLabel] = useState("");
   const [noteId, setNoteId] = useState("");
   const [gradeNotice, setGradeNotice] = useState<Notice | null>(null);
   const [noteNotice, setNoteNotice] = useState<Notice | null>(null);
@@ -55,9 +73,15 @@ export function OfflineRecordEditor({
   const [gradeBusy, setGradeBusy] = useState(false);
   const [noteBusy, setNoteBusy] = useState(false);
   const [sendBusy, setSendBusy] = useState(false);
+  const [viewStatus, setViewStatus] = useState<"pending" | "acknowledged" | "rejected" | null>(null);
   const gradeNoticeRef = useRef<HTMLParagraphElement>(null);
   const noteNoticeRef = useRef<HTMLParagraphElement>(null);
   const sendNoticeRef = useRef<HTMLParagraphElement>(null);
+  // Text from notes opened during this visit. A reload clears it. It is not
+  // written to the phone database. A re-render does not open a note again.
+  const openedNotes = useRef(new Map<string, RememberedNote>());
+  const openTicket = useRef(0);
+  const viewEventRef = useRef("");
   const owner = useMemo(() => ({ centerId, userId }), [centerId, userId]);
 
   // The result used to render after the other form. On a phone that leaves
@@ -79,17 +103,97 @@ export function OfflineRecordEditor({
     return catalog.notes.filter((item) => item.sectionId === nextSectionId && item.learnerId === nextLearnerId);
   }
 
-  function showNote(draft: NoteDraft) {
+  function showDraft(draft: NoteDraft) {
     setNoteId(draft.noteId);
     setBody(draft.body);
     setGaps(draft.skillGaps);
-    setCustomLabel(draft.customSkillLabel);
+    setCustomSkillTagId(draft.customSkillTagId);
+    setLegacyCustomLabel(draft.legacyCustomLabel);
+  }
+
+  function applyOpened(note: RememberedNote) {
+    setBody(note.body);
+    setGaps([...note.skillGaps]);
+    setCustomSkillTagId(note.customSkillTagId);
+    setLegacyCustomLabel(note.legacyCustomLabel);
+  }
+
+  // Runs from the dropdown change, not from rendering. One change asks for
+  // one note. A later change is a separate opening and may use a new event id.
+  async function openSelected(choiceId: string) {
+    const ticket = ++openTicket.current;
+    viewEventRef.current = "";
+    setViewStatus(null);
+    if (!choiceId) {
+      showDraft(draftForNoteChoice("", []));
+      setNoteNotice(null);
+      return;
+    }
+    const listed = notesFor(section?.id ?? "", learnerId).find((item) => item.id === choiceId);
+    const listedDraft = draftForNoteChoice(choiceId, listed ? [listed] : []);
+    setNoteId(choiceId);
+    setBody("");
+    setLegacyCustomLabel("");
+    setGaps(listedDraft.skillGaps);
+    setCustomSkillTagId(listedDraft.customSkillTagId);
+    setNoteNotice(null);
+
+    let reachedServer = true;
+    let httpStatus: number | null = null;
+    let opened: RememberedNote | null = null;
+    try {
+      const response = await fetch(`/api/notes/${choiceId}`, { headers: { accept: "application/json" } });
+      httpStatus = response.status;
+      if (response.ok) opened = openedNoteFromResponse(await response.json(), listedDraft.customSkillTagId);
+    } catch {
+      reachedServer = false;
+    }
+    if (ticket !== openTicket.current) return;
+
+    const decision = decideNoteOpen({
+      reachedServer,
+      httpStatus,
+      opened,
+      remembered: openedNotes.current.get(choiceId) ?? null,
+    });
+    if (decision.kind === "unavailable" && decision.forget) openedNotes.current.delete(choiceId);
+    if (decision.kind === "online") {
+      openedNotes.current.set(choiceId, decision.note);
+      applyOpened(decision.note);
+      return;
+    }
+    if (decision.kind === "unavailable") {
+      setBody("");
+      setLegacyCustomLabel("");
+      setNoteNotice({ tone: "error", text: decision.message });
+      return;
+    }
+
+    const factory = browserFactory();
+    if (!factory) {
+      setBody("");
+      setLegacyCustomLabel("");
+      setNoteNotice({ tone: "error", text: NOT_KEPT });
+      return;
+    }
+    const queued = await queueNoteViews(factory, owner, [choiceId]);
+    if (ticket !== openTicket.current) return;
+    if (!queued.ok || !queued.events[0]) {
+      setBody("");
+      setLegacyCustomLabel("");
+      setNoteNotice({ tone: "error", text: queued.ok ? NOT_KEPT : queued.message });
+      return;
+    }
+    viewEventRef.current = queued.events[0].clientEventId;
+    applyOpened(decision.note);
+    setViewStatus("pending");
+    setNoteNotice({ tone: "ok", text: queued.message });
   }
 
   function keepOrClearNote(nextSectionId: string, nextLearnerId: string) {
     const visible = notesFor(nextSectionId, nextLearnerId);
     if (visible.some((item) => item.id === noteId)) return;
-    showNote(draftForNoteChoice("", visible));
+    void openSelected("");
   }
 
   function browserFactory(): IDBFactory | null {
@@ -207,12 +311,14 @@ export function OfflineRecordEditor({
           <select
             className={inputClass}
             value={noteId}
-            onChange={(event) => showNote(draftForNoteChoice(event.target.value, notesFor(section?.id ?? "", learnerId)))}
+            onChange={(event) => {
+              void openSelected(event.target.value);
+            }}
           >
             <option value="">New note</option>
-            {notesFor(section?.id ?? "", learnerId).map((item) => (
+            {notesFor(section?.id ?? "", learnerId).map((item, index) => (
               <option key={item.id} value={item.id}>
-                {item.body.slice(0, 60)}
+                {noteOptionLabel(item, index)}
               </option>
             ))}
           </select>
@@ -239,10 +345,21 @@ export function OfflineRecordEditor({
             </label>
           ))}
         </fieldset>
-        <label className={labelClass}>
-          Custom label
-          <input className={inputClass} value={customLabel} onChange={(event) => setCustomLabel(event.target.value)} maxLength={80} />
-        </label>
+        {gaps.includes("CUSTOM") ? (
+          <label className={labelClass}>
+            Center skill tag
+            <select className={inputClass} value={customSkillTagId} onChange={(event) => setCustomSkillTagId(event.target.value)}>
+              <option value="">Choose a skill tag</option>
+              {catalog.skillTags.map((tag) => (
+                <option key={tag.id} value={tag.id}>
+                  {tag.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {legacyCustomLabel ? <p className="text-lg">Earlier custom label on this note: {legacyCustomLabel}</p> : null}
+        <p className="text-base">{SKILL_TAG_GUIDANCE}</p>
         <button
           className={buttonClass}
           type="button"
@@ -259,7 +376,7 @@ export function OfflineRecordEditor({
               factory,
               owner,
               noteSaveInput(
-                { noteId, body, skillGaps: gaps, customSkillLabel: customLabel },
+                { noteId, body, skillGaps: gaps, customSkillTagId, legacyCustomLabel },
                 section.id,
                 learnerId,
                 note?.versionVector,
@@ -279,6 +396,11 @@ export function OfflineRecordEditor({
           {noteBusy ? "Saving…" : "Save note on this phone"}
         </button>
         <ResultLine notice={noteNotice} noticeRef={noteNoticeRef} />
+        {viewStatus ? (
+          <p data-view-status={viewStatus} className="text-lg font-medium">
+            {viewStatusText(viewStatus)}
+          </p>
+        ) : null}
       </section>
 
       <button
@@ -295,6 +417,7 @@ export function OfflineRecordEditor({
           setSendNotice(null);
           void syncLocalRecords({ factory, account: owner })
             .then(async (result) => {
+              const views = await syncLocalNoteViews({ factory, account: owner });
               let text = result.message;
               const listed = await listLocalRecords(factory, owner);
               if (listed.ok) {
@@ -306,7 +429,14 @@ export function OfflineRecordEditor({
                   text = result.message || `${waiting} edit${waiting === 1 ? " is" : "s are"} still waiting on this phone.`;
                 }
               }
-              setSendNotice({ tone: result.ok ? "ok" : "error", text });
+              const currentEvent = viewEventRef.current;
+              if (currentEvent) {
+                const listedViews = await listLocalNoteViews(factory, owner);
+                const match = listedViews.ok ? listedViews.events.find((event) => event.clientEventId === currentEvent) : undefined;
+                if (match) setViewStatus(match.syncState);
+              }
+              if (!views.ok || currentEvent) text = `${text} ${views.message}`;
+              setSendNotice({ tone: result.ok && views.ok ? "ok" : "error", text });
             })
             .catch(() => {
               setSendNotice({ tone: "error", text: "The saved edits were not sent." });

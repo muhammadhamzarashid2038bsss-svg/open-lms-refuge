@@ -8,7 +8,9 @@ import { createHash } from "node:crypto";
 import { Prisma } from "../../generated/prisma/client";
 import { canEditAssignedRecords, type Actor } from "../auth/permissions";
 import { prisma } from "../db";
+import { writeNoteViewAudits } from "./progress-notes";
 import { registerOfflinePhone } from "./sync-attendance";
+import { isUuid } from "../lms/timetable";
 import { canonicalPoints, SKILL_GAPS, type SkillGapName } from "../sync/record-batch";
 import {
   incrementDeviceCounter,
@@ -37,6 +39,9 @@ export type ConflictCopy = {
   body?: string;
   skillGaps?: string[];
   customSkillLabel?: string | null;
+  customSkillTagId?: string | null;
+  customSkillTagName?: string | null;
+  customSkillTagActive?: boolean;
 };
 
 export type ConflictReview = {
@@ -49,6 +54,7 @@ export type ConflictReview = {
   explanation: string;
   shown: ConflictCopy;
   other: ConflictCopy;
+  skillTags: { id: string; name: string }[];
 };
 
 export type ResolveInput = {
@@ -59,7 +65,7 @@ export type ResolveInput = {
   academicNote?: string | null;
   body?: string;
   skillGaps?: string[];
-  customSkillLabel?: string | null;
+  customSkillTagId?: string | null;
 };
 
 function serverDeviceId(centerId: string): string {
@@ -75,8 +81,22 @@ function sameGrade(points: Prisma.Decimal | string, note: string | null, otherPo
   return new Prisma.Decimal(points).equals(new Prisma.Decimal(otherPoints)) && (note ?? null) === otherNote;
 }
 
-function sameNote(body: string, gaps: string[], label: string | null, otherBody: string, otherGaps: string[], otherLabel: string | null): boolean {
-  return body === otherBody && (label ?? null) === otherLabel && [...gaps].sort().join(",") === [...otherGaps].sort().join(",");
+function sameNote(
+  body: string,
+  gaps: string[],
+  label: string | null,
+  tagId: string | null,
+  otherBody: string,
+  otherGaps: string[],
+  otherLabel: string | null,
+  otherTagId: string | null,
+): boolean {
+  return (
+    body === otherBody &&
+    (label ?? null) === otherLabel &&
+    (tagId ?? null) === otherTagId &&
+    [...gaps].sort().join(",") === [...otherGaps].sort().join(",")
+  );
 }
 
 async function resolutionDevice(actor: Actor, localDeviceId: string | null): Promise<{ ok: true; deviceId: string } | { ok: false; message: string }> {
@@ -168,9 +188,9 @@ export async function readConflict(actor: Actor, conflictId: string): Promise<Co
       gradeVersionA: true,
       gradeVersionB: true,
       shownGradeVersion: true,
-      noteVersionA: true,
-      noteVersionB: true,
-      shownNoteVersion: true,
+      noteVersionA: { include: { customSkillTag: { select: { id: true, name: true, active: true } } } },
+      noteVersionB: { include: { customSkillTag: { select: { id: true, name: true, active: true } } } },
+      shownNoteVersion: { include: { customSkillTag: { select: { id: true, name: true, active: true } } } },
       gradeEntry: {
         select: {
           assignment: { select: { title: true, maxPoints: true, sectionId: true, section: { select: { course: { select: { centerId: true } } } } } },
@@ -179,6 +199,7 @@ export async function readConflict(actor: Actor, conflictId: string): Promise<Co
       },
       progressNote: {
         select: {
+          id: true,
           sectionId: true,
           section: { select: { name: true, course: { select: { centerId: true } } } },
           learner: { select: { learnerCode: true, displayName: true } },
@@ -210,6 +231,7 @@ export async function readConflict(actor: Actor, conflictId: string): Promise<Co
       explanation,
       shown: toCopy(shown, true),
       other: toCopy(other, false),
+      skillTags: [],
     };
   }
   if (row.entityType === "PROGRESS_NOTE" && row.progressNote && row.noteVersionA && row.noteVersionB && row.shownNoteVersion) {
@@ -222,10 +244,21 @@ export async function readConflict(actor: Actor, conflictId: string): Promise<Co
       syncedAt: version.syncedAt.toISOString(),
       body: version.body,
       skillGaps: [...version.skillGaps],
-      customSkillLabel: version.customSkillLabel,
+      customSkillLabel: version.customSkillTag ? null : version.customSkillLabel,
+      customSkillTagId: version.customSkillTagId,
+      customSkillTagName: version.customSkillTag?.name ?? null,
+      customSkillTagActive: version.customSkillTag?.active ?? false,
     });
     const shown = row.shownNoteVersion;
     const other = shown.id === row.noteVersionA.id ? row.noteVersionB : row.noteVersionA;
+    const skillTags = await prisma.centerSkillTag.findMany({
+      where: { centerId: section.course.centerId, active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    });
+    await prisma.$transaction(async (tx) => {
+      await writeNoteViewAudits(tx, actor, [row.progressNote!.id], { source: "online" });
+    });
     return {
       id: row.id,
       kind: "Progress note",
@@ -236,6 +269,7 @@ export async function readConflict(actor: Actor, conflictId: string): Promise<Co
       explanation,
       shown: toCopy(shown, true),
       other: toCopy(other, false),
+      skillTags,
     };
   }
   return null;
@@ -378,35 +412,49 @@ export async function resolveConflict(actor: Actor, input: ResolveInput): Promis
         let body = shown.body;
         let skillGaps = [...shown.skillGaps];
         let customSkillLabel = shown.customSkillLabel;
+        let customSkillTagId = shown.customSkillTagId;
         if (input.choice === "other") {
           body = other.body;
           skillGaps = [...other.skillGaps];
           customSkillLabel = other.customSkillLabel;
+          customSkillTagId = other.customSkillTagId;
         }
         if (input.choice === "merge") {
           const nextBody = input.body?.trim() ?? "";
-          const label = cleanLabel(input.customSkillLabel, 80);
           const gaps = input.skillGaps ?? [];
-          if (nextBody.length < 1 || nextBody.length > 2000 || label === "bad") {
+          if (nextBody.length < 1 || nextBody.length > 2000) {
             return { ok: false, message: "The merged note is not valid." };
           }
           if (gaps.length > SKILL_GAPS.length || gaps.some((gap, index) => !SKILL_GAPS.includes(gap as SkillGapName) || gaps.indexOf(gap) !== index)) {
             return { ok: false, message: "The merged note is not valid." };
           }
           const sorted = [...gaps].sort() as SkillGapName[];
-          if (sorted.includes("CUSTOM") !== (label !== null)) return { ok: false, message: "The merged note is not valid." };
+          const centerId = row.progressNote.section.course.centerId;
+          if (sorted.includes("CUSTOM")) {
+            const tagId = input.customSkillTagId ?? "";
+            if (!isUuid(tagId)) return { ok: false, message: "The merged note is not valid." };
+            const tag = await tx.centerSkillTag.findFirst({
+              where: { id: tagId, centerId, active: true },
+              select: { id: true },
+            });
+            if (!tag) return { ok: false, message: "The merged note is not valid." };
+            customSkillTagId = tag.id;
+            customSkillLabel = null;
+          } else {
+            customSkillTagId = null;
+            customSkillLabel = null;
+          }
           body = nextBody;
           skillGaps = sorted;
-          customSkillLabel = label;
         }
         const vectorA = parseVersionVector(row.noteVersionA.versionVector);
         const vectorB = parseVersionVector(row.noteVersionB.versionVector);
         if (!vectorA || !vectorB) return { ok: false, message: "This conflict could not be resolved." };
         const nextVector = incrementDeviceCounter(mergeVersionVectors(vectorA, vectorB), device.deviceId);
         if (!nextVector) return { ok: false, message: "This conflict could not be resolved." };
-        const resolution = sameNote(shown.body, shown.skillGaps, shown.customSkillLabel, body, skillGaps, customSkillLabel)
+        const resolution = sameNote(shown.body, shown.skillGaps, shown.customSkillLabel, shown.customSkillTagId, body, skillGaps, customSkillLabel, customSkillTagId)
           ? "KEPT_LATER_RECEIVED"
-          : sameNote(other.body, other.skillGaps, other.customSkillLabel, body, skillGaps, customSkillLabel)
+          : sameNote(other.body, other.skillGaps, other.customSkillLabel, other.customSkillTagId, body, skillGaps, customSkillLabel, customSkillTagId)
             ? "KEPT_OTHER_VERSION"
             : "MERGED";
         const versionId = crypto.randomUUID();
@@ -418,6 +466,7 @@ export async function resolveConflict(actor: Actor, input: ResolveInput): Promis
             body,
             skillGaps,
             customSkillLabel,
+            customSkillTagId,
             deviceId: device.deviceId,
             versionVector: nextVector,
             deviceRecordedAt: resolvedAt,
@@ -433,6 +482,7 @@ export async function resolveConflict(actor: Actor, input: ResolveInput): Promis
             body,
             skillGaps,
             customSkillLabel,
+            customSkillTagId,
             deviceId: device.deviceId,
             versionVector: nextVector,
             deviceRecordedAt: resolvedAt,

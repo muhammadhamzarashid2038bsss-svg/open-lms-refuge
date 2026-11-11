@@ -18,6 +18,7 @@ import { POST as postRecords } from "../app/api/sync/records/route";
 const earlyClock = "2001-01-01T00:00:00.000Z";
 const lateClock = "2099-01-01T00:00:00.000Z";
 const phoneIds = new Set<string>();
+const skillTagIds = new Set<string>();
 
 let morningId = "";
 let learnerId = "";
@@ -68,6 +69,7 @@ function noteMutation(
   body: string,
   skillGaps: string[],
   customSkillLabel: string | null,
+  customSkillTagId: string | null = null,
   recordedAt = earlyClock,
 ) {
   void deviceId;
@@ -80,6 +82,7 @@ function noteMutation(
     body,
     skillGaps,
     customSkillLabel,
+    customSkillTagId,
     versionVector: vector,
     deviceRecordedAt: recordedAt,
     createdOffline: true,
@@ -217,6 +220,28 @@ describe("grade and note conflict sync", () => {
 
   afterAll(async () => {
     await clearRecords();
+    const leftovers = await prisma.centerSkillTag.findMany({
+      where: {
+        OR: [
+          { name: { startsWith: "Map reading " } },
+          { name: { startsWith: "Retry tag " } },
+          { name: { startsWith: "Shape sense " } },
+        ],
+      },
+      select: { id: true, name: true },
+    });
+    const testTagName = /^(?:Map reading|Retry tag|Shape sense) [0-9a-f]{8}$/i;
+    for (const row of leftovers) {
+      if (testTagName.test(row.name)) skillTagIds.add(row.id);
+    }
+    const tagIds = [...skillTagIds];
+    if (tagIds.length > 0) {
+      await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
+        await tx.auditLog.deleteMany({ where: { entityId: { in: tagIds } } });
+      });
+      await prisma.centerSkillTag.deleteMany({ where: { id: { in: tagIds } } });
+    }
     if (assignmentId) await prisma.assignment.deleteMany({ where: { id: assignmentId } });
     const ids = [...phoneIds];
     if (ids.length > 0) {
@@ -280,11 +305,16 @@ describe("grade and note conflict sync", () => {
     const deviceA = phone();
     const deviceB = phone();
     const recordId = crypto.randomUUID();
+    const tag = await prisma.centerSkillTag.create({
+      data: { centerId: teacherOne.centerId, name: `Map reading ${recordId.slice(0, 8)}`, active: true },
+      select: { id: true, name: true },
+    });
+    skillTagIds.add(tag.id);
     const first = await send(teacherOne, deviceA, [
-      noteMutation("day9-note-a", deviceA, recordId, { [deviceA]: 1 }, "Day9 reading is uneven", ["READING"], null, lateClock),
+      noteMutation("day9-note-a", deviceA, recordId, { [deviceA]: 1 }, "Day9 reading is uneven", ["READING"], null, null, lateClock),
     ]);
     const second = await send(teacherOne, deviceB, [
-      noteMutation("day9-note-b", deviceB, recordId, { [deviceB]: 1 }, "Day9 needs number sense", ["NUMBER_SENSE", "CUSTOM"], "map reading", earlyClock),
+      noteMutation("day9-note-b", deviceB, recordId, { [deviceB]: 1 }, "Day9 needs number sense", ["NUMBER_SENSE", "CUSTOM"], null, tag.id, earlyClock),
     ]);
     expect(resultsOf(first.body)[0]?.outcome).toBe("accepted");
     expect(resultsOf(second.body)[0]?.outcome).toBe("conflict");
@@ -298,11 +328,12 @@ describe("grade and note conflict sync", () => {
     expect(versions.map((version) => version.body).sort()).toEqual(["Day9 needs number sense", "Day9 reading is uneven"]);
     expect(note.body).toBe("Day9 needs number sense");
     expect(note.skillGaps).toEqual(expect.arrayContaining(["NUMBER_SENSE", "CUSTOM"]));
-    expect(note.customSkillLabel).toBe("map reading");
+    expect(note.customSkillLabel).toBeNull();
+    expect(note.customSkillTagId).toBe(tag.id);
     expect(conflict.shownNoteVersion?.body).toBe("Day9 needs number sense");
     expect(conflict.shownNoteVersion?.deviceRecordedAt.toISOString()).toBe(earlyClock);
     const audit = await prisma.auditLog.findFirstOrThrow({ where: { entityId: recordId, action: "UPDATE" } });
-    expect(JSON.stringify(audit.metadata)).not.toContain("map reading");
+    expect(JSON.stringify(audit.metadata)).not.toContain(tag.name);
     expect(JSON.stringify(audit.metadata)).not.toContain("Day9");
   });
 
@@ -430,6 +461,158 @@ describe("grade and note conflict sync", () => {
     }
     const still = await prisma.syncConflict.findUniqueOrThrow({ where: { id: conflictId } });
     expect(still.state).toBe("OPEN");
+  });
+
+  it("refuses a typed custom label and records one audit when a tag note is retried", async () => {
+    const deviceA = phone();
+    const typed = await send(teacherOne, deviceA, [
+      noteMutation("day9-typed", deviceA, crypto.randomUUID(), { [deviceA]: 1 }, "Day9 typed label", ["CUSTOM"], "family story", null),
+    ]);
+    expect(resultsOf(typed.body)[0]).toMatchObject({ outcome: "rejected", code: "invalid_note" });
+    expect(await prisma.progressNote.count({ where: { body: "Day9 typed label" } })).toBe(0);
+
+    const tag = await prisma.centerSkillTag.create({
+      data: { centerId: teacherOne.centerId, name: `Retry tag ${crypto.randomUUID().slice(0, 8)}`, active: true },
+      select: { id: true },
+    });
+    skillTagIds.add(tag.id);
+    const recordId = crypto.randomUUID();
+    const mutation = noteMutation("day9-note-retry", deviceA, recordId, { [deviceA]: 1 }, "Day9 retry note", ["CUSTOM"], null, tag.id);
+    const first = await send(teacherOne, deviceA, [mutation]);
+    const second = await send(teacherOne, deviceA, [mutation]);
+    expect(resultsOf(first.body)[0]?.outcome).toBe("accepted");
+    expect(resultsOf(second.body)[0]?.outcome).toBe("already_accepted");
+    expect(await prisma.progressNoteVersion.count({ where: { progressNoteId: recordId } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { entityId: recordId, action: "CREATE" } })).toBe(1);
+    const audit = await prisma.auditLog.findFirstOrThrow({ where: { entityId: recordId, action: "CREATE" } });
+    expect(JSON.stringify(audit.metadata)).not.toContain("Day9");
+    expect(audit.actorId).toBe(teacherOne.id);
+  });
+
+  it("records one server-timed update audit for a normal progress-note edit", async () => {
+    const deviceA = phone();
+    const recordId = crypto.randomUUID();
+    const tag = await prisma.centerSkillTag.create({
+      data: { centerId: teacherOne.centerId, name: `Map reading ${recordId.slice(0, 8)}`, active: true },
+      select: { id: true, name: true },
+    });
+    skillTagIds.add(tag.id);
+    const profile = await prisma.learnerProfile.findUniqueOrThrow({
+      where: { id: learnerId },
+      select: { learnerCode: true, displayName: true },
+    });
+    const created = await send(teacherOne, deviceA, [
+      noteMutation("day9-note-edit-create", deviceA, recordId, { [deviceA]: 1 }, "Day9 first wording", ["READING"], null, null),
+    ]);
+    expect(resultsOf(created.body)[0]?.outcome).toBe("accepted");
+
+    const before = new Date();
+    const edited = await send(teacherOne, deviceA, [
+      noteMutation(
+        "day9-note-edit-update",
+        deviceA,
+        recordId,
+        { [deviceA]: 2 },
+        "Day9 revised wording",
+        ["READING", "CUSTOM"],
+        null,
+        tag.id,
+      ),
+    ]);
+    expect(resultsOf(edited.body)[0]?.outcome).toBe("accepted");
+    expect(await prisma.syncConflict.count({ where: { progressNoteId: recordId } })).toBe(0);
+
+    const updates = await prisma.auditLog.findMany({
+      where: { entityId: recordId, entityType: "PROGRESS_NOTE", action: "UPDATE" },
+    });
+    expect(updates).toHaveLength(1);
+    const audit = updates[0];
+    expect(audit?.actorId).toBe(teacherOne.id);
+    expect(audit?.at.getTime()).toBeGreaterThanOrEqual(before.getTime() - 5000);
+    expect(audit!.at.getTime()).toBeLessThanOrEqual(Date.now() + 5000);
+    expect(audit?.at.toISOString()).not.toBe(earlyClock);
+    expect(audit?.metadata).toEqual({ source: "record-sync", clientMutationId: "day9-note-edit-update" });
+    const meta = JSON.stringify(audit?.metadata);
+    expect(meta).not.toContain("Day9 revised wording");
+    expect(meta).not.toContain("Day9 first wording");
+    expect(meta).not.toContain(tag.name);
+    expect(meta).not.toContain(profile.learnerCode);
+    expect(meta).not.toContain(profile.displayName);
+  });
+
+  it("records one resolution audit for a progress-note conflict and skips an unauthorized attempt", async () => {
+    const deviceA = phone();
+    const deviceB = phone();
+    const recordId = crypto.randomUUID();
+    const tag = await prisma.centerSkillTag.create({
+      data: { centerId: teacherOne.centerId, name: `Map reading ${recordId.slice(0, 8)}`, active: true },
+      select: { id: true, name: true },
+    });
+    skillTagIds.add(tag.id);
+    const profile = await prisma.learnerProfile.findUniqueOrThrow({
+      where: { id: learnerId },
+      select: { learnerCode: true, displayName: true },
+    });
+    const first = await send(teacherOne, deviceA, [
+      noteMutation("day9-note-resolve-a", deviceA, recordId, { [deviceA]: 1 }, "Day9 reading is uneven", ["READING"], null, null, lateClock),
+    ]);
+    const second = await send(teacherOne, deviceB, [
+      noteMutation(
+        "day9-note-resolve-b",
+        deviceB,
+        recordId,
+        { [deviceB]: 1 },
+        "Day9 needs number sense",
+        ["NUMBER_SENSE", "CUSTOM"],
+        null,
+        tag.id,
+        earlyClock,
+      ),
+    ]);
+    expect(resultsOf(first.body)[0]?.outcome).toBe("accepted");
+    expect(resultsOf(second.body)[0]?.outcome).toBe("conflict");
+    const conflictId = resultsOf(second.body)[0]?.conflictId ?? "";
+
+    for (const actor of [learner, director, admin, teacherTwo]) {
+      const denied = await resolveConflict(actor, { conflictId, localDeviceId: phone(), choice: "shown" });
+      expect(denied.ok).toBe(false);
+      const deniedText = JSON.stringify(denied);
+      expect(deniedText).not.toContain("Day9 reading is uneven");
+      expect(deniedText).not.toContain("Day9 needs number sense");
+      expect(deniedText).not.toContain(tag.name);
+      expect(deniedText).not.toContain(profile.learnerCode);
+      expect(deniedText).not.toContain(profile.displayName);
+    }
+    expect(await prisma.auditLog.count({ where: { entityId: recordId, action: "RESOLVE_CONFLICT" } })).toBe(0);
+    expect((await prisma.syncConflict.findUniqueOrThrow({ where: { id: conflictId } })).state).toBe("OPEN");
+
+    const before = new Date();
+    const resolved = await resolveConflict(teacherOne, { conflictId, localDeviceId: phone(), choice: "shown" });
+    expect(resolved.ok).toBe(true);
+    const conflict = await prisma.syncConflict.findUniqueOrThrow({ where: { id: conflictId } });
+    expect(conflict.state).toBe("RESOLVED");
+    expect(conflict.resolution).toBe("KEPT_LATER_RECEIVED");
+    const audits = await prisma.auditLog.findMany({
+      where: { entityId: recordId, entityType: "PROGRESS_NOTE", action: "RESOLVE_CONFLICT" },
+    });
+    expect(audits).toHaveLength(1);
+    const audit = audits[0];
+    expect(audit?.actorId).toBe(teacherOne.id);
+    expect(audit?.at.getTime()).toBeGreaterThanOrEqual(before.getTime() - 5000);
+    expect(audit!.at.getTime()).toBeLessThanOrEqual(Date.now() + 5000);
+    expect(audit?.at.toISOString()).not.toBe(earlyClock);
+    expect(audit?.at.toISOString()).not.toBe(lateClock);
+    expect(audit?.metadata).toEqual({
+      conflictId,
+      resolution: "KEPT_LATER_RECEIVED",
+      resolvedVersionId: conflict.resolvedNoteVersionId,
+    });
+    const meta = JSON.stringify(audit?.metadata);
+    expect(meta).not.toContain("Day9 reading is uneven");
+    expect(meta).not.toContain("Day9 needs number sense");
+    expect(meta).not.toContain(tag.name);
+    expect(meta).not.toContain(profile.learnerCode);
+    expect(meta).not.toContain(profile.displayName);
   });
 
   it("does not let a record upload through the attendance route", async () => {

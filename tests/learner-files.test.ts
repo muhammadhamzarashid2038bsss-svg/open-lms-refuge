@@ -114,7 +114,7 @@ describe("file database upgrade", () => {
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
     expect(opened.db.version).toBe(LOCAL_DB_VERSION);
-    expect(LOCAL_DB_VERSION).toBe(3);
+    expect(LOCAL_DB_VERSION).toBe(4);
     expect([...opened.db.objectStoreNames]).toEqual(expect.arrayContaining(["events", "recordMutations", "meta", "fileQueue"]));
     const indexes = await runLocalTransaction(opened.db, ["fileQueue", "events", "recordMutations", "meta"], "readonly", async (tx) => {
       const event = await localRequest(tx.objectStore("events").get("keep-attendance"));

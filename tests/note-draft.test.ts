@@ -14,21 +14,22 @@ const granted = {
   estimate: async () => ({ quota: 5_000_000, usage: 1000 }),
 };
 
-function note(id: string, body: string, skillGaps: string[], customSkillLabel: string | null): CatalogNote {
+function note(id: string, skillGaps: string[], customSkillTagId: string | null = null): CatalogNote {
   return {
     id,
     sectionId,
     learnerId,
-    body,
     skillGaps,
-    customSkillLabel,
+    customSkillTagId,
+    customSkillTagName: customSkillTagId ? "Map reading" : null,
+    customSkillTagActive: customSkillTagId !== null,
     versionVector: { [deviceKey]: 1 },
     provisional: false,
   };
 }
 
-const reading = note("00000000-0000-4000-8000-000000001101", "Learner participates well in reading activities.", ["READING", "WRITING"], null);
-const numbers = note("00000000-0000-4000-8000-000000001102", "Needs more time with number sense.", ["NUMBER_SENSE", "CUSTOM"], "map reading");
+const reading = note("00000000-0000-4000-8000-000000001101", ["READING", "WRITING"]);
+const numbers = note("00000000-0000-4000-8000-000000001102", ["NUMBER_SENSE", "CUSTOM"], "00000000-0000-4000-8000-000000001199");
 const notes = [reading, numbers];
 
 beforeEach(() => {
@@ -36,43 +37,47 @@ beforeEach(() => {
 });
 
 describe("progress note editor choice", () => {
-  it("loads the body and skill gaps of the selected note", () => {
+  it("loads the skill gaps of the selected note and leaves the note text empty", () => {
     expect(draftForNoteChoice(reading.id, notes)).toEqual({
       noteId: reading.id,
-      body: reading.body,
+      body: "",
       skillGaps: ["READING", "WRITING"],
-      customSkillLabel: "",
+      customSkillTagId: "",
+      legacyCustomLabel: "",
     });
   });
 
   it("loads the newly selected note when the teacher switches", () => {
     const first = draftForNoteChoice(reading.id, notes);
     const second = draftForNoteChoice(numbers.id, notes);
-    expect(first.body).toBe(reading.body);
+    expect(first.body).toBe("");
     expect(second).toEqual({
       noteId: numbers.id,
-      body: numbers.body,
+      body: "",
       skillGaps: ["NUMBER_SENSE", "CUSTOM"],
-      customSkillLabel: "map reading",
+      customSkillTagId: numbers.customSkillTagId,
+      legacyCustomLabel: "",
     });
     expect(second.skillGaps).not.toBe(numbers.skillGaps);
+    expect(JSON.stringify(second)).not.toContain("map reading");
   });
 
   it("clears the previous note when New note is selected", () => {
     const filled = draftForNoteChoice(numbers.id, notes);
-    expect(filled.body).toBe(numbers.body);
+    expect(filled.skillGaps).toEqual(["NUMBER_SENSE", "CUSTOM"]);
     expect(draftForNoteChoice("", notes)).toEqual({
       noteId: "",
       body: "",
       skillGaps: [],
-      customSkillLabel: "",
+      customSkillTagId: "",
+      legacyCustomLabel: "",
     });
   });
 
   it("keeps the original record id when an existing note is edited and saved", async () => {
     const indexedDB = new IDBFactory();
     const chosen = draftForNoteChoice(reading.id, notes);
-    const edited = { ...chosen, body: `${chosen.body} Comprehension is improving.` };
+    const edited = { ...chosen, body: "Learner participates well in reading activities. Comprehension is improving." };
     const before = await listLocalRecords(indexedDB, owner);
     expect(before.ok && before.mutations).toEqual([]);
 

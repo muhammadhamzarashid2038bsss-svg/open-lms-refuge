@@ -29,6 +29,8 @@ const serwist = new Serwist({
   skipWaiting: false,
   clientsClaim: false,
   navigationPreload: false,
+  // The teacher records page is not cached. A reload without a connection
+  // cannot show that page or the notes on it.
   runtimeCaching: [],
   disableDevLogs: true,
   precacheOptions: {

@@ -6,6 +6,7 @@ import { Shell } from "@/components/ui";
 import { getActor } from "@/lib/auth/actor";
 import { pageGuard } from "@/lib/auth/permissions";
 import { readConflict, type ConflictCopy } from "@/lib/data/conflicts";
+import { NOTE_VIEW_FAILED } from "@/lib/data/progress-notes";
 
 export const instant = false;
 
@@ -39,7 +40,13 @@ function CopyCard({ title, copy, kind }: { title: string; copy: ConflictCopy; ki
         <>
           <p className="text-lg whitespace-pre-wrap">{copy.body}</p>
           <p className="text-lg">Skill gaps: {copy.skillGaps && copy.skillGaps.length > 0 ? copy.skillGaps.join(", ") : "None"}</p>
-          {copy.customSkillLabel ? <p className="text-lg">Custom label: {copy.customSkillLabel}</p> : null}
+          {copy.customSkillTagName ? (
+            <p className="text-lg">
+              Custom skill: {copy.customSkillTagName}
+              {copy.customSkillTagActive ? "" : " (no longer used for new notes)"}
+            </p>
+          ) : null}
+          {copy.customSkillLabel ? <p className="text-lg">Earlier custom label: {copy.customSkillLabel}</p> : null}
         </>
       )}
       <p className="text-base">Time on the phone: {when(copy.deviceRecordedAt)}. This does not decide the order.</p>
@@ -53,7 +60,19 @@ async function ConflictDetail({ params }: { params: Promise<{ conflictId: string
   const actor = await getActor();
   const guard = pageGuard(actor, "TEACHER");
   if (!guard.ok) redirect(guard.redirectTo);
-  const conflict = actor ? await readConflict(actor, conflictId) : null;
+  let conflict: Awaited<ReturnType<typeof readConflict>> = null;
+  try {
+    conflict = actor ? await readConflict(actor, conflictId) : null;
+  } catch (error) {
+    if (error instanceof Error && error.message === NOTE_VIEW_FAILED) {
+      return (
+        <Shell title="Conflict" lede="The note was not opened because the view could not be recorded.">
+          <p className="text-lg">{NOTE_VIEW_FAILED}</p>
+        </Shell>
+      );
+    }
+    throw error;
+  }
   if (!conflict) {
     return (
       <Shell title="Conflict" lede="That conflict is not one you can review.">
@@ -77,7 +96,8 @@ async function ConflictDetail({ params }: { params: Promise<{ conflictId: string
         shownNote={conflict.shown.academicNote ?? ""}
         shownBody={conflict.shown.body ?? ""}
         shownGaps={conflict.shown.skillGaps ?? []}
-        shownLabel={conflict.shown.customSkillLabel ?? ""}
+        shownTagId={conflict.shown.customSkillTagId ?? ""}
+        skillTags={conflict.skillTags}
         maxPoints={conflict.maxPoints}
       />
     </Shell>

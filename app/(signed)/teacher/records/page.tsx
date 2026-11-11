@@ -26,7 +26,7 @@ async function RecordsEditor() {
     <Shell
       wide
       title="Grades and notes"
-      lede="A save stays on this phone first. It is sent when you ask. The phone clock is stored so a person can read it. It does not decide which edit is newer."
+      lede="A save stays on this phone first. It is sent when you ask. Reloading this page needs a connection. The phone does not keep a copy of the page. The phone clock is stored so a person can read it. It does not decide which edit is newer."
     >
       <OfflineRecordEditor centerId={actor.centerId} userId={actor.id} catalog={catalog} />
     </Shell>

@@ -25,7 +25,7 @@ const GRADE_KEYS = [
   "deviceRecordedAt",
   "createdOffline",
 ] as const;
-const NOTE_KEYS = [
+const NOTE_LEGACY_KEYS = [
   "clientMutationId",
   "entityType",
   "recordId",
@@ -38,6 +38,7 @@ const NOTE_KEYS = [
   "deviceRecordedAt",
   "createdOffline",
 ] as const;
+const NOTE_KEYS = [...NOTE_LEGACY_KEYS, "customSkillTagId"] as const;
 
 export const SKILL_GAPS = ["READING", "WRITING", "SPEAKING", "NUMBER_SENSE", "CUSTOM"] as const;
 export type SkillGapName = (typeof SKILL_GAPS)[number];
@@ -64,6 +65,7 @@ export type NoteMutation = {
   body: string;
   skillGaps: SkillGapName[];
   customSkillLabel: string | null;
+  customSkillTagId: string | null;
   versionVector: VersionVector;
   deviceRecordedAt: string;
   createdOffline: boolean;
@@ -142,7 +144,9 @@ function parseGrade(value: Record<string, unknown>): GradeMutation | null {
 }
 
 function parseNote(value: Record<string, unknown>): NoteMutation | null {
-  if (!exactKeys(value, NOTE_KEYS) || value.entityType !== "PROGRESS_NOTE") return null;
+  const modern = exactKeys(value, NOTE_KEYS);
+  const legacy = exactKeys(value, NOTE_LEGACY_KEYS);
+  if ((!modern && !legacy) || value.entityType !== "PROGRESS_NOTE") return null;
   const shared = sharedFields(value);
   if (!shared) return null;
   if (typeof value.sectionId !== "string" || !isUuid(value.sectionId)) return null;
@@ -159,8 +163,15 @@ function parseNote(value: Record<string, unknown>): NoteMutation | null {
   gaps.sort();
   const customSkillLabel = textOrNull(value.customSkillLabel, 80);
   if (customSkillLabel === undefined) return null;
+  let customSkillTagId: string | null = null;
+  if (modern) {
+    if (value.customSkillTagId !== null && (typeof value.customSkillTagId !== "string" || !isUuid(value.customSkillTagId))) return null;
+    customSkillTagId = typeof value.customSkillTagId === "string" ? value.customSkillTagId.toLowerCase() : null;
+  }
+  if (customSkillLabel !== null && customSkillTagId !== null) return null;
   const custom = gaps.includes("CUSTOM");
-  if (custom !== (customSkillLabel !== null)) return null;
+  if (!custom && (customSkillLabel !== null || customSkillTagId !== null)) return null;
+  if (custom && customSkillLabel === null && customSkillTagId === null) return null;
   return {
     entityType: "PROGRESS_NOTE",
     ...shared,
@@ -169,6 +180,7 @@ function parseNote(value: Record<string, unknown>): NoteMutation | null {
     body,
     skillGaps: gaps,
     customSkillLabel,
+    customSkillTagId,
   };
 }
 

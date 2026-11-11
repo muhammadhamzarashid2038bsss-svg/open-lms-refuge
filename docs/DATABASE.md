@@ -213,11 +213,11 @@ The retry line for those files. It points at one submission and tracks attempts 
 
 ### LessonProgress
 
-Whether a learner finished a class session: not started, in progress, or completed. A completed row must have a completion time. The others must not. This is a status flag, not a version-vector record. The requirements treat grades and progress notes as the editable records that can conflict.
+Whether a learner finished a class session: not started, in progress, or completed. A completed row must have a completion time. The others must not. This is a status flag, not a version-vector record. The requirements treat grades and progress notes as the editable records that can conflict. The optional section checklist is deferred until an offline update rule exists for two phones changing the same learner and session.
 
 ### ProgressNote
 
-A teacher’s academic note, plus skill-gap tags: reading, writing, speaking, number sense, or a short custom label. The custom label is allowed only when the custom tag is selected.
+A teacher’s academic note, plus skill-gap tags: reading, writing, speaking, number sense, or one center-owned custom tag. New saves store that tag’s id. Older rows keep their free-text `customSkillLabel`, including the synthetic “map reading” label, and leave the tag id empty. A deactivated tag stays readable on those notes and cannot be chosen for a new save. The label is not copied into `AuditLog`.
 
 The sync fields match `GradeEntry` exactly, including the stable `id`. The demo includes one open note conflict with the same shape as the grade conflict: two preserved copies, and the gradebook-style current row matches the copy the server received later. The phone clock on that shown copy is the earlier clock, on purpose.
 
@@ -251,7 +251,7 @@ The seed does not invent scores. The requirements say each indicator is scaled f
 
 ### AuditLog
 
-Append-only list of who viewed or changed grades, notes, handoff reports, risk flags, exports, and related records. `metadata` may hold ids and field names. It must not hold names, note text, or phone numbers. The seed writes five “account created” rows whose metadata is only `{ "source": "synthetic-seed" }`.
+Append-only list of who viewed or changed grades, notes, handoff reports, risk flags, exports, and related records. `metadata` may hold ids and field names. It must not hold names, note text, learner codes, or custom tag labels. A progress-note view stores `{ "source": "online" }` or `{ "source": "offline", "clientEventId": "..." }`. `at` is the server time. An offline view’s phone clock is not copied into this row. Opening the teacher records list does not record a view and does not send the note text to the phone. A view is recorded when one note is opened. Reloading that page needs a connection: the phone does not keep a copy of the page, so a fresh load cannot show notes while the connection is down. Note text from a note already opened stays in that open page's memory only. It is not written into the phone's view queue. The seed writes five “account created” rows whose metadata is only `{ "source": "synthetic-seed" }`.
 
 ## Sync bookkeeping
 

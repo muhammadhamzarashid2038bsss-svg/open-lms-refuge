@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState } from "react";
 import { resolveConflictAction, type ConflictFormState } from "@/app/actions/conflicts";
 import { readOrCreateLocalDeviceId } from "@/lib/device/local-records";
+import { SKILL_TAG_GUIDANCE } from "@/lib/lms/skill-tags";
 import { SKILL_GAPS } from "@/lib/sync/record-batch";
 import { buttonClass, inputClass, labelClass } from "./ui";
 
@@ -13,7 +14,7 @@ const skillLabel: Record<(typeof SKILL_GAPS)[number], string> = {
   WRITING: "Writing",
   SPEAKING: "Speaking",
   NUMBER_SENSE: "Number sense",
-  CUSTOM: "A short custom label",
+  CUSTOM: "A center skill tag",
 };
 
 export function ConflictResolveForm({
@@ -23,7 +24,8 @@ export function ConflictResolveForm({
   shownNote,
   shownBody,
   shownGaps,
-  shownLabel,
+  shownTagId,
+  skillTags,
   maxPoints,
 }: {
   conflictId: string;
@@ -32,7 +34,8 @@ export function ConflictResolveForm({
   shownNote: string;
   shownBody: string;
   shownGaps: string[];
-  shownLabel: string;
+  shownTagId: string;
+  skillTags: { id: string; name: string }[];
   maxPoints: string | null;
 }) {
   const [state, action, pending] = useActionState(resolveConflictAction, initial);
@@ -106,9 +109,17 @@ export function ConflictResolveForm({
             ))}
           </fieldset>
           <label className={labelClass}>
-            Custom label
-            <input className={inputClass} name="customSkillLabel" defaultValue={shownLabel} maxLength={80} />
+            Center skill tag
+            <select className={inputClass} name="customSkillTagId" defaultValue={shownTagId}>
+              <option value="">No custom tag</option>
+              {skillTags.map((tag) => (
+                <option key={tag.id} value={tag.id}>
+                  {tag.name}
+                </option>
+              ))}
+            </select>
           </label>
+          <p className="text-base">{SKILL_TAG_GUIDANCE}</p>
         </>
       ) : null}
       {deviceNote ? <p className="text-lg">{deviceNote}</p> : null}
