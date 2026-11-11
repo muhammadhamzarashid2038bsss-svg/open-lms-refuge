@@ -543,3 +543,33 @@ The implementation was committed and pushed to GitHub. Real Cloudflare R2 accept
 - Confirmed that Paper assignments were not included in the file receipt calculations.
 - Signed in as Teacher Two and attempted to access the Morning Group performance page. Access was denied.
 - Signed in as Director and confirmed that the Center Performance page displayed both sections.
+
+## Day 12 of 20 · 2026-11-12
+
+### What I built
+- Built Progress Notes for learners with structured skill-gap tags, including reading, writing, speaking, and number sense.
+- Added centre-defined custom skill tags so directors can manage the tags available to teachers.
+- Integrated Progress Notes with the existing IndexedDB storage and Day 8 synchronization engine, allowing offline view events to be stored and synchronized.
+- Reused the Day 9 version-vector conflict system so concurrent edits by different teachers can be preserved and flagged for review instead of silently overwriting one another.
+- Enforced server-side authorization so only teachers currently assigned to a learner's section and the director of that learner's centre can view notes. Directors have read-only access.
+- Added audit logging for note views and changes without copying private note text, learner names, or sensitive free-text information into the audit log.
+- Added protection for offline note-view events so they are associated with the correct signed-in user and cannot be submitted by another person using the same shared device.
+- Added automated tests covering permissions, note access, offline view recording, synchronization, skill tags, and audit-related behavior.
+
+### What went wrong
+- The first offline note-view implementation had a flaw: opening the teacher records page could trigger audit events for every note in the page's data, including notes the teacher had not actually opened.
+- I investigated the problem and corrected the implementation. The system now records a view when an individual note is selected. If the server becomes unavailable, it can queue a view event only for a note that was already opened during that page visit. The queued event contains metadata only, never the note text.
+- I also had to regenerate the compiled kiosk shell because it still contained an outdated IndexedDB version.
+- Some existing database tests counted manually created test records alongside seeded demo records. I corrected the tests to identify the original seeded records without deleting or resetting any existing testing data.
+- The database temporarily became unavailable during testing, so I restarted the local Prisma development database and verified that its migrations were still up to date.
+- The final production build completed successfully, and the TypeScript, lint, and whitespace checks passed.
+
+### What I learned
+- I learned how to securely log actions, including who viewed a private note and when, without recording the actual content.
+- I learned that audit logging must represent genuine user actions. Simply loading a page should not be treated as opening every record displayed on it.
+- I learned how to reuse existing infrastructure, such as the Day 8 synchronization engine and Day 9 version-vector conflict resolution, instead of creating an entirely separate system.
+- I learned the importance of structured skill tags instead of unrestricted free-text labels when recording information about vulnerable learners.
+- I learned that shared-device offline systems need to protect not only saved changes but also the identity and ownership of queued activity.
+
+### Scope adjustment
+- The optional lesson-completion checklist was deferred. Its offline synchronization and conflict-handling behavior needed a separate safe design, so I did not introduce an incomplete implementation just to meet the original checklist.
