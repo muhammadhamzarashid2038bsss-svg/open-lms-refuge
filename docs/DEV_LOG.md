@@ -618,3 +618,61 @@ The implementation was committed and pushed to GitHub. Real Cloudflare R2 accept
 - Confirmed that all six database migrations were applied and the database schema was up to date.
 - Manually checked the handoff report, incoming and outgoing teacher permissions, print page, and Audit Log.
 - Confirmed that the Git commit was created and pushed successfully. The final working tree was clean.
+
+## Day 14 of 20 · 2026-11-12
+
+### What I built
+
+- Built a standalone Python FastAPI risk-scoring service under `services/risk_engine/`, completely separate from the Next.js application and Prisma database.
+- Installed Python 3.14.6 and created an isolated Python virtual environment with the required dependencies, including FastAPI, Pydantic, Uvicorn, pytest, and Ruff.
+- Established strict privacy rules. The service accepts only an anonymous learner code and the minimum numeric information needed for scoring. It does not accept learner names, nicknames, contact details, progress-note text, or raw family narratives.
+- Implemented the three weighted risk indicators:
+  - Absence pattern: five consecutive unexcused absences produce an indicator of 1.0. Ordinary excused absences contribute at 25% of the unexcused weight. Cancelled sessions are excluded, while blank sessions end an absence run without being counted as absences.
+  - Missing assignments: calculated as missing assignments divided by expected assignments, with explicit handling for zero expected assignments.
+  - Grade trend: implemented the approved eight-week calculation. It requires at least six valid, resolved grade observations spanning at least 28 days. It compares the median of the three earliest grades with the median of the three latest grades.
+- Added grade-trend safeguards: grades are normalized to percentages, genuine zero grades are included, missing and unresolved grades are excluded, academic assessment dates determine chronological order, and deterministic identifiers resolve same-date ordering.
+- Implemented the weighted risk formula:
+
+  `Risk Score = 100 × (0.5 × absence + 0.3 × missing assignments + 0.2 × grade trend)`
+
+- Added configuration validation for weights and thresholds. The starting levels are Watch at 40 or above and High at 70 or above. Invalid configurations are rejected.
+- Implemented insufficient-data handling. A learner with fewer than three usable data points, or no calculable indicators, receives "Insufficient data" rather than a fabricated numerical score.
+- Ensured that "Family circumstances (details not recorded)" absences do not increase the numerical score but produce a supportive "Check-in suggested" reason. These absences also end the current absence run.
+- Ensured unavailable indicators do not cause the remaining weights to be redistributed. The service explains when information is insufficient instead of treating missing evidence as a good result.
+- Created `docs/RISK_MODEL.md` to explain the calculations, data requirements, missing-value rules, thresholds, limitations, and privacy safeguards. Clearly documented that the default weights are starting estimates requiring calibration with real learning centers.
+- Built the FastAPI endpoints, including `GET /health` and `POST /score`, with validated request and response models and automatically generated interactive API documentation at `/docs`.
+- Added a README, dependency file, configuration file, and synthetic example requests. The Python virtual environment and generated caches are excluded through `.gitignore`.
+
+### What went wrong
+
+- During dependency installation, two setup processes accidentally ran simultaneously. Windows encountered a file-lock collision while one process was writing a package file. The other setup process completed successfully, and that completed environment was used for the final testing.
+- A separate type checker was not installed. Ruff reported no issues, and the pytest suite passed.
+- The risk-scoring service was deliberately kept disconnected from the Next.js application and database. Integration, saved RiskFlag records, scheduled scoring, and the Director's Check-in Suggestions screen were reserved for Day 15.
+- No existing LMS records were reset, reseeded, or modified.
+
+### What I learned
+
+- I learned how to build a standalone Python microservice using FastAPI and how its automatic interactive documentation makes API testing easier.
+- I learned how to separate a service from the main application so it can be tested independently before integration.
+- I learned why privacy-conscious APIs should receive only the minimum information necessary rather than personal details.
+- I learned how weighted indicators combine into a risk score and why missing or unavailable information must not automatically be interpreted as good performance.
+- I learned how median comparisons can reduce the effect of an isolated low grade when evaluating academic trends.
+- I learned the importance of chronological dates, minimum observation requirements, and deterministic calculations when working with offline data and delayed synchronization.
+- I learned that a risk score should support human decisions rather than automatically label or penalize learners.
+- I learned how to test mathematical edge cases with pytest and verify actual API responses through Swagger UI.
+
+### Testing and verification
+
+- All **55 automated pytest tests passed**.
+- Ruff reported no issues.
+- Confirmed that the FastAPI service started successfully and `GET /health` returned `{"status":"ok"}`.
+- Opened `/docs` and manually submitted six synthetic test cases:
+  1. Five unexcused absences produced a score of 50 and Watch level.
+  2. Five excused illness absences produced a score of 12.5 with no risk level.
+  3. Family-circumstances absences produced a supportive check-in suggestion without increasing the numerical score.
+  4. Cancelled sessions between five unexcused absences were excluded without breaking the absence sequence. The score remained 50.
+  5. An isolated low grade did not dominate the approved median calculation. Six grades spanning 28 days produced an early median of 81, a recent median of 78, a grade indicator of 0.3, and a total score of 36.
+  6. Zero expected assignments produced an unavailable assignment indicator without a division-by-zero error. Five unexcused absences still produced a score of 50.
+- Verified that the service returned HTTP 200 for all six manual requests.
+- Confirmed that the existing Next.js application, Prisma schema, and local database remained unchanged.
+- Committed and pushed the completed implementation successfully to GitHub.
