@@ -5,6 +5,7 @@
 import { Prisma } from "../../generated/prisma/client";
 import { canEditAssignedRecords, type Actor } from "../auth/permissions";
 import { prisma } from "../db";
+import { RECORD_VIEW_FAILED, writeRecordViews } from "./audit";
 import { validateNewAssignment, serverFileStatus, type CreatableAssignmentKind, type ServerFileStatus } from "../lms/gradebook";
 import { isUuid } from "../lms/timetable";
 import { parseVersionVector, type VersionVector } from "../sync/version-vector";
@@ -117,6 +118,28 @@ export async function loadSectionGradebook(actor: Actor, sectionId: string): Pro
   const openIds = new Set(
     openConflicts.map((row) => row.gradeEntryId).filter((id): id is string => id !== null),
   );
+  const visibleGrades = grades.flatMap((grade) => {
+    const versionVector = parseVersionVector(grade.versionVector);
+    if (!versionVector) return [];
+    return [
+      {
+        id: grade.id,
+        assignmentId: grade.assignmentId,
+        learnerId: grade.learnerId,
+        points: pointsText(grade.points),
+        academicNote: grade.academicNote,
+        versionVector,
+        provisional: openIds.has(grade.id),
+      },
+    ];
+  });
+  try {
+    await prisma.$transaction(async (tx) => {
+      await writeRecordViews(tx, actor, "GRADE_ENTRY", visibleGrades.map((grade) => grade.id), { source: "online" });
+    });
+  } catch {
+    throw new Error(RECORD_VIEW_FAILED);
+  }
   return {
     sectionId: section.id,
     sectionName: section.name,
@@ -128,21 +151,7 @@ export async function loadSectionGradebook(actor: Actor, sectionId: string): Pro
       kind: assignment.kind,
       maxPoints: pointsText(assignment.maxPoints),
     })),
-    grades: grades.flatMap((grade) => {
-      const versionVector = parseVersionVector(grade.versionVector);
-      if (!versionVector) return [];
-      return [
-        {
-          id: grade.id,
-          assignmentId: grade.assignmentId,
-          learnerId: grade.learnerId,
-          points: pointsText(grade.points),
-          academicNote: grade.academicNote,
-          versionVector,
-          provisional: openIds.has(grade.id),
-        },
-      ];
-    }),
+    grades: visibleGrades,
     files: latestFiles(section.assignments, section.enrollments.map((enrollment) => enrollment.learner.id), submissions),
   };
 }

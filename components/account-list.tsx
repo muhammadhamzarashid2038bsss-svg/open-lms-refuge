@@ -6,7 +6,11 @@ export function AccountList({ accounts }: { accounts: AccountView[] }) {
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-xl font-semibold">Accounts</h2>
-      <p className="text-lg leading-7">Switching an account off keeps their records. They cannot sign in.</p>
+      <p className="text-lg leading-7">
+        Switching an account off keeps their records. They cannot sign in, and an open session is closed. Switching a
+        teacher off prepares one handoff for each section they currently teach. Switching them off again does not
+        prepare another.
+      </p>
       <ul className="flex flex-col gap-3">
         {accounts.map((account) => (
           <li key={account.id} className="rounded-lg border-2 border-zinc-950 p-3">

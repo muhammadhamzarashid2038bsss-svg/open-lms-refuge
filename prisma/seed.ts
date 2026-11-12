@@ -1230,6 +1230,9 @@ async function main(): Promise<void> {
           reason: "SECTION_REASSIGNED",
           status: "READY",
           generatedAt: new Date(Date.UTC(2026, 9, 6, 8, 0, 0)),
+          sourceKey: "seed:afternoon-teacher-three",
+          sectionNameSnapshot: "Afternoon Group",
+          courseTitleSnapshot: "Demo English and Number Sense",
         },
       });
 

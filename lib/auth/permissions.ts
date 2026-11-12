@@ -150,6 +150,35 @@ export function canViewProgressNote(actor: Actor, note: { centerId: string; sect
   return false;
 }
 
+/// The incoming teacher sees a pack only when it was assigned to them and they
+/// still teach that section. A director sees the center. An admin does not
+/// receive progress-note text through a handoff.
+export function canViewHandoff(
+  actor: Actor,
+  report: { centerId: string; sectionId: string; assignedToId: string },
+): boolean {
+  if (!activeActor(actor) || !sharesCenter(actor, report.centerId)) return false;
+  if (actor.role === "CENTER_DIRECTOR") return true;
+  if (actor.role === "TEACHER") {
+    return actor.id === report.assignedToId && teacherHasSection(actor, report.sectionId);
+  }
+  return false;
+}
+
+/// Section staffing uses the existing SectionTeacher rows. Admins manage any
+/// center. A director manages only their own. This is not a second assignment list.
+export function canReassignSection(actor: Actor, section: SectionScope): boolean {
+  if (!activeActor(actor)) return false;
+  if (actor.role === "ADMIN") return true;
+  return actor.role === "CENTER_DIRECTOR" && sharesCenter(actor, section.centerId);
+}
+
+/// Directors see their center. Admins already manage accounts across centers,
+/// so the audit screen follows that same scope. Teachers and learners do not.
+export function canViewAuditLog(actor: Actor): boolean {
+  return activeActor(actor) && (actor.role === "ADMIN" || actor.role === "CENTER_DIRECTOR");
+}
+
 // The director keeps the center's short skill-tag list. Teachers only choose
 // from tags that are still active.
 export function canManageSkillTags(actor: Actor, centerId: string): boolean {

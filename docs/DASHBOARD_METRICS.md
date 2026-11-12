@@ -2,7 +2,7 @@
 
 Approved rules for the Day 11 performance dashboard (LMS-7). The pages explain these rules in plain language. This file is the version the tests check.
 
-The handoff seed stores a separate trend label. That label compares the first two scores with the last two. It is not this rule.
+New handoff profiles use this trajectory rule and store the result. The original seed report still compares the first two scores with the last two. That seed label is not this rule.
 
 The Day 14–15 risk score is a different calculation. This dashboard does not produce it.
 

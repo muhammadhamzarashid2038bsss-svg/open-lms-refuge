@@ -159,6 +159,14 @@ enum HandoffStatus {
   ACKNOWLEDGED
 }
 
+/// Whether a transition profile could calculate a confirmed attendance rate.
+/// Unmarked sessions are not absences, so "no marks yet" is not a zero rate.
+enum AttendanceSnapshotKind {
+  RECORDED
+  NO_ELIGIBLE_SESSIONS
+  NO_ATTENDANCE_RECORDED
+}
+
 enum TrendLabel {
   IMPROVING
   STEADY
@@ -838,6 +846,8 @@ model ProgressNoteVersion {
   conflictsShowing  SyncConflict[] @relation("NoteConflictShown")
   /// The copy written when a teacher resolved the conflict. The two originals stay.
   conflictsResolved SyncConflict[] @relation("NoteConflictResolved")
+  /// Handoff links name the version that existed when the report was built.
+  transitionLinks   TransitionProfileNote[]
 
   @@index([progressNoteId, syncedAt])
   @@index([customSkillTagId])
@@ -863,11 +873,19 @@ model HandoffReport {
   status             HandoffStatus @default(READY)
   generatedAt        DateTime
   acknowledgedAt     DateTime?
+  /// One real transition, shared by a retried request. A second tap must not
+  /// build a second pack. Deactivation uses the teacher and the server time.
+  /// Reassignment uses the section-teacher row that was ended.
+  sourceKey          String
+  /// Names at generation time, so a later rename does not rewrite the pack.
+  sectionNameSnapshot String
+  courseTitleSnapshot String
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
   profiles TransitionProfile[]
 
+  @@unique([sectionId, reason, sourceKey])
   @@index([assignedToId, status])
   @@index([sectionId, generatedAt])
   @@map("handoff_reports")
@@ -881,10 +899,26 @@ model TransitionProfile {
   handoffReport           HandoffReport @relation(fields: [handoffReportId], references: [id], onDelete: Restrict)
   learnerId               String       @db.Uuid
   learner                 LearnerProfile @relation(fields: [learnerId], references: [id], onDelete: Restrict)
-  /// Percent present or late across held sessions. A number, not a narrative.
-  attendanceRate          Decimal      @db.Decimal(5, 2)
+  /// Confirmed attendance percent. Empty when the rate was not calculated.
+  attendanceRate          Decimal?     @db.Decimal(5, 2)
+  attendanceKind          AttendanceSnapshotKind @default(RECORDED)
+  /// False on reports stored before counts were snapshotted. Do not treat the
+  /// zero defaults below as a real count for those older rows.
+  countsStored            Boolean      @default(false)
+  eligibleSessionCount    Int          @default(0)
+  presentCount            Int          @default(0)
+  lateCount               Int          @default(0)
+  absentCount             Int          @default(0)
+  excusedCount            Int          @default(0)
+  unmarkedCount           Int          @default(0)
   unexcusedAbsenceCount   Int
   gradeTrend              TrendLabel
+  gradeSettledCount       Int          @default(0)
+  /// Settled percents and the rule version. No note text and no learner name.
+  gradeSnapshot           Json?
+  /// Enrollment date and which calculation rules were used.
+  historySnapshot         Json?
+  lessonsTracked          Boolean      @default(true)
   lessonsCompleted        Int
   lessonsTotal            Int
   skillGaps               SkillGap[]
@@ -897,12 +931,16 @@ model TransitionProfile {
 }
 
 model TransitionProfileNote {
-  transitionProfileId String            @db.Uuid
-  transitionProfile   TransitionProfile @relation(fields: [transitionProfileId], references: [id], onDelete: Restrict)
-  progressNoteId      String            @db.Uuid
-  progressNote        ProgressNote      @relation(fields: [progressNoteId], references: [id], onDelete: Restrict)
+  transitionProfileId   String            @db.Uuid
+  transitionProfile     TransitionProfile @relation(fields: [transitionProfileId], references: [id], onDelete: Restrict)
+  progressNoteId        String            @db.Uuid
+  progressNote          ProgressNote      @relation(fields: [progressNoteId], references: [id], onDelete: Restrict)
+  /// The immutable copy at handoff time. Empty only on reports created before this link existed.
+  progressNoteVersionId String?           @db.Uuid
+  progressNoteVersion   ProgressNoteVersion? @relation(fields: [progressNoteVersionId], references: [id], onDelete: Restrict)
 
   @@id([transitionProfileId, progressNoteId])
+  @@index([progressNoteVersionId])
   @@map("transition_profile_notes")
 }
 

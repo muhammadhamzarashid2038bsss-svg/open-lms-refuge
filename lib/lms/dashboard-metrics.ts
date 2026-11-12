@@ -91,6 +91,9 @@ export type PerformanceAttendance = {
   status: AttendanceStatusName;
   syncedAt: Date;
   createdAt: Date;
+  /// Optional so the performance page can omit it. Handoff uses it to keep
+  /// a family-circumstances absence out of the unexcused count.
+  reasonCode?: string | null;
 };
 
 export type TrajectoryResult = {
@@ -277,6 +280,7 @@ function buildLearner(
         sessions: [],
         cancelledLeftOut: 0,
         futureLeftOut: 0,
+        unexcusedAbsences: 0,
       };
   return {
     average,
@@ -408,11 +412,12 @@ function dropChronologicalMiddle(values: number[]): number[] {
 function learnerAttendance(
   input: PerformanceInput,
   learner: PerformanceLearner,
-): { rates: AttendanceRates; sessions: SessionPerformanceRow[]; cancelledLeftOut: number; futureLeftOut: number } {
+): { rates: AttendanceRates; sessions: SessionPerformanceRow[]; cancelledLeftOut: number; futureLeftOut: number; unexcusedAbsences: number } {
   const counts = { eligibleSessions: 0, present: 0, late: 0, absent: 0, excused: 0, unmarked: 0 };
   const sessions: SessionPerformanceRow[] = [];
   let cancelledLeftOut = 0;
   let futureLeftOut = 0;
+  let unexcusedAbsences = 0;
   const ordered = [...input.sessions].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime() || a.id.localeCompare(b.id));
   for (const session of ordered) {
     if (session.status === "CANCELLED") {
@@ -430,8 +435,10 @@ function learnerAttendance(
     const statusLabel = current ? statusWord(current.status) : "Unmarked";
     if (statusLabel === "Present") counts.present += 1;
     else if (statusLabel === "Late") counts.late += 1;
-    else if (statusLabel === "Absent") counts.absent += 1;
-    else if (statusLabel === "Excused") counts.excused += 1;
+    else if (statusLabel === "Absent") {
+      counts.absent += 1;
+      if (current?.reasonCode !== "FAMILY_CIRCUMSTANCES_NOT_RECORDED") unexcusedAbsences += 1;
+    } else if (statusLabel === "Excused") counts.excused += 1;
     else counts.unmarked += 1;
     sessions.push({
       sessionId: session.id,
@@ -440,7 +447,35 @@ function learnerAttendance(
       statusLabel,
     });
   }
-  return { rates: attendanceFromCounts(counts), sessions, cancelledLeftOut, futureLeftOut };
+  return { rates: attendanceFromCounts(counts), sessions, cancelledLeftOut, futureLeftOut, unexcusedAbsences };
+}
+
+export type HandoffLearnerMeasure = {
+  clockOk: boolean;
+  attendance: {
+    rates: AttendanceRates;
+    unexcusedAbsences: number;
+    cancelledLeftOut: number;
+    futureLeftOut: number;
+  } | null;
+  trajectory: TrajectoryResult;
+  settled: { percent: number; assignmentId: string }[];
+};
+
+/// The same attendance and grade rules as the performance pages, for one learner
+/// at a handoff. Callers pass only that section's rows.
+export function measureHandoffLearner(input: PerformanceInput, learner: PerformanceLearner): HandoffLearnerMeasure {
+  const clockOk = isValidTimeZone(input.timeZone);
+  const settled = settledPercents(input, learner.id, input.assignments).map((item) => ({
+    percent: item.percent,
+    assignmentId: item.assignmentId,
+  }));
+  return {
+    clockOk,
+    attendance: clockOk ? learnerAttendance(input, learner) : null,
+    trajectory: trajectoryFromPercents(settled),
+    settled,
+  };
 }
 
 export function attendanceFromCounts(counts: Omit<AttendanceRates, "confirmedLabel" | "coverageLabel">): AttendanceRates {

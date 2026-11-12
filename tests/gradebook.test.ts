@@ -293,6 +293,7 @@ describe("offline gradebook saves", () => {
 });
 
 describe("section gradebook records", () => {
+  const gradeViewsSince = new Date();
   let morningId = "";
   let teacherOne: Actor;
   let teacherTwo: Actor;
@@ -327,6 +328,7 @@ describe("section gradebook records", () => {
 
   afterAll(async () => {
     await removeDay10();
+    await removeOnlineGradeViews(gradeViewsSince);
   });
 
   it("lets the assigned teacher create Paper, Digital, and Both", async () => {
@@ -433,6 +435,27 @@ describe("section gradebook records", () => {
     expect(await loadSectionGradebook({ ...teacherOne, active: false }, morningId)).toBeNull();
   });
 });
+
+async function removeOnlineGradeViews(since: Date) {
+  const users = await prisma.user.findMany({
+    where: { email: { in: ["teacher.one@demo.invalid", "director@demo.invalid"] } },
+    select: { id: true },
+  });
+  const ids = users.map((user) => user.id);
+  if (ids.length === 0) return;
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
+    await tx.auditLog.deleteMany({
+      where: {
+        action: "VIEW",
+        entityType: "GRADE_ENTRY",
+        actorId: { in: ids },
+        at: { gte: since },
+        metadata: { equals: { source: "online" } },
+      },
+    });
+  });
+}
 
 async function actorByEmail(email: string) {
   const user = await prisma.user.findUniqueOrThrow({ where: { email }, select: { id: true } });

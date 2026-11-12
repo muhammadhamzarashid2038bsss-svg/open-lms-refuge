@@ -7,6 +7,7 @@ import type { Readable } from "stream";
 import type { Actor } from "../auth/permissions";
 import { canEditAssignedRecords } from "../auth/permissions";
 import { prisma } from "../db";
+import { writeAuditEvent } from "./audit";
 import { isUuid } from "../lms/timetable";
 import { fingerprintStream } from "../storage/checksum";
 import {
@@ -39,6 +40,9 @@ export type SubmissionDeps = {
   storage: StorageAdapter | null;
   now: Date;
   registerDevice: (actor: Actor, deviceId: string, now: Date) => Promise<DeviceResult>;
+  /// Optional so tests can use a memory database. The live server records the view
+  /// before it returns a download link. The link itself is not stored in the audit.
+  recordDownload?: (actor: Actor, submissionId: string) => Promise<void>;
 };
 
 type Claim = {
@@ -303,6 +307,13 @@ export async function downloadSubmission(actor: Actor | null, submissionId: stri
   if (!teacher && !learner) return HIDDEN;
   if (row.uploadState !== "STORED") return fail(409, "NOT_READY", "This file is not ready to open.", { submissionId: row.id });
   if (!deps.storage) return unavailable({ submissionId: row.id });
+  if (deps.recordDownload) {
+    try {
+      await deps.recordDownload(actor, row.id);
+    } catch {
+      return fail(500, "AUDIT_FAILED", "The file view could not be recorded.");
+    }
+  }
   try {
     const signed = await deps.storage.presignGet({ key: row.storageKey, expiresInSeconds: GET_URL_SECONDS });
     return { status: 200, body: { downloadUrl: signed.url, expiresAt: signed.expiresAt, submissionId: row.id } };
@@ -317,5 +328,16 @@ export function liveSubmissionDeps(now = new Date()): SubmissionDeps {
     storage: storageFromEnv(),
     now,
     registerDevice: (actor, deviceId, at) => registerOfflinePhone(actor, deviceId, at),
+    recordDownload: async (actor, submissionId) => {
+      await prisma.$transaction(async (tx) => {
+        await writeAuditEvent(tx, {
+          actor,
+          action: "VIEW",
+          entityType: "SUBMISSION",
+          entityId: submissionId,
+          metadata: { source: "download-request" },
+        });
+      });
+    },
   };
 }

@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { Prisma } from "../../generated/prisma/client";
 import { canEditAssignedRecords, type Actor } from "../auth/permissions";
 import { prisma } from "../db";
+import { RECORD_VIEW_FAILED, writeRecordViews } from "./audit";
 import { writeNoteViewAudits } from "./progress-notes";
 import { registerOfflinePhone } from "./sync-attendance";
 import { isUuid } from "../lms/timetable";
@@ -193,6 +194,7 @@ export async function readConflict(actor: Actor, conflictId: string): Promise<Co
       shownNoteVersion: { include: { customSkillTag: { select: { id: true, name: true, active: true } } } },
       gradeEntry: {
         select: {
+          id: true,
           assignment: { select: { title: true, maxPoints: true, sectionId: true, section: { select: { course: { select: { centerId: true } } } } } },
           learner: { select: { learnerCode: true, displayName: true } },
         },
@@ -221,6 +223,14 @@ export async function readConflict(actor: Actor, conflictId: string): Promise<Co
     });
     const shown = row.shownGradeVersion;
     const other = shown.id === row.gradeVersionA.id ? row.gradeVersionB : row.gradeVersionA;
+    const gradeEntry = row.gradeEntry;
+    try {
+      await prisma.$transaction(async (tx) => {
+        await writeRecordViews(tx, actor, "GRADE_ENTRY", [gradeEntry.id], { source: "online" });
+      });
+    } catch {
+      throw new Error(RECORD_VIEW_FAILED);
+    }
     return {
       id: row.id,
       kind: "Grade",

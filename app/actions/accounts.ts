@@ -45,7 +45,12 @@ export async function resetPasswordAction(_prev: FormState, formData: FormData):
 
 export async function setActiveAction(formData: FormData): Promise<void> {
   const actor = await actorOrRedirect();
+  const home = actor.role === "ADMIN" ? "/admin" : "/director";
   const active = String(formData.get("active") ?? "") === "true";
-  await setAccountActive(actor, String(formData.get("userId") ?? ""), active);
-  redirect(actor.role === "ADMIN" ? "/admin" : "/director");
+  const result = await setAccountActive(actor, String(formData.get("userId") ?? ""), active);
+  if (result.status === "invalid") redirect(`${home}?notice=${encodeURIComponent(result.message)}`);
+  if (result.status === "saved" && !active) {
+    redirect(`${home}?notice=${encodeURIComponent("The account is switched off. A teacher handoff is prepared once for each section they still taught.")}`);
+  }
+  redirect(home);
 }

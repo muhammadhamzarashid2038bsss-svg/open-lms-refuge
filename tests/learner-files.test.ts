@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { loadActor } from "../lib/auth/load-actor";
 import { prismaSubmissionDb } from "../lib/data/submission-db";
 import { downloadSubmission } from "../lib/data/submissions";
@@ -500,6 +500,28 @@ describe("homework upload", () => {
 });
 
 describe("learner homework and gradebook files", () => {
+  const gradeViewsSince = new Date();
+  afterAll(async () => {
+    const users = await prisma.user.findMany({
+      where: { email: { in: ["teacher.one@demo.invalid", "director@demo.invalid"] } },
+      select: { id: true },
+    });
+    const ids = users.map((user) => user.id);
+    if (ids.length === 0) return;
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
+      await tx.auditLog.deleteMany({
+        where: {
+          action: "VIEW",
+          entityType: "GRADE_ENTRY",
+          actorId: { in: ids },
+          at: { gte: gradeViewsSince },
+          metadata: { equals: { source: "online" } },
+        },
+      });
+    });
+  });
+
   it("shows the learner only Digital and Both homework, and the teacher the stored file state", async () => {
     const now = new Date("2026-11-10T01:00:00.000Z");
     const learner = await prisma.learnerProfile.findFirstOrThrow({

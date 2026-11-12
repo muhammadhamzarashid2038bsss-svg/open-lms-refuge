@@ -39,6 +39,11 @@ async function TeacherHome() {
         </Link>
       </p>
       <p className="text-lg">
+        <Link className="underline" href="/handoff">
+          Handoff reports
+        </Link>
+      </p>
+      <p className="text-lg">
         <Link className="underline" href="/teacher/conflicts">
           Review grade and note conflicts
         </Link>

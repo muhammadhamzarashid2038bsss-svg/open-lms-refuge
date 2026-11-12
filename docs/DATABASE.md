@@ -231,13 +231,13 @@ Append-only history for notes. Same sync fields as `GradeEntryVersion`, plus the
 
 The section pack created when a teacher is deactivated or a section is reassigned. It points at the outgoing teacher, the incoming teacher when there is one, and the person who should read it (the incoming teacher, or the director if nobody has been assigned).
 
-The demo includes one report for the afternoon group, dated the day Teacher Two takes over from Teacher Three. The app that builds this automatically is not written yet. The seed writes one report so the tables can be seen, using counts from the fake attendance and grades.
+The demo includes one report for the afternoon group, dated the day Teacher Two takes over from Teacher Three. Switching a teacher off, or ending their section assignment, now builds a report in the same database transaction. `sourceKey` makes a repeated request return the existing pack instead of a second one. The seed report uses the key `seed:afternoon-teacher-three`.
 
 ### TransitionProfile
 
 One learner’s page inside that report. The requirements call this the Student Transition Profile. It stores counts and a trend label, not a copied essay. Notes stay in `ProgressNote` and are linked, so a later reader opens the real note.
 
-The seed’s trend label compares the first two scores with the last two. That is only so the demo numbers have a rule you can check. The dashboard’s official Improving / Steady / Declining rule is in docs/DASHBOARD_METRICS.md. The seed label is not that rule.
+A new profile stores the Day 11 attendance and grade rules from docs/DASHBOARD_METRICS.md, plus the note-version ids that existed at that moment. The seed’s trend label still compares the first two scores with the last two. That older demo row does not use the dashboard rule, and its `countsStored` flag stays false.
 
 ### TransitionProfileNote
 

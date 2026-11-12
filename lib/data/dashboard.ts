@@ -5,6 +5,7 @@
 import { Prisma } from "../../generated/prisma/client";
 import { canViewPerformance, type Actor } from "../auth/permissions";
 import { prisma } from "../db";
+import { RECORD_VIEW_FAILED, writeRecordViews } from "./audit";
 import {
   buildSectionPerformance,
   type AssignmentKindName,
@@ -51,6 +52,17 @@ export async function loadLearnerPerformance(
   const section = await loadSectionPerformance(actor, sectionId, now, db);
   const learner = section?.learners.find((item) => item.id === learnerId);
   if (!section || !learner) return null;
+  const grades = await db.gradeEntry.findMany({
+    where: { learnerId, assignment: { sectionId } },
+    select: { id: true },
+  });
+  try {
+    await prisma.$transaction(async (tx) => {
+      await writeRecordViews(tx, actor, "GRADE_ENTRY", grades.map((grade) => grade.id), { source: "online" });
+    });
+  } catch {
+    throw new Error(RECORD_VIEW_FAILED);
+  }
   return {
     sectionId: section.sectionId,
     sectionName: section.sectionName,

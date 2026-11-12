@@ -1,4 +1,6 @@
 import { prisma } from "../db";
+import { HandoffError, createDeactivationHandoffs } from "../data/handoff";
+import { writeAuditEvent } from "../data/audit";
 import { hashSecret, isFourDigitPin } from "./password";
 import { canResetPassword, canResetPin, canSetActive, type Actor } from "./permissions";
 import { revokeSessionsForUser } from "./session-db";
@@ -113,6 +115,38 @@ export async function setAccountActive(actor: Actor, userId: string, active: boo
     select: { id: true, role: true, centerId: true, active: true },
   });
   if (!target || !canSetActive(actor, target)) return { status: "hidden" };
+
+  // A teacher handoff has to land in the same transaction as the switch-off.
+  // Repeating the switch-off finds the account already inactive and stops.
+  if (!active && target.role === "TEACHER") {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const now = new Date();
+        const updated = await tx.user.updateMany({
+          where: { id: target.id, active: true, role: "TEACHER" },
+          data: { active: false, deactivatedAt: now },
+        });
+        if (updated.count === 0) return { status: "saved" as const };
+        const reportCount = await createDeactivationHandoffs(tx, actor, target.id, now);
+        await tx.authSession.updateMany({
+          where: { userId: target.id, revokedAt: null },
+          data: { revokedAt: now },
+        });
+        await writeAuditEvent(tx, {
+          actor,
+          action: "DEACTIVATE",
+          entityType: "USER",
+          entityId: target.id,
+          centerId: target.centerId,
+          metadata: { active: false, reportCount, source: "account" },
+        });
+        return { status: "saved" as const };
+      }, { timeout: 20000 });
+    } catch (error) {
+      if (error instanceof HandoffError) return { status: "invalid", message: error.message };
+      return { status: "invalid", message: "The account could not be switched off. Nothing was changed." };
+    }
+  }
 
   await prisma.user.update({
     where: { id: target.id },

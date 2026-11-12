@@ -10,3 +10,26 @@ export function isCurrentAssignment(startsOn: Date, endsOn: Date | null, now: Da
   const end = Date.UTC(endsOn.getUTCFullYear(), endsOn.getUTCMonth(), endsOn.getUTCDate());
   return end >= today;
 }
+
+/// Calendar day in UTC. Assignment dates are stored as dates, not clock times.
+export function utcDay(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+/// The day before `day`. An assignment's end date is the last day included, so
+/// ending it yesterday means the teacher loses the section the moment the
+/// handoff is confirmed, including later the same calendar day.
+export function dayBefore(day: Date): Date {
+  return new Date(day.getTime() - 86_400_000);
+}
+
+/// Last UTC day included when an admin ends an assignment.
+/// An older assignment ends yesterday, so access stops during that same UTC day.
+/// An assignment that started today cannot end yesterday. It ends today, and
+/// the teacher keeps the section until that UTC day is over.
+export function reassignmentEndDate(startsOn: Date, now: Date): Date {
+  const start = utcDay(startsOn);
+  const previous = dayBefore(utcDay(now));
+  if (previous.getTime() < start.getTime()) return start;
+  return previous;
+}

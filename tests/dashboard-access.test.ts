@@ -1,10 +1,11 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadActor } from "../lib/auth/load-actor";
 import type { Actor } from "../lib/auth/permissions";
 import { loadCenterPerformance, loadLearnerPerformance, loadSectionPerformance } from "../lib/data/dashboard";
 import { prisma } from "../lib/db";
 
 const now = new Date("2026-11-11T12:00:00.000Z");
+const gradeViewsSince = new Date();
 
 describe("dashboard authorization and seeded counts", () => {
   let morningId = "";
@@ -16,6 +17,27 @@ describe("dashboard authorization and seeded counts", () => {
   let learner: Actor;
   let morningLearnerId = "";
   let afternoonLearnerId = "";
+
+  afterAll(async () => {
+    const users = await prisma.user.findMany({
+      where: { email: { in: ["teacher.one@demo.invalid", "director@demo.invalid"] } },
+      select: { id: true },
+    });
+    const ids = users.map((user) => user.id);
+    if (ids.length === 0) return;
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
+      await tx.auditLog.deleteMany({
+        where: {
+          action: "VIEW",
+          entityType: "GRADE_ENTRY",
+          actorId: { in: ids },
+          at: { gte: gradeViewsSince },
+          metadata: { equals: { source: "online" } },
+        },
+      });
+    });
+  });
 
   beforeAll(async () => {
     const morning = await prisma.section.findFirstOrThrow({
