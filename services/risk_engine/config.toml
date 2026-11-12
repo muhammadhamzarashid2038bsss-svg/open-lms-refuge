@@ -1,0 +1,24 @@
+# Starting estimates for a supportive check-in score.
+# Real learning centers must calibrate these before relying on them.
+# Changing this file changes the score. The service checks it at startup
+# and refuses to start when the values are impossible.
+
+[weights]
+# The three weights must each be from 0 to 1 and must add up to 1.
+absence = 0.5
+missing_assignments = 0.3
+grade_trend = 0.2
+
+[thresholds]
+# A score at or above Watch, and below High, is "Watch".
+# A score at or above High is "High".
+# Watch must be lower than High. Both are on the 0 to 100 score.
+watch = 40
+high = 70
+
+[absence]
+# Five consecutive unexcused absences fill the absence indicator (1.0).
+full_streak = 5
+# An ordinary excused absence, such as illness, counts as a quarter of one
+# unexcused absence. Family-circumstances absences do not use this weight.
+excused_weight = 0.25

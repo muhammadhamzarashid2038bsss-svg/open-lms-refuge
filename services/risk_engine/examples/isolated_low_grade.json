@@ -1,0 +1,68 @@
+{
+  "learner_code": "LNR-0016",
+  "as_of": "2026-04-30",
+  "attendance": [
+    {
+      "session_id": "s1",
+      "session_date": "2026-04-06",
+      "status": "absent",
+      "family_circumstances": false
+    },
+    {
+      "session_id": "s2",
+      "session_date": "2026-04-08",
+      "status": "absent",
+      "family_circumstances": false
+    },
+    {
+      "session_id": "s3",
+      "session_date": "2026-04-13",
+      "status": "absent",
+      "family_circumstances": false
+    }
+  ],
+  "grades": [
+    {
+      "assessment_id": "g1",
+      "assessment_date": "2026-04-02",
+      "points": 80,
+      "maximum": 100,
+      "resolved": true
+    },
+    {
+      "assessment_id": "g2",
+      "assessment_date": "2026-04-02",
+      "points": 82,
+      "maximum": 100,
+      "resolved": true
+    },
+    {
+      "assessment_id": "g3",
+      "assessment_date": "2026-04-02",
+      "points": 81,
+      "maximum": 100,
+      "resolved": true
+    },
+    {
+      "assessment_id": "g4",
+      "assessment_date": "2026-04-30",
+      "points": 79,
+      "maximum": 100,
+      "resolved": true
+    },
+    {
+      "assessment_id": "g5",
+      "assessment_date": "2026-04-30",
+      "points": 40,
+      "maximum": 100,
+      "resolved": true
+    },
+    {
+      "assessment_id": "g6",
+      "assessment_date": "2026-04-30",
+      "points": 78,
+      "maximum": 100,
+      "resolved": true
+    }
+  ]
+}

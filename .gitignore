@@ -48,3 +48,10 @@ next-env.d.ts
 
 # Prisma Client is generated from prisma/schema.prisma
 /generated
+
+# Python risk service. The virtual environment and caches stay on this machine.
+services/risk_engine/.venv/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.ruff_cache/
