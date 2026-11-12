@@ -677,40 +677,88 @@ The implementation was committed and pushed to GitHub. Real Cloudflare R2 accept
 - Confirmed that the existing Next.js application, Prisma schema, and local database remained unchanged.
 - Committed and pushed the completed implementation successfully to GitHub.
 
-## Day 15 of 20 · 2026-11-12
+## Day 15 of 20 · 2026-11-12 (End of Week 3)
 
 ### What I built
 
-- Connected the Next.js server to the Day 14 risk service. The browser does not call the scoring address. The server sends a shared key in a header. That key lives in `.env` only, and `.env.example` has a placeholder.
-- The Python service now refuses `POST /score` when the key is missing or wrong. `GET /health` stays open and still returns no learner data. There is no new CORS permission.
-- The server collects the existing Day 14 fields for each learner: an anonymous learner code, attendance marks, expected and missing assignment counts, settled grades with academic dates, a family-circumstances flag with no story, the scoring date, and that center's Watch and High levels. Names, nicknames, database ids, notes, and contact details stay in the learning app.
-- A director can open Check-in suggestions, run an assessment, change their own center's Watch and High levels, mark a check-in done with an optional short operational note, or dismiss a suggestion by choosing a reason from the existing list.
-- Results are saved on the existing RiskFlag rows, attached to a new scoring-run row. The same run cannot save two flags for one learner. A finished check-in or a dismissal is kept if the same run is retried. A later run keeps the older flags.
-- Each saved flag stores the score, the level, whether each indicator was available, the plain-language reasons, the calculation version `day14-v1`, the weights 0.5, 0.3, and 0.2, and the Watch and High levels used that day.
-- If the service is down, times out, or returns something the app cannot trust, the director sees a short message and no new flag is saved. The rest of the app keeps working.
-- Daily automatic scoring is not built. The host for the center is not chosen yet, so there is no production scheduler. The director's button works on its own.
-- Audit rows record the screen view, the start and finish of a run, a threshold change, a completed check-in, and a dismissal. They do not copy the operational note, the dismissal reason, nicknames, or the service key.
+- Connected the Next.js application to the standalone Python FastAPI risk-scoring service through a protected server-to-server request. The browser never communicates directly with the scoring service.
+- Implemented shared-key authentication between the two services. The key is stored in the local `.env` file and is not exposed through frontend environment variables or committed to Git. The Python service rejects scoring requests with a missing or incorrect key.
+- Enforced privacy by sending only anonymous learner codes and approved numerical indicators to the risk service. Names, nicknames, database identifiers, contact details, progress notes, and private family narratives remain inside the main LMS.
+- Added a scoring-run system using `RiskScoringRun` records. Each run stores its calculation version, weights, thresholds, and scoring metadata. Results are saved against the existing `RiskFlag` records.
+- Implemented safeguards against duplicate scoring results. A run cannot create multiple flags for the same learner, retries do not overwrite completed human decisions, and later scoring runs preserve older results.
+- Built the Director's Check-in Suggestions page at `/director/check-ins`. It displays learners who may benefit from additional support, their risk level, score, and plain-language reasons.
+- Added Director actions to mark a check-in as completed with an optional short operational note or dismiss a suggestion using an approved reason.
+- Allowed Directors to adjust their centre's Watch and High thresholds. Validation ensures both values are whole numbers between 0 and 100 and that Watch is lower than High.
+- Preserved the Day 14 risk calculation rules and recorded the calculation version, indicator availability, applied weights, and thresholds with each saved result.
+- Added audit logging for viewing risk information, starting and finishing scoring runs, changing thresholds, completing check-ins, and dismissing suggestions. Audit records do not contain private operational notes, dismissal reasons, nicknames, or the service authentication key.
+- Implemented graceful failure handling. When the Python service is unavailable, times out, or returns an invalid response, the Director receives a friendly message and no new results are saved. Existing suggestions and the rest of the LMS remain available.
+- Kept automatic daily scoring out of scope because the production hosting environment has not yet been selected. The Director can manually trigger scoring without depending on a scheduler.
 
 ### What went wrong
 
-- The first full test runs failed because the local Prisma database closed connections. I restarted that local server. I did not reset or reseed it. After the restart, the full suite passed.
-- An older copy of the risk service was still listening on port 8000 and did not know about the new key. I stopped that process and started the updated service on the same address.
-- In the automated browser, staff sign-in reached the shared-phone check and stayed on "Checking this phone…". I could not click Run risk assessment from that browser. The live service did answer one synthetic request correctly. The director still needs to click through the page by hand.
-- A local key was written into the gitignored `.env` so this computer can call the service. It is not in git.
+- The first full automated test runs encountered local Prisma database connection failures. The database stopped accepting connections during testing. I restarted the local Prisma development database without resetting or reseeding it, preserving the existing demo data. The full test suite then passed.
+- An older version of the Python risk service was still running on port 8000. It did not recognize the new authentication key and returned an unauthorized response. I stopped the old process and started the updated service.
+- A stale Prisma Client initially caused an error involving the new `scoringDate` field. I regenerated Prisma Client using the project's Prisma configuration and restarted the Next.js development server. The page then loaded successfully without requiring another migration or changes to the database.
+- The automated browser testing could not get past the shared-phone verification screen, which remained on "Checking this phone…". Therefore, I could not rely on automated browser interaction to complete the Director's workflow. I performed the required checks manually in the browser instead.
+- I deliberately did not add scheduled daily scoring. The deployment host has not been selected, so implementing a production scheduler before confirming reliable scheduling support would have been premature.
+- The Python service was briefly stopped during the resilience test. After confirming that the LMS handled the outage correctly, I restarted FastAPI successfully.
 
 ### What I learned
 
-- I learned how to keep a private service off the phone by calling it only from the Next.js server, with a key that never uses a `NEXT_PUBLIC_` name.
-- I learned how to map existing attendance, assignment, and grade rows into the scoring contract without sending a nickname or a database id.
-- I learned how a scoring-run id stops a repeated click from creating a second flag, while a new day still keeps the older result.
-- I learned that a center can change Watch and High without changing the three weights or the grade-trend rule, and that the flag must remember the levels used so an older result still makes sense.
-- I learned that an audit row can say who acted without storing the note they typed.
+- I learned how to connect two separate applications securely using authenticated server-to-server requests.
+- I learned why a private service should never receive more personal information than it needs. Anonymous learner codes and numerical indicators are sufficient for the risk calculation.
+- I learned how scoring-run identifiers and database constraints help prevent duplicate results and protect existing human decisions when an operation is retried.
+- I learned that historical risk results need to retain the calculation version, weights, and thresholds used when they were produced. Otherwise, an older score could become difficult to interpret after the model configuration changes.
+- I learned how to design a system that fails safely. A separate risk-scoring service should not prevent teachers and learners from continuing to use the main LMS when that service is unavailable.
+- I learned that a risk score should support a human decision rather than automatically penalize or label a learner. The purpose of the Check-in Suggestions page is to help Directors identify learners who may benefit from supportive attention.
+- I also learned that automated tests and browser automation are not substitutes for manually verifying important real-world workflows, especially when authentication and shared-device protections are involved.
 
 ### Testing and verification
 
-- Python: **64 pytest tests passed**. Ruff reported no issues.
-- Next.js tests, after the database restart: **40 files, 389 tests passed, 0 failed, 0 skipped**.
-- TypeScript (`tsc --noEmit`) passed. ESLint passed.
-- Production build passed (`next build`, then the service-worker build). The Check-in suggestions route is included.
-- A live call to the updated service with the synthetic five-unexcused example returned score 50, level Watch, version `day14-v1`, Watch 40, and High 70. The response did not contain the service key. A call with no key returned 401.
-- The automated browser signed in as the demo director and then stayed on the phone check, so the button, the loading state, and a saved suggestion were not clicked. Those steps are still for a manual pass.
+**Automated checks**
+- Python risk-engine tests: **64 passed**.
+- Ruff reported no issues.
+- Next.js automated tests: **40 test files, 389 tests passed, 0 failed, and 0 skipped**.
+- TypeScript checks passed using `npx tsc --noEmit`.
+- ESLint passed.
+- Production build passed, including the Next.js build and service-worker build.
+
+**Manual browser tests**
+- Signed in as the Director and opened the Check-in Suggestions page.
+- Triggered risk scoring successfully. The application checked all 30 demo learners and saved 30 results.
+- Tested invalid threshold values by attempting to set Watch to 80 and High to 70. The application rejected the values with a validation message, and the existing Watch 40 and High 70 settings remained unchanged.
+- Checked Demo Learner 01. The learner appeared with Watch status and a score of 50. I marked the check-in as completed and added an operational note. The status and note remained saved after refreshing the page.
+- Checked Demo Learner 02. The learner had a score of 0 and remained below the Watch threshold. The family-circumstances information produced a supportive check-in suggestion without increasing the numerical score. I dismissed the suggestion using the reason "Not needed", and the decision remained saved after refreshing.
+- Confirmed that Teacher One could not access `/director/check-ins` and was redirected to the teacher homepage.
+- Performed the service-down resilience test by stopping the Python FastAPI service while leaving Next.js and the local database running.
+- Triggered scoring while the Python service was offline. The application displayed: "The risk check could not be completed. Saved suggestions are unchanged. You can try again when the scoring service is available."
+- Confirmed that the existing check-in decisions and saved data remained intact and that other LMS pages continued to work normally during the outage.
+- Restarted the Python service successfully after completing the resilience test.
+
+The final manual browser verification was completed on **2026-11-13**.
+
+The Day 15 implementation was committed and pushed successfully to GitHub as `82c1d4f`, with the message `feat(risk): connect director check-in suggestions to risk engine`. The working tree was clean after the push.
+
+---
+
+### Week 3 Review: 3 Decisions That Shaped the Project
+
+1. **Decision:** Prioritize trustworthy measurements over impressive-looking dashboard numbers.
+**Why:** A dashboard can display percentages and trends, but those numbers are only useful when their calculations are reliable. During Days 11–14, I made decisions to exclude cancelled sessions, missing grades, and unresolved grade conflicts from calculations where they should not contribute. I also used median comparisons for academic trajectories and grade trends to reduce the influence of isolated results. Minimum observation requirements prevent the system from presenting a confident trend when there is not enough evidence.
+This approach means that the application can report insufficient data instead of inventing a conclusion. I learned that an honest measurement is more valuable than a complete-looking dashboard built on unreliable assumptions.
+
+2. **Decision:** Make privacy and learner dignity part of the system architecture, not just the interface.
+**Why:** The LMS handles information about vulnerable learners, so privacy cannot depend only on hiding sensitive details from the screen. During the development of Progress Notes, Handoff Reports, audit logging, and the risk-scoring service, I consistently limited what information each feature could access and store.
+For example, the risk service receives anonymous learner codes and approved numerical indicators rather than names, private notes, or family narratives. Audit logs record that an action happened without copying the contents of private notes. Risk suggestions also remain supportive recommendations for human review rather than automatic decisions about a learner.
+This decision shaped how I designed the database, APIs, permissions, and user interfaces. I learned that protecting learners requires privacy safeguards throughout the application, not only at the point where information is displayed.
+
+3. **Decision:** Design for reliability, shared devices, and imperfect connectivity rather than assuming everything will always work.
+**Why:** The intended users may work with limited connectivity and shared devices. During Days 12–13, I reused the existing IndexedDB synchronization system, version-vector conflict handling, and historical snapshots instead of introducing separate systems that could lose changes or overwrite records. I also ensured that handoff reports and important actions have appropriate safeguards against duplication.
+Day 15 extended this decision to the application architecture. Keeping the Python risk engine separate means that a failure in risk scoring does not interrupt the main LMS. The service-down test demonstrated that the Director could receive a clear error message while existing suggestions and other application pages remained usable.
+I also decided not to implement scheduled scoring until a reliable production hosting environment is selected. I learned that reliability is not achieved by adding more features. It comes from making deliberate decisions about failure handling, data preservation, retries, and the limitations of the environment.
+
+### Overall reflection
+
+Week 3 was an important stage in the project because the LMS developed beyond basic classroom management into a system that can help educators understand learner progress, preserve important information during teacher transitions, and identify learners who may benefit from additional support.
+
+The three decisions above shaped the project around accuracy, privacy, and reliability. They also reinforced an important principle: technology should support educators in making better decisions without replacing their judgement or compromising the dignity and privacy of learners.
