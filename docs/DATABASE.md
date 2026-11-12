@@ -245,9 +245,17 @@ The link between a transition page and the notes that were included. A link tabl
 
 ### RiskFlag
 
-A suggested check-in for a director. It stores a score, a level, the reason codes, and the numbers that were used. It does not store a name inside the score. The row points at the learner so the director’s screen can show a nickname. The Python risk service, which is not built yet, is supposed to receive only a learner code and numbers.
+A suggested check-in for a director. It stores a score, a level, the reason codes, the plain-language reasons, and the numbers that were used. It does not store a name inside the score. The row points at the learner so the director’s screen can show a nickname. The Python service receives a learner code and numbers, not the nickname.
 
-The seed does not invent scores. The requirements say each indicator is scaled from 0 to 1, and that scaling rule is not defined yet. Empty is more honest than a made-up score. Levels, dismiss reasons, and the “check-in done” status are already in the table. A dismissed flag must have a short reason from a fixed list. There is no free-text family field on this row either.
+A score is empty when the level is “insufficient data”. That empty score is intentional. It is not stored as zero. Watch and High use the center’s levels from the moment of the run, so a later change does not rewrite an older flag. The weights stored on the flag are the approved 0.5, 0.3, and 0.2. The calculation version is stored so a later formula can be told apart from this one.
+
+A dismissed flag must have a short reason from a fixed list: not needed, already supported, or the records look wrong. There is no free-text family field. A finished check-in may keep one optional operational note of at most 160 characters. That note is not copied into `AuditLog`.
+
+The seed does not invent scores.
+
+### RiskScoringRun
+
+One click of “Run risk assessment”. The idempotency key stops a double tap, or a retry after a dropped connection, from saving a second copy for the same click. A later click uses a new key, so the older flags stay. Daily scheduling is not a row in this table. The hosting platform is not chosen yet, so there is no production schedule.
 
 ### AuditLog
 

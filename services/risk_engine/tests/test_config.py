@@ -58,6 +58,7 @@ def test_changing_weights_changes_the_score(tmp_path):
     config_path = tmp_path / "config.toml"
     _write(config_path, absence="1", missing="0", grade="0")
     with TestClient(create_app(config_path)) as client:
+        client.headers.update({"X-Risk-Service-Key": "test-risk-key"})
         payload = client.post("/score", json=body(attendance=repeated("absent", 5))).json()
     assert payload["score"] == 100
     assert payload["risk_level"] == "High"
@@ -67,6 +68,7 @@ def test_changing_the_watch_threshold_changes_the_level(tmp_path):
     config_path = tmp_path / "config.toml"
     _write(config_path, watch="60", high="80")
     with TestClient(create_app(config_path)) as client:
+        client.headers.update({"X-Risk-Service-Key": "test-risk-key"})
         payload = client.post("/score", json=body(attendance=repeated("absent", 5))).json()
     # The default Watch level is 40, so this score of 50 would usually be Watch.
     assert payload["score"] == 50

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   canEditAssignedRecords,
+  canManageCenterRisk,
   canManageSkillTags,
+  canViewRiskSuggestions,
   canViewProgressNote,
   canListAccounts,
   canManageCourse,
@@ -188,6 +190,19 @@ describe("role permission matrix", () => {
     expect(canResetPassword(admin, { id: "d", role: "CENTER_DIRECTOR", centerId: centerB })).toBe(true);
     expect(canSetActive(admin, { id: "someone", role: "TEACHER", centerId: centerB })).toBe(true);
     expect(canSetActive(admin, { id: admin.id, role: "ADMIN", centerId: centerA })).toBe(false);
+  });
+
+  it("lets only an active director manage risk suggestions for their own center", () => {
+    expect(canViewRiskSuggestions(director)).toBe(true);
+    expect(canManageCenterRisk(director, centerA)).toBe(true);
+    expect(canManageCenterRisk(director, centerB)).toBe(false);
+    expect(canViewRiskSuggestions(otherDirector)).toBe(true);
+    expect(canManageCenterRisk(otherDirector, centerA)).toBe(false);
+    expect(canViewRiskSuggestions(morningTeacher)).toBe(false);
+    expect(canViewRiskSuggestions(student)).toBe(false);
+    expect(canViewRiskSuggestions(admin)).toBe(false);
+    expect(canViewRiskSuggestions(switchedOff)).toBe(false);
+    expect(canManageCenterRisk({ ...director, active: false }, centerA)).toBe(false);
   });
 
   it("blocks a switched-off account even when the section matches", () => {

@@ -11,13 +11,14 @@ and it is not a poor result.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from app.config import Settings
 from app.schemas import (
     AbsenceReading,
+    AppliedConfiguration,
     AssignmentCounts,
     ExcludedGrades,
     GradeInput,
@@ -33,6 +34,8 @@ from app.schemas import (
 # This stays in code, not in the editable weight file, so a config edit cannot
 # quietly lower the guard against false alarms.
 DATA_POINT_MINIMUM = 3
+# Stored with each result so a later formula change is visible.
+CALCULATION_VERSION = "day14-v1"
 
 # Approved grade-trend window. 8 weeks = 56 days, ending on the scoring date.
 # 4 weeks = 28 days from the first usable grade in that window to the last.
@@ -90,6 +93,12 @@ class _GradeMath:
 
 
 def calculate(request: ScoreRequest, settings: Settings) -> ScoreResponse:
+    # A center may send its own Watch and High levels. That changes the label
+    # only. The weights and the indicator math stay on the approved configuration.
+    active = settings
+    if request.thresholds is not None:
+        active = replace(settings, watch=request.thresholds.watch, high=request.thresholds.high)
+    settings = active
     absence = _absence(request.attendance, settings)
     missing = _missing(request.assignments)
     grades = _grades(request.grades, request.as_of)
@@ -149,6 +158,14 @@ def calculate(request: ScoreRequest, settings: Settings) -> ScoreResponse:
         reasons=reasons,
         check_in_suggested=absence.family_count > 0,
         note=NOTE,
+        applied=AppliedConfiguration(
+            calculation_version=CALCULATION_VERSION,
+            weight_absence=float(settings.weight_absence),
+            weight_missing=float(settings.weight_missing),
+            weight_grade=float(settings.weight_grade),
+            watch=float(settings.watch),
+            high=float(settings.high),
+        ),
     )
 
 
@@ -408,19 +425,19 @@ def _reasons(
             )
     elif score is not None and level == "High":
         reasons.append(
-            f"The score is {_plain(score)}, at or above the starting High level of "
+            f"The score is {_plain(score)}, at or above the High level of "
             f"{_plain(settings.high)}. This suggests a prompt supportive check-in. "
             "It does not mean the learner will leave."
         )
     elif score is not None and level == "Watch":
         reasons.append(
-            f"The score is {_plain(score)}, at or above the starting Watch level of "
+            f"The score is {_plain(score)}, at or above the Watch level of "
             f"{_plain(settings.watch)}. A person should review the indicators. "
             "It does not mean the learner will leave."
         )
     elif score is not None:
         reasons.append(
-            f"The score is {_plain(score)}, below the starting Watch level of "
+            f"The score is {_plain(score)}, below the Watch level of "
             f"{_plain(settings.watch)}. No risk level is assigned. A person still "
             "decides whether to check in."
         )

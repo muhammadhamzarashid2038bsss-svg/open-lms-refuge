@@ -187,6 +187,15 @@ enum RiskFlagStatus {
   DISMISSED
 }
 
+/// One director-triggered scoring pass. A retry uses the same idempotency key.
+/// Daily scheduling is not stored here. Hosting is not chosen yet.
+enum RiskRunStatus {
+  RUNNING
+  COMPLETED
+  PARTIAL
+  FAILED
+}
+
 enum RiskDismissReason {
   NOT_NEEDED
   ALREADY_SUPPORTED
@@ -281,6 +290,7 @@ model Center {
   devices          Device[]
   courses          Course[]
   riskFlags        RiskFlag[]
+  riskScoringRuns  RiskScoringRun[]
   auditLogs        AuditLog[]
   jsonSyncBatches  JsonSyncBatch[]
   deviceHandovers  DeviceHandover[]
@@ -357,6 +367,7 @@ model User {
   handoffsIncoming        HandoffReport[]          @relation("HandoffIncoming")
   handoffsAssigned        HandoffReport[]          @relation("HandoffAssignee")
   riskFlagsResolved       RiskFlag[]
+  riskScoringRuns         RiskScoringRun[]
   auditLogs               AuditLog[]
   conflictsResolved       SyncConflict[]
   authSessions            AuthSession[]
@@ -944,6 +955,39 @@ model TransitionProfileNote {
   @@map("transition_profile_notes")
 }
 
+/// One manual scoring pass for a center. The idempotency key stops a double tap,
+/// or a retry on a weak connection, from saving a second copy of the same result.
+/// Older passes stay in the table. A new day uses a new key.
+model RiskScoringRun {
+  id                 String        @id @default(uuid()) @db.Uuid
+  centerId           String        @db.Uuid
+  center             Center        @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  /// Chosen by the director's page for this click. Not a learner identifier.
+  idempotencyKey     String        @db.VarChar(80)
+  requestedById      String        @db.Uuid
+  requestedBy        User          @relation(fields: [requestedById], references: [id], onDelete: Restrict)
+  /// Calendar day in the center timezone. Not the phone clock.
+  scoringDate        DateTime      @db.Date
+  status             RiskRunStatus
+  learnerCount       Int
+  savedCount         Int           @default(0)
+  unscoredCount      Int           @default(0)
+  calculationVersion String        @db.VarChar(40)
+  watchThreshold     Int
+  highThreshold      Int
+  weightAbsence      Decimal       @db.Decimal(4, 3)
+  weightMissing      Decimal       @db.Decimal(4, 3)
+  weightGrade        Decimal       @db.Decimal(4, 3)
+  createdAt          DateTime      @default(now())
+  completedAt        DateTime?
+
+  flags RiskFlag[]
+
+  @@unique([centerId, idempotencyKey])
+  @@index([centerId, scoringDate])
+  @@map("risk_scoring_runs")
+}
+
 /// A suggested supportive check-in. Nothing here triggers an automatic action (FEAT-3).
 /// The score was computed from a learner code and numbers. This row links back to the
 /// learner so the director dashboard can show a nickname. The Python service does not.
@@ -953,6 +997,9 @@ model RiskFlag {
   learner           LearnerProfile     @relation(fields: [learnerId], references: [id], onDelete: Restrict)
   centerId          String             @db.Uuid
   center            Center             @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  /// Empty on rows saved before scoring runs existed.
+  scoringRunId      String?            @db.Uuid
+  scoringRun        RiskScoringRun?    @relation(fields: [scoringRunId], references: [id], onDelete: Restrict)
   /// Empty when level is INSUFFICIENT_DATA.
   score             Decimal?           @db.Decimal(5, 2)
   level             RiskLevel
@@ -960,8 +1007,27 @@ model RiskFlag {
   checkInSuggested  Boolean            @default(false)
   /// The three indicators and a data-point count. No names and no note text.
   indicatorSnapshot Json               @db.JsonB
+  /// Plain-language reasons from the scoring service. Not a family narrative.
+  reasons           String[]           @default([])
+  scoringDate       DateTime?          @db.Date
+  calculationVersion String?           @db.VarChar(40)
+  weightAbsence     Decimal?           @db.Decimal(4, 3)
+  weightMissing     Decimal?           @db.Decimal(4, 3)
+  weightGrade       Decimal?           @db.Decimal(4, 3)
+  /// The center's levels at the time of this result. Later edits do not rewrite them.
+  watchThreshold    Int?
+  highThreshold     Int?
+  absenceAvailable  Boolean            @default(false)
+  absenceValue      Decimal?           @db.Decimal(6, 4)
+  missingAvailable  Boolean            @default(false)
+  missingValue      Decimal?           @db.Decimal(6, 4)
+  gradeTrendAvailable Boolean          @default(false)
+  gradeTrendValue   Decimal?           @db.Decimal(6, 4)
   status            RiskFlagStatus
+  /// Closed list. There is no free-text dismissal story.
   dismissReason     RiskDismissReason?
+  /// Optional operational note for a finished check-in. Not copied into the audit log.
+  checkInNote       String?            @db.VarChar(160)
   computedAt        DateTime
   resolvedAt        DateTime?
   resolvedById      String?            @db.Uuid
@@ -969,8 +1035,10 @@ model RiskFlag {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
+  @@unique([scoringRunId, learnerId])
   @@index([centerId, status, level])
   @@index([learnerId, computedAt])
+  @@index([scoringRunId])
   @@map("risk_flags")
 }
 

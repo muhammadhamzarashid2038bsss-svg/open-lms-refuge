@@ -41,6 +41,11 @@ async function DirectorHome({ searchParams }: { searchParams: Promise<{ notice?:
         </p>
       ) : null}
       <p className="text-lg">
+        <Link className="underline" href="/director/check-ins">
+          Check-in suggestions
+        </Link>
+      </p>
+      <p className="text-lg">
         <Link className="underline" href="/director/performance">
           Center performance
         </Link>

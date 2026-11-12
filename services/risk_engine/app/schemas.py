@@ -127,6 +127,39 @@ class GradeInput(BaseModel):
         return self
 
 
+class ThresholdInput(BaseModel):
+    """Watch and High levels for one scoring request.
+
+    A center director can change these. The service checks the numbers itself.
+    Weights are not accepted here, so a threshold change cannot retune the formula.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    watch: Decimal
+    high: Decimal
+
+    @field_validator("watch", "high", mode="before")
+    @classmethod
+    def thresholds_are_numbers(cls, value: object) -> object:
+        value = _reject_bool(value)
+        if isinstance(value, Decimal):
+            return value
+        if isinstance(value, (int, float, str)):
+            return Decimal(str(value))
+        return value
+
+    @model_validator(mode="after")
+    def watch_is_below_high(self) -> ThresholdInput:
+        if not self.watch.is_finite() or not self.high.is_finite():
+            raise ValueError("Thresholds must be finite numbers.")
+        if self.watch < 0 or self.high < 0 or self.watch > 100 or self.high > 100:
+            raise ValueError("Thresholds must be from 0 to 100.")
+        if self.watch >= self.high:
+            raise ValueError("The Watch threshold must be lower than the High threshold.")
+        return self
+
+
 class ScoreRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -179,6 +212,9 @@ class ScoreRequest(BaseModel):
     attendance: list[SessionMark] = Field(default_factory=list)
     assignments: AssignmentCounts | None = None
     grades: list[GradeInput] = Field(default_factory=list)
+    # Empty means "use the levels in config.toml". A center sends its own
+    # Watch and High levels here. Weights stay in the configuration file.
+    thresholds: ThresholdInput | None = None
 
     @field_validator("learner_code")
     @classmethod
@@ -246,6 +282,23 @@ class IndicatorSet(BaseModel):
     grade_trend: GradeReading
 
 
+class AppliedConfiguration(BaseModel):
+    """The numbers that actually produced this result.
+
+    The learning app stores these with the flag. A later threshold change
+    does not rewrite an older result.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    calculation_version: Literal["day14-v1"]
+    weight_absence: float
+    weight_missing: float
+    weight_grade: float
+    watch: float
+    high: float
+
+
 class ScoreResponse(BaseModel):
     learner_code: str
     score: float | None
@@ -256,6 +309,7 @@ class ScoreResponse(BaseModel):
     reasons: list[str]
     check_in_suggested: bool
     note: str
+    applied: AppliedConfiguration
 
 
 class HealthResponse(BaseModel):

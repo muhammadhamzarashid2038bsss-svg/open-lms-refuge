@@ -185,6 +185,17 @@ export function canManageSkillTags(actor: Actor, centerId: string): boolean {
   return activeActor(actor) && actor.role === "CENTER_DIRECTOR" && sharesCenter(actor, centerId);
 }
 
+// Risk flags name a learner and suggest a check-in. Admins manage accounts and
+// do not receive that list. Teachers and learners do not run the score.
+// Hiding the button is not the check. The server uses this on every action.
+export function canViewRiskSuggestions(actor: Actor): boolean {
+  return activeActor(actor) && actor.role === "CENTER_DIRECTOR";
+}
+
+export function canManageCenterRisk(actor: Actor, centerId: string): boolean {
+  return canViewRiskSuggestions(actor) && sharesCenter(actor, centerId);
+}
+
 export function canManageResource(actor: Actor, resource: ResourceScope): boolean {
   if (!activeActor(actor) || !sharesCenter(actor, resource.centerId)) return false;
   if (actor.role === "CENTER_DIRECTOR") return true;

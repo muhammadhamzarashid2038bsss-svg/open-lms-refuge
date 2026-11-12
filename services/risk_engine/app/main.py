@@ -5,25 +5,29 @@ pattern can still identify someone in a small class, so the body stays out of
 log files. Validation errors also leave out the rejected value, so a name sent
 by mistake is not copied into the error text.
 
-This service is not connected to the learning app. Do not expose it on the
-public internet.
+The learning app calls POST /score from its own server. Browsers do not.
+There is no CORS permission for that reason. Bind local runs to 127.0.0.1.
+A separate deployment should be reached over HTTPS by the Next.js server only.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.config import load_config
 from app.schemas import HealthResponse, ScoreRequest, ScoreResponse
 from app.scoring import calculate
+from app.service_auth import keys_match, read_api_key
 
 
-def create_app(config_path: Path | None = None) -> FastAPI:
+def create_app(config_path: Path | None = None, api_key: str | None = None) -> FastAPI:
     settings = load_config(config_path)
+    # Fail closed. An empty key means scoring is refused, not left open.
+    configured_key = read_api_key(explicit=api_key)
     app = FastAPI(
         title="Open LMS Refuge risk score",
         summary="Suggests when a supportive check-in may help.",
@@ -36,6 +40,15 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         version="0.1.0",
     )
     app.state.settings = settings
+    app.state.api_key = configured_key
+
+    def require_service_key(x_risk_service_key: str | None = Header(default=None)) -> None:
+        # The header value is not copied into the response or this message.
+        expected = app.state.api_key
+        if not expected:
+            raise HTTPException(status_code=503, detail="The scoring service is not configured.")
+        if not keys_match(x_risk_service_key or "", expected):
+            raise HTTPException(status_code=401, detail="The scoring service refused the request.")
 
     @app.exception_handler(RequestValidationError)
     async def reject_invalid_request(
@@ -69,7 +82,7 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         return HealthResponse(status="ok")
 
     @app.post("/score", response_model=ScoreResponse)
-    def score(body: ScoreRequest) -> ScoreResponse:
+    def score(body: ScoreRequest, _: None = Depends(require_service_key)) -> ScoreResponse:
         return calculate(body, settings)
 
     return app

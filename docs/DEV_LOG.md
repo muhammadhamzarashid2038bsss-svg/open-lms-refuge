@@ -676,3 +676,41 @@ The implementation was committed and pushed to GitHub. Real Cloudflare R2 accept
 - Verified that the service returned HTTP 200 for all six manual requests.
 - Confirmed that the existing Next.js application, Prisma schema, and local database remained unchanged.
 - Committed and pushed the completed implementation successfully to GitHub.
+
+## Day 15 of 20 · 2026-11-12
+
+### What I built
+
+- Connected the Next.js server to the Day 14 risk service. The browser does not call the scoring address. The server sends a shared key in a header. That key lives in `.env` only, and `.env.example` has a placeholder.
+- The Python service now refuses `POST /score` when the key is missing or wrong. `GET /health` stays open and still returns no learner data. There is no new CORS permission.
+- The server collects the existing Day 14 fields for each learner: an anonymous learner code, attendance marks, expected and missing assignment counts, settled grades with academic dates, a family-circumstances flag with no story, the scoring date, and that center's Watch and High levels. Names, nicknames, database ids, notes, and contact details stay in the learning app.
+- A director can open Check-in suggestions, run an assessment, change their own center's Watch and High levels, mark a check-in done with an optional short operational note, or dismiss a suggestion by choosing a reason from the existing list.
+- Results are saved on the existing RiskFlag rows, attached to a new scoring-run row. The same run cannot save two flags for one learner. A finished check-in or a dismissal is kept if the same run is retried. A later run keeps the older flags.
+- Each saved flag stores the score, the level, whether each indicator was available, the plain-language reasons, the calculation version `day14-v1`, the weights 0.5, 0.3, and 0.2, and the Watch and High levels used that day.
+- If the service is down, times out, or returns something the app cannot trust, the director sees a short message and no new flag is saved. The rest of the app keeps working.
+- Daily automatic scoring is not built. The host for the center is not chosen yet, so there is no production scheduler. The director's button works on its own.
+- Audit rows record the screen view, the start and finish of a run, a threshold change, a completed check-in, and a dismissal. They do not copy the operational note, the dismissal reason, nicknames, or the service key.
+
+### What went wrong
+
+- The first full test runs failed because the local Prisma database closed connections. I restarted that local server. I did not reset or reseed it. After the restart, the full suite passed.
+- An older copy of the risk service was still listening on port 8000 and did not know about the new key. I stopped that process and started the updated service on the same address.
+- In the automated browser, staff sign-in reached the shared-phone check and stayed on "Checking this phone…". I could not click Run risk assessment from that browser. The live service did answer one synthetic request correctly. The director still needs to click through the page by hand.
+- A local key was written into the gitignored `.env` so this computer can call the service. It is not in git.
+
+### What I learned
+
+- I learned how to keep a private service off the phone by calling it only from the Next.js server, with a key that never uses a `NEXT_PUBLIC_` name.
+- I learned how to map existing attendance, assignment, and grade rows into the scoring contract without sending a nickname or a database id.
+- I learned how a scoring-run id stops a repeated click from creating a second flag, while a new day still keeps the older result.
+- I learned that a center can change Watch and High without changing the three weights or the grade-trend rule, and that the flag must remember the levels used so an older result still makes sense.
+- I learned that an audit row can say who acted without storing the note they typed.
+
+### Testing and verification
+
+- Python: **64 pytest tests passed**. Ruff reported no issues.
+- Next.js tests, after the database restart: **40 files, 389 tests passed, 0 failed, 0 skipped**.
+- TypeScript (`tsc --noEmit`) passed. ESLint passed.
+- Production build passed (`next build`, then the service-worker build). The Check-in suggestions route is included.
+- A live call to the updated service with the synthetic five-unexcused example returned score 50, level Watch, version `day14-v1`, Watch 40, and High 70. The response did not contain the service key. A call with no key returned 401.
+- The automated browser signed in as the demo director and then stayed on the phone check, so the button, the loading state, and a saved suggestion were not clicked. Those steps are still for a manual pass.

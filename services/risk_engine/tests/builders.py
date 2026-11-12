@@ -47,6 +47,8 @@ def body(
     assignments: dict | None = None,
     grades: list | None = None,
     include_assignments: bool = False,
+    thresholds: dict | None = None,
+    extra: dict | None = None,
 ) -> dict:
     payload: dict = {"learner_code": learner, "as_of": iso(as_of)}
     if attendance is not None:
@@ -55,6 +57,11 @@ def body(
         payload["assignments"] = assignments
     if grades is not None:
         payload["grades"] = grades
+    if thresholds is not None:
+        payload["thresholds"] = thresholds
+    # `extra` is only for requests that should be rejected, such as a weight change.
+    if extra:
+        payload.update(extra)
     return payload
 
 

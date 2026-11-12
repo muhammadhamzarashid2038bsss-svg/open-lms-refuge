@@ -4,7 +4,7 @@ This service suggests when a person may want to check in with a learner. It does
 
 The weights and the Watch and High levels are starting estimates. They need to be calibrated with real learning centers before a center relies on them. Until then, treat every flag as a prompt for a human conversation.
 
-Day 14 calculates the score only. It does not store flags, connect to the learning app, or show a director screen. Those steps are later work.
+Day 14 calculates the score. Day 15 connects that calculation to the learning app. The Next.js server gathers the records, calls this service, and stores the result. A director asks for the score. Nothing runs on a timer yet.
 
 ## What the service is allowed to see
 
@@ -183,4 +183,68 @@ The "at least 3 usable records" rule is fixed in the program. It is not in the e
 - It does not notice a drop that happens in the unused middle of the window and then recovers, or a late drop that stays above the early median. It measures the net change from the first three grades to the last three.
 - It does not adjust for assessment difficulty.
 - It does not see names, notes, or family stories.
-- It is not connected to the learning app yet, and it has no login. Do not put it on the public internet.
+- It does not read the learning-center database. The Next.js server does, and it sends only the fields above.
+- It has no learner login. The Next.js server proves itself with a shared key. Do not put this service on the public internet.
+
+## How the learning app calls this service
+
+The browser never calls `POST /score`. A director uses the Check-in suggestions page. The Next.js server collects the records, checks the director's role, and calls the service.
+
+Set these in the repository `.env`. Do not prefix them with `NEXT_PUBLIC_`.
+
+- `RISK_SERVICE_URL` is `http://127.0.0.1:8000` on this computer. A service on another computer must use `https`.
+- `RISK_SERVICE_API_KEY` is a long random string. The Python process needs the same value. It reads the environment variable, or the same name in the repository `.env` when the variable is not already set.
+
+Start the service from `services/risk_engine` with:
+
+```powershell
+$env:RISK_SERVICE_API_KEY = "the-same-value-as-in-dotenv"
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+`POST /score` refuses a missing or wrong key. `GET /health` stays open so a local check can see that the process is up. It returns no learner data. There is no CORS permission, because a phone must not call this service.
+
+The request may also include `thresholds.watch` and `thresholds.high`. The service checks that both are from 0 to 100 and that Watch is lower than High. Those numbers change only the Watch and High labels. They do not change the weights or the indicator math. If the request omits them, the file `config.toml` is used. The response includes `applied`, which repeats the version `day14-v1`, the weights, and the levels that were used.
+
+Each center already stores Watch and High on its center row. The defaults are 40 and 70. A director can change their own center from the Check-in suggestions page. Another center is unchanged. The flag stores the levels used for that run.
+
+## What the director does
+
+Open **Check-in suggestions** from the center home.
+
+**Run risk assessment** sends the current records. The button waits and ignores a second tap while the first request is still going. The page shows how many learners were checked, how many results were saved, and how many learners could not be scored. One learner's failure does not throw away the others.
+
+If the service is stopped, times out, or returns a result that does not match the center's levels, the director sees a short message. No new score is invented. Older flags stay. The same click can be tried again. A later click keeps the older flags, including a check-in that was already marked done or dismissed.
+
+The list shows the latest result for each learner when it is Watch, High, insufficient data, or a family-circumstances check-in. Insufficient data has no score and is not labeled Watch or High. A family-circumstances absence adds "Check-in suggested" and does not add points. Learners below Watch are counted, not listed as suggestions. Earlier results stay under **Earlier results**.
+
+**Check-in done** can include one optional operational note of up to 160 characters. **Dismiss** requires one reason from the fixed list: not needed, already supported, or the records look wrong. The note and the reason stay on the flag. They are not copied into the audit log.
+
+Teachers, learners, admins, and a switched-off account cannot open the list, run a score, change levels, or update a flag. An admin manages accounts and does not get this learner list. The check is on the server.
+
+The audit log records the screen view, the start and finish of a run, a level change, a finished check-in, and a dismissal. The metadata is counts, status, and the levels. It is not the note, the dismissal reason, a nickname, or the API key.
+
+## Scheduled scoring is not built
+
+A daily run needs a scheduler on the host that will serve the center. That host is not chosen yet. This page does not use Windows Task Scheduler, and a laptop job is not described as production scheduling. The director's button works without a schedule.
+
+## What is never sent to Python
+
+The mapping from a learner code back to a person stays in the Next.js server. The request does not include a nickname, a database id, a phone number, a progress note, a grade comment, a course or section name, or a written family story. A family-circumstances absence is a yes/no. Observation ids in the request are short stand-ins used only to keep a stable order. They are not the database ids.
+
+Cancelled classes are sent as cancelled. A blank mark is sent as unmarked, not as an absence. A correction sends the current mark only. Work that is not yet due, or that falls outside the enrollment dates, is left out. A paper task with no mark is left out of the missing-work count. A genuine zero is sent as zero. An open grade conflict is sent as unresolved, without using the disputed points as a settled mark.
+
+## Tests
+
+From `services/risk_engine`:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m ruff check app tests
+```
+
+From the repository root:
+
+```powershell
+npx vitest run tests/risk-payload.test.ts tests/risk-client.test.ts tests/risk-scoring.test.ts
+```

@@ -1,7 +1,6 @@
 // Append-only audit rows. Metadata is an allowlist of short tokens.
 // Note text, passwords, file bytes, and learner names never belong here.
-// Risk flags and the grant exporter are later days. The two helpers at the
-// bottom are the shape those days should call. This screen does not invent those events.
+// Check-in actions call recordRiskFlagAudit. The export helper is for a later day.
 
 import { Prisma } from "../../generated/prisma/client";
 import type { Actor } from "../auth/permissions";
@@ -31,6 +30,12 @@ const SAFE_KEYS = new Set([
   "format",
   "mode",
   "gradeCount",
+  "scoredCount",
+  "unscoredCount",
+  "savedCount",
+  "watchThreshold",
+  "highThreshold",
+  "calculationVersion",
 ]);
 
 const TOKEN = /^[A-Za-z0-9_.:-]{1,80}$/;
