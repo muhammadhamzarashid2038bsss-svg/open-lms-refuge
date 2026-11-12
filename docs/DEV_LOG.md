@@ -573,3 +573,48 @@ The implementation was committed and pushed to GitHub. Real Cloudflare R2 accept
 
 ### Scope adjustment
 - The optional lesson-completion checklist was deferred. Its offline synchronization and conflict-handling behavior needed a separate safe design, so I did not introduce an incomplete implementation just to meet the original checklist.
+
+## Day 13 of 20 · 2026-11-12
+
+### What I built
+
+- Built the Student Transition Profile (Handoff Report) system.
+- When an Admin deactivates a teacher or an existing section assignment is ended, the system automatically prepares a section handoff report and an individual transition profile for every learner affected by the change.
+- Each learner profile includes available attendance trends, grade trends, lesson completion information, skill gaps, and progress notes.
+- Added snapshot protection so that the handoff preserves the relevant information from the time of the transition. Later changes to a progress note do not silently change the historical handoff.
+- Added clear handling for incomplete historical data. For example, older handoff reports created before the new snapshot fields were introduced display a notice when detailed historical information is unavailable.
+- Added recipient assignment. Reports go to the incoming teacher or to the Director when a single incoming teacher cannot be determined.
+- Added the ability to print or save handoff reports as PDFs using the browser's print function.
+- Built an Audit Log screen for Directors and Admins. It records important actions, including viewing grades, opening progress notes, opening handoff reports, and requesting a handoff report printout.
+- Protected the audit trail by recording action details and limited metadata without copying private progress note text, passwords, tokens, or unnecessary personal information.
+- Ensured that deactivated teachers cannot sign in while their historical records remain preserved.
+- Added safeguards against duplicate handoff generation. Deactivating an already inactive account or ending an already ended assignment does not generate another handoff.
+- Added role-based access controls so that incoming teachers can view their assigned handoff reports, outgoing teachers cannot access reports intended for their replacements, and Directors can access reports and audit records for their center.
+
+### What went wrong
+
+- The full test suite initially encountered local database connection failures. I restarted the local Prisma development database without resetting or reseeding it, preserving the existing demo data.
+- An issue initially prevented an assignment created on the same day from being ended. This was corrected so that an assignment can end on the same UTC day while the outgoing teacher retains access to the section until that UTC day is over.
+- Older handoff reports did not contain all the detailed snapshot information introduced by the new migration. The system now clearly identifies unavailable historical information instead of pretending that the data exists.
+- The browser's Print and Save as PDF feature records that a print request was made, but the application cannot confirm whether the user actually saved a PDF.
+- I did not perform a separate manual login attempt using a deactivated teacher account. The deactivation and access restrictions were covered by automated tests.
+- No new libraries were required for PDF generation because the implementation uses the browser's built-in print functionality.
+
+### What I learned
+
+- I learned how to coordinate several related database operations inside a transaction so that a handoff is either generated completely or not generated at all.
+- I learned how unique source keys and database constraints can prevent duplicate operations when users repeat an action.
+- I learned how to preserve historical snapshots so that important transition information remains accurate even when records are edited later.
+- I learned that an audit trail must balance accountability and privacy. It should record who performed an action, what happened, and when, without storing the private contents of the information being viewed.
+- I learned how role-based access control protects transition reports when responsibilities move from one teacher to another.
+- I learned that browser printing can provide a practical PDF export feature without requiring a separate PDF generation library.
+
+### Testing and verification
+
+- The final full automated test suite passed: **37 test files and 377 tests, with zero failures and zero skipped tests**.
+- Focused handoff tests passed, including handoff generation, duplicate-trigger protection, assignment handling, metrics, and role-based access.
+- Related authentication, progress note, grade, audit, and handoff tests also passed.
+- TypeScript checks, ESLint, and the production build passed.
+- Confirmed that all six database migrations were applied and the database schema was up to date.
+- Manually checked the handoff report, incoming and outgoing teacher permissions, print page, and Audit Log.
+- Confirmed that the Git commit was created and pushed successfully. The final working tree was clean.
