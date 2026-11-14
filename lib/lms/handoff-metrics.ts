@@ -4,11 +4,11 @@
 
 import type { TrajectoryLabel } from "./dashboard-metrics";
 
-export const ATTENDANCE_RULE = "day11-attendance-v1";
+export const ATTENDANCE_RULE = "day16-attendance-v1";
 export const GRADE_RULE = "day11-trajectory-v1";
 
 export const ATTENDANCE_LOOKBACK =
-  "Attendance uses every eligible session from enrollment through the handoff. A session counts when it is Scheduled or Held and has already started. Cancelled sessions and future sessions are left out. Unmarked sessions are not absences. The confirmed rate is present and late divided by eligible sessions. When no session is eligible, or none has a recorded status, no rate is stored.";
+  "Attendance uses every eligible session from enrollment through the handoff. A session counts when it is Scheduled or Held and has already started. Cancelled sessions and future sessions are left out. Unmarked sessions are not absences. The attendance rate is Present and Late divided by recorded marks only. Coverage is recorded marks divided by every eligible session. When no session is eligible, or none has a recorded status, no rate is stored.";
 
 export type RecipientPerson = {
   id: string;

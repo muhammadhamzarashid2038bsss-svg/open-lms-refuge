@@ -482,15 +482,24 @@ export function attendanceFromCounts(counts: Omit<AttendanceRates, "confirmedLab
   const marked = counts.present + counts.late + counts.absent + counts.excused;
   return {
     ...counts,
-    confirmedLabel: rateLabel(counts.present + counts.late, counts.eligibleSessions, marked),
-    coverageLabel: rateLabel(marked, counts.eligibleSessions, marked),
+    // Rate uses recorded marks only. A blank sheet is not an absence, so it
+    // does not lower the percent when a teacher has not filled it in.
+    confirmedLabel: attendanceRateLabel(counts.present + counts.late, marked, counts.eligibleSessions),
+    // Coverage is recorded marks divided by every eligible class. A blank
+    // sheet makes that 0.0%. It does not turn the attendance rate into 0%.
+    coverageLabel: coverageRateLabel(marked, counts.eligibleSessions),
   };
 }
 
-function rateLabel(numerator: number, eligible: number, marked: number): string {
+function attendanceRateLabel(attended: number, marked: number, eligible: number): string {
   if (eligible === 0) return "No eligible sessions yet";
   if (marked === 0) return "No attendance recorded yet";
-  return formatPercent((numerator / eligible) * 100);
+  return formatPercent((attended / marked) * 100);
+}
+
+function coverageRateLabel(marked: number, eligible: number): string {
+  if (eligible === 0) return "No eligible sessions yet";
+  return formatPercent((marked / eligible) * 100);
 }
 
 function emptyAttendance(label: string): AttendanceRates {

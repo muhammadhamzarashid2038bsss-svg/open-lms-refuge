@@ -7,6 +7,7 @@ import { loadRecordCatalog } from "../lib/data/record-catalog";
 import { acceptNoteViewBatch } from "../lib/data/note-view-sync";
 import { acceptRecordBatch } from "../lib/data/sync-records";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 
 const holder = vi.hoisted(() => ({ userId: null as string | null }));
 
@@ -82,6 +83,7 @@ async function openNote(userId: string | null, id: string): Promise<{ status: nu
 }
 
 async function removeDay12Fixtures(): Promise<void> {
+  await assertConnectedTestDatabase();
   const leftoverNotes = await prisma.progressNote.findMany({
     where: { body: { startsWith: "Day12 " } },
     select: { id: true },
@@ -109,34 +111,40 @@ async function removeDay12Fixtures(): Promise<void> {
   });
   const userIds = [...new Set([...createdUserIds, ...fixtureUsers.map((row) => row.id)])];
   if (userIds.length > 0) await prisma.sectionTeacher.deleteMany({ where: { teacherId: { in: userIds } } });
-  await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
-    if (ids.length > 0) {
+  const director = await prisma.user.findUnique({ where: { email: "director@demo.invalid" }, select: { id: true } });
+  const legacyNotes = await prisma.progressNote.findMany({
+    where: { customSkillLabel: LEGACY, customSkillTagId: null },
+    select: { id: true },
+  });
+  const legacyIds = legacyNotes.map((row) => row.id);
+  if (ids.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
       await tx.progressNoteVersion.deleteMany({ where: { progressNoteId: { in: ids } } });
       await tx.progressNote.deleteMany({ where: { id: { in: ids } } });
       await tx.auditLog.deleteMany({ where: { action: "VIEW", entityType: "PROGRESS_NOTE", entityId: { in: ids } } });
-    }
-    // A director read of the seeded legacy note during this run writes one view.
-    // Only that new row is removed. Older view records stay.
-    const director = await tx.user.findUnique({ where: { email: "director@demo.invalid" }, select: { id: true } });
-    const legacyNotes = await tx.progressNote.findMany({
-      where: { customSkillLabel: LEGACY, customSkillTagId: null },
-      select: { id: true },
     });
-    const legacyIds = legacyNotes.map((row) => row.id);
-    if (director && legacyIds.length > 0) {
-      await tx.auditLog.deleteMany({
-        where: {
-          action: "VIEW",
-          entityType: "PROGRESS_NOTE",
-          actorId: director.id,
-          entityId: { in: legacyIds },
-          at: { gte: started },
-        },
-      });
-    }
-    if (userIds.length > 0) await tx.auditLog.deleteMany({ where: { actorId: { in: userIds } } });
-  });
+  }
+  // A director read of the seeded legacy note during this run writes one view.
+  // Only that new row is removed. Older view records stay. The reset switch
+  // is set again because it ended with the transaction above.
+  if ((director && legacyIds.length > 0) || userIds.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
+      if (director && legacyIds.length > 0) {
+        await tx.auditLog.deleteMany({
+          where: {
+            action: "VIEW",
+            entityType: "PROGRESS_NOTE",
+            actorId: director.id,
+            entityId: { in: legacyIds },
+            at: { gte: started },
+          },
+        });
+      }
+      if (userIds.length > 0) await tx.auditLog.deleteMany({ where: { actorId: { in: userIds } } });
+    });
+  }
   if (phones.length > 0) await prisma.device.deleteMany({ where: { id: { in: phones } } });
   if (userIds.length > 0) {
     await prisma.user.deleteMany({
@@ -148,6 +156,7 @@ async function removeDay12Fixtures(): Promise<void> {
 }
 
 async function deleteAudits(where: { actorId?: { in: string[] }; centerId?: string; entityId?: { in: string[] } }): Promise<void> {
+  await assertConnectedTestDatabase();
   await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
     await tx.auditLog.deleteMany({ where });
@@ -155,6 +164,7 @@ async function deleteAudits(where: { actorId?: { in: string[] }; centerId?: stri
 }
 
 async function removeForeignCenter(centerId: string): Promise<void> {
+  await assertConnectedTestDatabase();
   const tags = await prisma.centerSkillTag.findMany({ where: { centerId }, select: { id: true } });
   const users = await prisma.user.findMany({ where: { centerId }, select: { id: true } });
   const devices = await prisma.device.findMany({ where: { centerId }, select: { id: true } });
@@ -335,10 +345,15 @@ describe("progress note read access and view audit", () => {
     conflictId = conflict.id;
   });
 
+  // A failed cleanup used to skip the disconnect and leave the only connection
+  // open. The local database does not close idle connections on its own.
   afterAll(async () => {
-    holder.userId = null;
-    await removeDay12Fixtures();
-    await prisma.$disconnect();
+    try {
+      holder.userId = null;
+      await removeDay12Fixtures();
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   it("lets the assigned teacher and the same-center director read the note, and records the view", async () => {

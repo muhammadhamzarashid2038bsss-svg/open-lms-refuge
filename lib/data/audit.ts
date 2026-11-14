@@ -1,6 +1,6 @@
 // Append-only audit rows. Metadata is an allowlist of short tokens.
 // Note text, passwords, file bytes, and learner names never belong here.
-// Check-in actions call recordRiskFlagAudit. The export helper is for a later day.
+// Check-in actions call recordRiskFlagAudit. Grant exports call recordExportAudit.
 
 import { Prisma } from "../../generated/prisma/client";
 import type { Actor } from "../auth/permissions";
@@ -29,6 +29,13 @@ const SAFE_KEYS = new Set([
   "status",
   "format",
   "mode",
+  "periodStart",
+  "periodEnd",
+  "suppressionMin",
+  "pseudonymScope",
+  "centerCode",
+  "requirementReference",
+  "crossReportLinkage",
   "gradeCount",
   "scoredCount",
   "unscoredCount",
@@ -79,7 +86,7 @@ export async function writeAuditEvent(
   event: {
     actor: Pick<Actor, "id" | "centerId">;
     action: "VIEW" | "CREATE" | "UPDATE" | "DEACTIVATE" | "EXPORT" | "RESOLVE_CONFLICT" | "GENERATE_HANDOFF" | "UPDATE_RISK_FLAG";
-    entityType: "GRADE_ENTRY" | "PROGRESS_NOTE" | "HANDOFF_REPORT" | "RISK_FLAG" | "EXPORT" | "USER" | "ATTENDANCE" | "SUBMISSION" | "SKILL_TAG";
+    entityType: "GRADE_ENTRY" | "PROGRESS_NOTE" | "HANDOFF_REPORT" | "RISK_FLAG" | "EXPORT" | "USER" | "ATTENDANCE" | "SUBMISSION" | "SKILL_TAG" | "FUNDER_REQUIREMENT";
     entityId: string;
     metadata: Record<string, string | number | boolean | null>;
     deviceId?: string | null;
@@ -138,20 +145,45 @@ export async function recordRiskFlagAudit(
   });
 }
 
-/// Day 16 can call this when a director actually runs the anonymized exporter.
-/// It does not build an export file.
+/// Writes one audit row for a grant export that was actually produced.
+/// The row stores the report id, the date range, and the suppression setting.
+/// A learner-level export also stores the requirement reference and whether
+/// linkage across reports was approved. It does not store learner codes,
+/// pseudonyms, the reason text, or the export file.
 export async function recordExportAudit(
   tx: Tx,
   actor: Pick<Actor, "id" | "centerId">,
   exportId: string,
   format: "CSV" | "PDF",
   mode: "AGGREGATE" | "PSEUDONYMIZED",
+  detail?: {
+    periodStart?: string;
+    periodEnd?: string;
+    suppressionMin?: number;
+    pseudonymScope?: "report" | "funder";
+    centerCode?: string;
+    centerId?: string;
+    requirementReference?: string;
+    crossReportLinkage?: boolean;
+  },
 ): Promise<void> {
   await writeAuditEvent(tx, {
     actor,
     action: "EXPORT",
     entityType: "EXPORT",
     entityId: exportId,
-    metadata: { source: "grant-export", format, mode },
+    centerId: detail?.centerId,
+    metadata: {
+      source: "grant-export",
+      format,
+      mode,
+      periodStart: detail?.periodStart ?? null,
+      periodEnd: detail?.periodEnd ?? null,
+      suppressionMin: detail?.suppressionMin ?? null,
+      pseudonymScope: detail?.pseudonymScope ?? null,
+      centerCode: detail?.centerCode ?? null,
+      requirementReference: detail?.requirementReference ?? null,
+      crossReportLinkage: detail?.crossReportLinkage ?? null,
+    },
   });
 }

@@ -88,11 +88,15 @@ erDiagram
 
 One learning center. The demo row is named Demo Learning Center and its code is `DEMO`. The timezone is only for showing the timetable later. Saved times stay in UTC, which is a shared clock that does not shift with a phone’s settings.
 
-The center also stores the starting risk levels from the requirements (Watch at 40, High at 70) and the export rule that a group smaller than 5 learners is shown as “<5”. Those are settings, not personal data.
+The center also stores the starting risk levels from the requirements (Watch at 40, High at 70) and the export minimum. A figure based on fewer learners than that minimum is hidden, including a count of zero. The default minimum is 5, which is shown as “<5”. The export refuses a saved minimum below 2 or above 100. Those are settings, not personal data.
 
 ### CenterOptionalField
 
 One row per optional fact, per center, with an on/off switch. The demo center allows gender and does not allow a phone number. A database rule rejects a gender or phone row when the switch is off.
+
+### FunderRequirement
+
+A director or admin records that one funder has asked this center for learner-level export rows. The row stores the funder name, a short reference, the reason, whether the same pseudonym may be reused across reports, who approved it, and whether it is still active. The demo seed does not contain one. A learner-level export looks for an active row. It does not trust an id typed into the request. The reason text stays on this row and is not copied into the audit log.
 
 ### User
 
@@ -142,7 +146,7 @@ A group inside a course. The demo has Morning Group and Afternoon Group, with 15
 
 ### Enrollment
 
-The link between a learner and a section, with a start date and a status: active, withdrawn, or completed. A learner can appear only once in the same section. Withdrawing requires a withdrawn date. The other statuses do not have one.
+The link between a learner and a section, with a start date and a status: active, withdrawn, or completed. A learner can appear only once in the same section. Withdrawing requires a withdrawn date. Completing an enrollment stores `completedOn`, the last day that learner was enrolled, including that day. Older completed rows can still have an empty `completedOn`, because there was no reliable date to copy. `updatedAt` is not used as that date. Donor exports count a person once even when they are in two sections. An active enrollment stays open. A withdrawn enrollment includes the withdrawn date. A completed enrollment includes `completedOn`. A completed enrollment with no date is left out of the registered count, and retention for that report says the completion date is missing.
 
 ### SectionTeacher
 

@@ -8,6 +8,11 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "test:url": "vitest run --config vitest.url.config.ts",
+    "test:db": "tsx scripts/test-database-command.ts vitest",
+    "db:test:verify": "tsx scripts/test-database-command.ts verify",
+    "db:test:migrate": "tsx scripts/test-database-command.ts migrate",
+    "db:test:seed": "tsx scripts/test-database-command.ts seed",
     "db:dev": "prisma dev --detach --name open-lms-refuge",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
@@ -24,7 +29,8 @@
     "next": "16.4.2",
     "pg": "^8.23.1",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@serwist/cli": "^9.5.13",

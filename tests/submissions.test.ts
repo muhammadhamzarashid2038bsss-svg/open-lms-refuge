@@ -6,6 +6,7 @@ import type { Actor } from "../lib/auth/permissions";
 import { prismaSubmissionDb } from "../lib/data/submission-db";
 import { downloadSubmission, finalizeSubmission, initiateSubmission } from "../lib/data/submissions";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 import { fingerprintStream } from "../lib/storage/checksum";
 import { assessSubmissionClaim, MAX_SUBMISSION_BYTES, sniffSubmissionMime } from "../lib/storage/file-policy";
 import { readR2Config } from "../lib/storage/r2-config";
@@ -347,6 +348,7 @@ describe("submission routes and the demo database", () => {
   const clientSubmissionId = "day10-stage3-photo01";
 
   async function cleanup() {
+    await assertConnectedTestDatabase();
     await prisma.fileUploadQueueItem.deleteMany({
       where: { submission: { clientSubmissionId: { in: [clientSubmissionId, "day10-stage3-paper1"] } } },
     });
@@ -355,7 +357,13 @@ describe("submission routes and the demo database", () => {
   }
 
   beforeAll(cleanup);
-  afterAll(cleanup);
+  afterAll(async () => {
+    try {
+      await cleanup();
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
 
   it("requires a sign-in and does not cache the answer", async () => {
     holder.actor = null;

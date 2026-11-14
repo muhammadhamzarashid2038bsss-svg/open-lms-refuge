@@ -5,6 +5,7 @@ import { loadActor } from "../lib/auth/load-actor";
 import { recordAttendance, readAttendanceSheet } from "../lib/data/attendance";
 import { createTimetableSession } from "../lib/data/timetable";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 import {
   buildSessionHistory,
   chooseReason,
@@ -40,9 +41,14 @@ let kioskDevicesSnapshotted = false;
 let preexistingKioskDeviceIds: string[] = [];
 const testEnrollmentIds: string[] = [];
 
+// A failed cleanup used to skip the disconnect and leave the only connection
+// open. The local database does not close idle connections on its own.
 afterAll(async () => {
-  await removeKioskFixtures();
-  await prisma.$disconnect();
+  try {
+    await removeKioskFixtures();
+  } finally {
+    await prisma.$disconnect();
+  }
 });
 
 async function snapshotKioskDevices() {
@@ -55,31 +61,33 @@ async function snapshotKioskDevices() {
 }
 
 async function removeKioskFixtures() {
+  await assertConnectedTestDatabase();
+  // The append-only trigger allows a delete only inside this demo-reset
+  // switch, and the switch lasts for this transaction only. Sessions and
+  // enrollments are removed after the marks, so a stopped cleanup can resume.
   await prisma.$transaction(async (tx) => {
-    // The append-only trigger allows a delete only inside this demo-reset
-    // switch. The filter below is still only the ids this file creates.
     await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
     await tx.attendanceRecord.deleteMany({ where: { clientEventId: { startsWith: "kiosk-test-" } } });
-    await tx.classSession.deleteMany({ where: { title: { in: [...TEST_SESSION_TITLES] } } });
-    if (testEnrollmentIds.length > 0) {
-      await tx.enrollment.deleteMany({ where: { id: { in: testEnrollmentIds } } });
-    }
-    // A kiosk device that already existed belongs to manual testing.
-    // Delete only a device this run created, and only after its test
-    // attendance is gone.
-    if (!kioskDevicesSnapshotted) return;
-    const createdDuringRun = await tx.device.findMany({
-      where: {
-        label: WEB_KIOSK_DEVICE_LABEL,
-        ...(preexistingKioskDeviceIds.length > 0 ? { id: { notIn: preexistingKioskDeviceIds } } : {}),
-      },
-      select: { id: true, _count: { select: { attendanceRecords: true } } },
-    });
-    const unused = createdDuringRun
-      .filter((device) => device._count.attendanceRecords === 0)
-      .map((device) => device.id);
-    if (unused.length > 0) await tx.device.deleteMany({ where: { id: { in: unused } } });
   });
+  await prisma.classSession.deleteMany({ where: { title: { in: [...TEST_SESSION_TITLES] } } });
+  if (testEnrollmentIds.length > 0) {
+    await prisma.enrollment.deleteMany({ where: { id: { in: testEnrollmentIds } } });
+  }
+  // A kiosk device that already existed belongs to manual testing.
+  // Delete only a device this run created, and only after its test
+  // attendance is gone.
+  if (!kioskDevicesSnapshotted) return;
+  const createdDuringRun = await prisma.device.findMany({
+    where: {
+      label: WEB_KIOSK_DEVICE_LABEL,
+      ...(preexistingKioskDeviceIds.length > 0 ? { id: { notIn: preexistingKioskDeviceIds } } : {}),
+    },
+    select: { id: true, _count: { select: { attendanceRecords: true } } },
+  });
+  const unused = createdDuringRun
+    .filter((device) => device._count.attendanceRecords === 0)
+    .map((device) => device.id);
+  if (unused.length > 0) await prisma.device.deleteMany({ where: { id: { in: unused } } });
 }
 
 async function actorByEmail(email: string) {
@@ -908,6 +916,7 @@ describe("attendance saves", () => {
       expect(await prisma.attendanceRecord.count({ where: { sessionId, learnerId: withdrawnLearner.id } })).toBe(0);
       expect(await prisma.attendanceRecord.count({ where: { sessionId } })).toBe(before);
     } finally {
+      await assertConnectedTestDatabase();
       await prisma.enrollment.deleteMany({ where: { id: enrollment.id } });
     }
   });

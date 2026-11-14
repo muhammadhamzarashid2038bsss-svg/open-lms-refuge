@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadActor } from "../lib/auth/load-actor";
 import { prisma } from "../lib/db";
 import type { Actor } from "../lib/auth/permissions";
@@ -38,6 +38,10 @@ describe("direct API routes", () => {
     audioId = audio.id;
     storageKey = audio.storageKey ?? "";
     holder.actor = await loadActor(morning.userId, now);
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
   });
 
   it("returns 401 when nobody is signed in", async () => {

@@ -11,6 +11,12 @@ const INVALID = "Use a short skill name, such as map reading. Do not describe a 
 const NOT_SAVED = "The skill tag was not saved.";
 const HIDDEN = "That skill tag is not available.";
 
+// Prisma's default interactive transaction stops at 5 seconds. On the local
+// learning-center database, locking the center and writing the tag plus its
+// audit row can take longer. The progress-note sync uses this same budget.
+// A failure still returns the safe "not saved" message.
+const tagWriteTransaction = { timeout: 20000 };
+
 export type SkillTagRow = {
   id: string;
   name: string;
@@ -70,7 +76,7 @@ export async function createCenterSkillTag(
       });
       await writeTagAudit(tx, actor, "CREATE", created.id, true);
       return { ok: true, id: created.id };
-    });
+    }, tagWriteTransaction);
   } catch {
     return { ok: false, message: NOT_SAVED };
   }
@@ -96,7 +102,7 @@ export async function setCenterSkillTagActive(
       });
       await writeTagAudit(tx, actor, active ? "UPDATE" : "DEACTIVATE", tag.id, active);
       return { ok: true };
-    });
+    }, tagWriteTransaction);
   } catch {
     return { ok: false, message: NOT_SAVED };
   }

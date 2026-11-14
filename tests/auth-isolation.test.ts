@@ -10,6 +10,7 @@ import { ipBucketId, staffBucketId } from "../lib/auth/login";
 import { fileResponse, learnerResponse, sectionResponse } from "../lib/http/records";
 import { readLearnerContact, readLearnerRecord, readResourceRecord } from "../lib/data/records";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 import type { PrismaClient } from "../generated/prisma/client";
 
 const now = new Date("2026-11-05T12:00:00.000Z");
@@ -33,15 +34,22 @@ async function learnerByCode(learnerCode: string) {
 }
 
 async function removeUser(userId: string) {
+  await assertConnectedTestDatabase();
+  // Audit rows are append-only, so the reset switch has to be set in the
+  // transaction that deletes them. The switch does not survive that commit.
+  // The account and its learner profile stay in their own transaction because
+  // the database checks them together at commit.
   await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
     await tx.auditLog.deleteMany({ where: { OR: [{ actorId: userId }, { entityId: userId }] } });
-    await tx.authSession.deleteMany({ where: { userId } });
-    await tx.deviceHandover.deleteMany({
-      where: { OR: [{ fromUserId: userId }, { releasedById: userId }] },
-    });
+  });
+  await prisma.authSession.deleteMany({ where: { userId } });
+  await prisma.deviceHandover.deleteMany({
+    where: { OR: [{ fromUserId: userId }, { releasedById: userId }] },
+  });
+  await prisma.$transaction(async (tx) => {
     await tx.learnerProfile.deleteMany({ where: { userId } });
-    await tx.user.delete({ where: { id: userId } });
+    await tx.user.deleteMany({ where: { id: userId } });
   });
 }
 
@@ -133,6 +141,11 @@ describe("direct record access", () => {
   it("hides a learner in another center and a phone number from a teacher", async () => {
     const director = await actorByEmail("director@demo.invalid");
     const teacher = await actorByEmail("teacher.one@demo.invalid");
+    const demo = await prisma.center.findUniqueOrThrow({ where: { code: "DEMO" }, select: { id: true } });
+    const morning = await prisma.learnerProfile.findFirstOrThrow({
+      where: { learnerCode: "LNR-0001", centerId: demo.id },
+      select: { id: true },
+    });
     await expect(
       prisma.$transaction(async (tx) => {
         const db = tx as unknown as PrismaClient;
@@ -154,13 +167,9 @@ describe("direct record access", () => {
         });
         expect(await readLearnerRecord(director, profile.id, db)).toBeNull();
 
-        const demo = await tx.center.findUniqueOrThrow({ where: { code: "DEMO" } });
         await tx.centerOptionalField.update({
           where: { centerId_fieldKey: { centerId: demo.id, fieldKey: "CONTACT_PHONE" } },
           data: { enabled: true },
-        });
-        const morning = await tx.learnerProfile.findFirstOrThrow({
-          where: { learnerCode: "LNR-0001", centerId: demo.id },
         });
         await tx.learnerOptionalContact.create({
           data: { learnerId: morning.id, phoneE164: "+10000000000" },
@@ -233,6 +242,7 @@ describe("account changes on throwaway users", () => {
       });
       expect(locked).toEqual({ ok: false, error: "locked" });
     } finally {
+      await assertConnectedTestDatabase();
       await prisma.loginThrottle.deleteMany({
         where: {
           bucketKey: {
@@ -307,17 +317,21 @@ describe("account changes on throwaway users", () => {
     });
     expect(allowed.ok).toBe(true);
     expect(denied.ok).toBe(false);
-    await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
-      await tx.deviceHandover.deleteMany({ where: { fromUserId: morning.userId, deviceLabel: "test phone" } });
-      const notes = await tx.auditLog.findMany({ where: { entityId: morning.userId } });
-      const handoverNotes = notes.filter((note) => {
-        const metadata = note.metadata;
-        return Boolean(metadata && typeof metadata === "object" && !Array.isArray(metadata) && "handoverId" in metadata);
-      });
-      if (handoverNotes.length) {
-        await tx.auditLog.deleteMany({ where: { id: { in: handoverNotes.map((note) => note.id) } } });
-      }
+    const notes = await prisma.auditLog.findMany({
+      where: { entityId: morning.userId },
+      select: { id: true, metadata: true },
     });
+    const handoverNoteIds = notes.filter((note) => {
+      const metadata = note.metadata;
+      return Boolean(metadata && typeof metadata === "object" && !Array.isArray(metadata) && "handoverId" in metadata);
+    }).map((note) => note.id);
+    await assertConnectedTestDatabase();
+    await prisma.deviceHandover.deleteMany({ where: { fromUserId: morning.userId, deviceLabel: "test phone" } });
+    if (handoverNoteIds.length > 0) {
+      await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
+        await tx.auditLog.deleteMany({ where: { id: { in: handoverNoteIds } } });
+      });
+    }
   });
 });

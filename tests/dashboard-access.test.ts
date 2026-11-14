@@ -3,6 +3,7 @@ import { loadActor } from "../lib/auth/load-actor";
 import type { Actor } from "../lib/auth/permissions";
 import { loadCenterPerformance, loadLearnerPerformance, loadSectionPerformance } from "../lib/data/dashboard";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 
 const now = new Date("2026-11-11T12:00:00.000Z");
 const gradeViewsSince = new Date();
@@ -19,24 +20,29 @@ describe("dashboard authorization and seeded counts", () => {
   let afternoonLearnerId = "";
 
   afterAll(async () => {
-    const users = await prisma.user.findMany({
-      where: { email: { in: ["teacher.one@demo.invalid", "director@demo.invalid"] } },
-      select: { id: true },
-    });
-    const ids = users.map((user) => user.id);
-    if (ids.length === 0) return;
-    await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
-      await tx.auditLog.deleteMany({
-        where: {
-          action: "VIEW",
-          entityType: "GRADE_ENTRY",
-          actorId: { in: ids },
-          at: { gte: gradeViewsSince },
-          metadata: { equals: { source: "online" } },
-        },
+    try {
+      await assertConnectedTestDatabase();
+      const users = await prisma.user.findMany({
+        where: { email: { in: ["teacher.one@demo.invalid", "director@demo.invalid"] } },
+        select: { id: true },
       });
-    });
+      const ids = users.map((user) => user.id);
+      if (ids.length === 0) return;
+      await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
+        await tx.auditLog.deleteMany({
+          where: {
+            action: "VIEW",
+            entityType: "GRADE_ENTRY",
+            actorId: { in: ids },
+            at: { gte: gradeViewsSince },
+            metadata: { equals: { source: "online" } },
+          },
+        });
+      });
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   beforeAll(async () => {
@@ -203,8 +209,8 @@ function handAttendance(
     else if (current.status === "EXCUSED") excused += 1;
   }
   const marked = present + late + absent + excused;
-  const confirmedLabel = eligible === 0 ? "No eligible sessions yet" : marked === 0 ? "No attendance recorded yet" : formatHand((present + late) / eligible);
-  const coverageLabel = eligible === 0 ? "No eligible sessions yet" : marked === 0 ? "No attendance recorded yet" : formatHand(marked / eligible);
+  const confirmedLabel = eligible === 0 ? "No eligible sessions yet" : marked === 0 ? "No attendance recorded yet" : formatHand((present + late) / marked);
+  const coverageLabel = eligible === 0 ? "No eligible sessions yet" : formatHand(marked / eligible);
   return { eligible, present, late, absent, excused, unmarked, confirmedLabel, coverageLabel };
 }
 
