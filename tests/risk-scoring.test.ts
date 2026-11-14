@@ -10,6 +10,7 @@ import {
   updateRiskThresholds,
 } from "../lib/data/risk";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 import { RiskServiceError, type ParsedScore } from "../lib/risk/client";
 import type { ScoreRequest } from "../lib/risk/payload";
 
@@ -62,43 +63,46 @@ async function actorOf(userId: string): Promise<Actor> {
 }
 
 async function removeCenter(code: string): Promise<void> {
+  await assertConnectedTestDatabase();
   const center = await prisma.center.findUnique({ where: { code }, select: { id: true } });
   if (!center) return;
-  const users = await prisma.user.findMany({ where: { centerId: center.id }, select: { id: true } });
-  const userIds = users.map((user) => user.id);
-  const sections = await prisma.section.findMany({ where: { course: { centerId: center.id } }, select: { id: true } });
-  const sectionIds = sections.map((section) => section.id);
-  const sessions = sectionIds.length === 0 ? [] : await prisma.classSession.findMany({ where: { sectionId: { in: sectionIds } }, select: { id: true } });
-  const sessionIds = sessions.map((session) => session.id);
-  const notes = sectionIds.length === 0 ? [] : await prisma.progressNote.findMany({ where: { sectionId: { in: sectionIds } }, select: { id: true } });
-  const noteIds = notes.map((note) => note.id);
-  await prisma.riskFlag.deleteMany({ where: { centerId: center.id } });
-  await prisma.riskScoringRun.deleteMany({ where: { centerId: center.id } });
+  const centerId = center.id;
+  const inCenter = { section: { course: { centerId } } };
+  // Filters use the center id, so a cleanup that stopped after the class rows
+  // were removed can still remove the accounts on the next run.
+  await prisma.riskFlag.deleteMany({ where: { centerId } });
+  await prisma.riskScoringRun.deleteMany({ where: { centerId } });
+  await prisma.syncConflict.deleteMany({
+    where: { OR: [{ gradeEntry: { assignment: inCenter } }, { progressNote: inCenter }] },
+  });
   await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
-    if (sessionIds.length > 0) await tx.attendanceRecord.deleteMany({ where: { sessionId: { in: sessionIds } } });
-    await tx.auditLog.deleteMany({ where: { centerId: center.id } });
+    await tx.attendanceRecord.deleteMany({ where: { session: inCenter } });
+    await tx.gradeEntryVersion.deleteMany({ where: { gradeEntry: { assignment: inCenter } } });
   });
-  if (noteIds.length > 0) {
-    await prisma.progressNoteVersion.deleteMany({ where: { progressNoteId: { in: noteIds } } });
-    await prisma.progressNote.deleteMany({ where: { id: { in: noteIds } } });
-  }
-  if (sectionIds.length > 0) await prisma.gradeEntry.deleteMany({ where: { assignment: { sectionId: { in: sectionIds } } } });
-  if (sectionIds.length > 0) await prisma.assignment.deleteMany({ where: { sectionId: { in: sectionIds } } });
-  if (sessionIds.length > 0) await prisma.classSession.deleteMany({ where: { id: { in: sessionIds } } });
-  if (sectionIds.length > 0) await prisma.sectionTeacher.deleteMany({ where: { sectionId: { in: sectionIds } } });
-  if (sectionIds.length > 0) await prisma.enrollment.deleteMany({ where: { sectionId: { in: sectionIds } } });
-  if (sectionIds.length > 0) await prisma.section.deleteMany({ where: { id: { in: sectionIds } } });
-  await prisma.course.deleteMany({ where: { centerId: center.id } });
-  await prisma.learnerOptionalContact.deleteMany({ where: { learner: { centerId: center.id } } });
-  await prisma.centerOptionalField.deleteMany({ where: { centerId: center.id } });
-  await prisma.device.deleteMany({ where: { centerId: center.id } });
-  if (userIds.length > 0) await prisma.authSession.deleteMany({ where: { userId: { in: userIds } } });
   await prisma.$transaction(async (tx) => {
-    await tx.learnerProfile.deleteMany({ where: { centerId: center.id } });
-    if (userIds.length > 0) await tx.user.deleteMany({ where: { id: { in: userIds } } });
+    await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
+    await tx.progressNoteVersion.deleteMany({ where: { progressNote: inCenter } });
+    await tx.auditLog.deleteMany({ where: { centerId } });
   });
-  await prisma.center.delete({ where: { id: center.id } });
+  await prisma.progressNote.deleteMany({ where: inCenter });
+  await prisma.lessonProgress.deleteMany({ where: { classSession: inCenter } });
+  await prisma.gradeEntry.deleteMany({ where: { assignment: inCenter } });
+  await prisma.assignment.deleteMany({ where: inCenter });
+  await prisma.classSession.deleteMany({ where: inCenter });
+  await prisma.sectionTeacher.deleteMany({ where: inCenter });
+  await prisma.enrollment.deleteMany({ where: inCenter });
+  await prisma.section.deleteMany({ where: { course: { centerId } } });
+  await prisma.course.deleteMany({ where: { centerId } });
+  await prisma.learnerOptionalContact.deleteMany({ where: { learner: { centerId } } });
+  await prisma.centerOptionalField.deleteMany({ where: { centerId } });
+  await prisma.device.deleteMany({ where: { centerId } });
+  await prisma.authSession.deleteMany({ where: { user: { centerId } } });
+  await prisma.$transaction(async (tx) => {
+    await tx.learnerProfile.deleteMany({ where: { centerId } });
+    await tx.user.deleteMany({ where: { centerId } });
+  });
+  await prisma.center.delete({ where: { id: centerId } });
 }
 
 describe("director risk scoring", () => {
@@ -275,8 +279,12 @@ describe("director risk scoring", () => {
   });
 
   afterAll(async () => {
-    await removeCenter("DAY15");
-    await removeCenter("DAY15B");
+    try {
+      await removeCenter("DAY15");
+      await removeCenter("DAY15B");
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   it("saves a real score, skips a bad code, and does not save a failed or mismatched response", async () => {

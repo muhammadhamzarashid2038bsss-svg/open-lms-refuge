@@ -11,6 +11,7 @@ import {
   type WeeklyTimetableResult,
 } from "../lib/data/timetable";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 import {
   formatCivilDate,
   mondayOnOrBefore,
@@ -32,9 +33,15 @@ import { GET, POST } from "../app/api/sections/[id]/timetable/route";
 
 const assignmentNow = new Date("2026-11-06T12:00:00.000Z");
 
+// A failed cleanup used to skip the disconnect and leave the only connection
+// open. The local database does not close idle connections on its own.
 afterAll(async () => {
-  await prisma.classSession.deleteMany({ where: { title: { startsWith: "Timetable test" } } });
-  await prisma.$disconnect();
+  try {
+    await assertConnectedTestDatabase();
+    await prisma.classSession.deleteMany({ where: { title: { startsWith: "Timetable test" } } });
+  } finally {
+    await prisma.$disconnect();
+  }
 });
 
 async function actorByEmail(email: string) {
@@ -74,6 +81,7 @@ function flatSessions(result: WeeklyTimetableResult) {
 }
 
 async function removeTestSessions() {
+  await assertConnectedTestDatabase();
   await prisma.classSession.deleteMany({ where: { title: { startsWith: "Timetable test" } } });
 }
 

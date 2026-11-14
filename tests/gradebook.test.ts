@@ -8,6 +8,7 @@ import { closeWorkingDatabase, localRequest, openWorkingDatabase, runLocalTransa
 import { saveGradebookMarks } from "../lib/device/gradebook-save";
 import { listLocalRecords } from "../lib/device/local-records";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 import { fileStatusLabel, gradebookCell, planGradebookSaves, serverFileStatus, validateNewAssignment, type GradebookDraft } from "../lib/lms/gradebook";
 import { MAX_RECORD_MUTATIONS } from "../lib/sync/record-batch";
 import { syncLocalRecords } from "../lib/sync/record-sync";
@@ -301,6 +302,7 @@ describe("section gradebook records", () => {
   let learner: Actor;
 
   async function removeDay10() {
+    await assertConnectedTestDatabase();
     await prisma.assignment.deleteMany({
       where: { title: { startsWith: "Day10 " }, gradeEntries: { none: {} } },
     });
@@ -327,8 +329,12 @@ describe("section gradebook records", () => {
   });
 
   afterAll(async () => {
-    await removeDay10();
-    await removeOnlineGradeViews(gradeViewsSince);
+    try {
+      await removeDay10();
+      await removeOnlineGradeViews(gradeViewsSince);
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   it("lets the assigned teacher create Paper, Digital, and Both", async () => {
@@ -437,6 +443,7 @@ describe("section gradebook records", () => {
 });
 
 async function removeOnlineGradeViews(since: Date) {
+  await assertConnectedTestDatabase();
   const users = await prisma.user.findMany({
     where: { email: { in: ["teacher.one@demo.invalid", "director@demo.invalid"] } },
     select: { id: true },

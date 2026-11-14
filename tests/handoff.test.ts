@@ -13,6 +13,7 @@ import { recordExportAudit, recordRiskFlagAudit } from "../lib/data/audit";
 import { dayBefore, isCurrentAssignment, reassignmentEndDate, utcDay } from "../lib/auth/assignments";
 import { listAuditLog, readHandoffReport, reassignSectionTeacher } from "../lib/data/handoff";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 
 const holder = vi.hoisted(() => ({ userId: null as string | null }));
 
@@ -52,50 +53,49 @@ async function actorOf(userId: string): Promise<Actor> {
 }
 
 async function removeDay13(): Promise<void> {
+  await assertConnectedTestDatabase();
   const center = await prisma.center.findUnique({ where: { code: "DAY13" }, select: { id: true } });
   if (!center) return;
-  const users = await prisma.user.findMany({ where: { centerId: center.id }, select: { id: true } });
-  const userIds = users.map((user) => user.id);
-  const sections = await prisma.section.findMany({ where: { course: { centerId: center.id } }, select: { id: true } });
-  const sectionIds = sections.map((section) => section.id);
-  const reports = sectionIds.length === 0 ? [] : await prisma.handoffReport.findMany({ where: { sectionId: { in: sectionIds } }, select: { id: true } });
-  const reportIds = reports.map((report) => report.id);
-  const profiles = reportIds.length === 0 ? [] : await prisma.transitionProfile.findMany({ where: { handoffReportId: { in: reportIds } }, select: { id: true } });
-  const profileIds = profiles.map((profile) => profile.id);
-  const notes = sectionIds.length === 0 ? [] : await prisma.progressNote.findMany({ where: { sectionId: { in: sectionIds } }, select: { id: true } });
-  const noteIds = notes.map((note) => note.id);
-  const sessions = sectionIds.length === 0 ? [] : await prisma.classSession.findMany({ where: { sectionId: { in: sectionIds } }, select: { id: true } });
-  const sessionIds = sessions.map((session) => session.id);
-  if (profileIds.length > 0) await prisma.transitionProfileNote.deleteMany({ where: { transitionProfileId: { in: profileIds } } });
-  if (profileIds.length > 0) await prisma.transitionProfile.deleteMany({ where: { id: { in: profileIds } } });
-  if (reportIds.length > 0) await prisma.handoffReport.deleteMany({ where: { id: { in: reportIds } } });
+  const centerId = center.id;
+  const inCenter = { section: { course: { centerId } } };
+  // Deletes filter by the center, so a cleanup that stopped halfway can run again.
+  await prisma.transitionProfileNote.deleteMany({ where: { transitionProfile: { handoffReport: inCenter } } });
+  await prisma.transitionProfile.deleteMany({ where: { handoffReport: inCenter } });
+  await prisma.handoffReport.deleteMany({ where: inCenter });
+  await prisma.syncConflict.deleteMany({
+    where: { OR: [{ gradeEntry: { assignment: inCenter } }, { progressNote: inCenter }] },
+  });
+  // The reset switch is local to one transaction. Attendance and grade history
+  // are append-only, so they need the switch in their own short transaction.
   await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
-    if (sessionIds.length > 0) await tx.attendanceRecord.deleteMany({ where: { sessionId: { in: sessionIds } } });
-    if (noteIds.length > 0) {
-      await tx.progressNoteVersion.deleteMany({ where: { progressNoteId: { in: noteIds } } });
-      await tx.progressNote.deleteMany({ where: { id: { in: noteIds } } });
-    }
-    await tx.auditLog.deleteMany({ where: { centerId: center.id } });
+    await tx.attendanceRecord.deleteMany({ where: { session: inCenter } });
+    await tx.gradeEntryVersion.deleteMany({ where: { gradeEntry: { assignment: inCenter } } });
   });
-  if (sessionIds.length > 0) await prisma.lessonProgress.deleteMany({ where: { classSessionId: { in: sessionIds } } });
-  if (sectionIds.length > 0) await prisma.gradeEntry.deleteMany({ where: { assignment: { sectionId: { in: sectionIds } } } });
-  if (sectionIds.length > 0) await prisma.assignment.deleteMany({ where: { sectionId: { in: sectionIds } } });
-  if (sessionIds.length > 0) await prisma.classSession.deleteMany({ where: { id: { in: sessionIds } } });
-  if (sectionIds.length > 0) await prisma.sectionTeacher.deleteMany({ where: { sectionId: { in: sectionIds } } });
-  if (sectionIds.length > 0) await prisma.enrollment.deleteMany({ where: { sectionId: { in: sectionIds } } });
-  if (sectionIds.length > 0) await prisma.section.deleteMany({ where: { id: { in: sectionIds } } });
-  await prisma.course.deleteMany({ where: { centerId: center.id } });
-  await prisma.centerSkillTag.deleteMany({ where: { centerId: center.id } });
-  await prisma.device.deleteMany({ where: { centerId: center.id } });
-  if (userIds.length > 0) await prisma.authSession.deleteMany({ where: { userId: { in: userIds } } });
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
+    await tx.progressNoteVersion.deleteMany({ where: { progressNote: inCenter } });
+    await tx.auditLog.deleteMany({ where: { centerId } });
+  });
+  await prisma.progressNote.deleteMany({ where: inCenter });
+  await prisma.lessonProgress.deleteMany({ where: { classSession: inCenter } });
+  await prisma.gradeEntry.deleteMany({ where: { assignment: inCenter } });
+  await prisma.assignment.deleteMany({ where: inCenter });
+  await prisma.classSession.deleteMany({ where: inCenter });
+  await prisma.sectionTeacher.deleteMany({ where: inCenter });
+  await prisma.enrollment.deleteMany({ where: inCenter });
+  await prisma.section.deleteMany({ where: { course: { centerId } } });
+  await prisma.course.deleteMany({ where: { centerId } });
+  await prisma.centerSkillTag.deleteMany({ where: { centerId } });
+  await prisma.device.deleteMany({ where: { centerId } });
+  await prisma.authSession.deleteMany({ where: { user: { centerId } } });
   // Student accounts and learner profiles are checked together at the end of
   // the transaction. Deleting them separately makes the database reject the save.
   await prisma.$transaction(async (tx) => {
-    await tx.learnerProfile.deleteMany({ where: { centerId: center.id } });
-    if (userIds.length > 0) await tx.user.deleteMany({ where: { id: { in: userIds } } });
+    await tx.learnerProfile.deleteMany({ where: { centerId } });
+    await tx.user.deleteMany({ where: { centerId } });
   });
-  await prisma.center.delete({ where: { id: center.id } });
+  await prisma.center.delete({ where: { id: centerId } });
 }
 
 async function callHandoff(userId: string | null, id: string, method: "GET" | "POST") {
@@ -363,8 +363,12 @@ describe("student transition profiles and audit trail", () => {
   }, 60000);
 
   afterAll(async () => {
-    holder.userId = null;
-    await removeDay13();
+    try {
+      holder.userId = null;
+      await removeDay13();
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   it("does not reassign when the named teacher is ineligible, and does not invent a handoff", async () => {

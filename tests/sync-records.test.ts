@@ -1,10 +1,43 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadActor } from "../lib/auth/load-actor";
-import type { Actor } from "../lib/auth/permissions";
+import { isCurrentAssignment } from "../lib/auth/assignments";
+import type { Actor, RoleName } from "../lib/auth/permissions";
 import { resolveConflict } from "../lib/data/conflicts";
 import { acceptRecordBatch } from "../lib/data/sync-records";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 import { incrementDeviceCounter, mergeVersionVectors, parseVersionVector } from "../lib/sync/version-vector";
+
+// Exact fixture markers. A timed-out setup can commit a row and then keep
+// running after Vitest has moved on, so cleanup cannot depend on ids that
+// were never stored. These values are the whole fixture, not a name prefix.
+const DEMO_CENTER_CODE = "DEMO";
+const MORNING_SECTION_NAME = "Morning Group";
+const DEMO_QUIZ_TITLE = "Day9 synthetic quiz";
+const FOREIGN_CENTER_CODE = "SYNC-TEST-DAY9";
+const STAFF_EMAILS = [
+  "teacher.one@demo.invalid",
+  "teacher.two@demo.invalid",
+  "director@demo.invalid",
+  "admin@demo.invalid",
+] as const;
+
+// Same columns loadActor() reads. Building the actor here avoids a second
+// query per person. The local database serves one query at a time.
+const actorSelect = {
+  id: true,
+  role: true,
+  centerId: true,
+  active: true,
+  displayName: true,
+  learnerProfile: {
+    select: {
+      id: true,
+      displayName: true,
+      enrollments: { where: { status: "ACTIVE" as const }, select: { sectionId: true } },
+    },
+  },
+  sectionAssignments: { select: { sectionId: true, startsOn: true, endsOn: true } },
+};
 
 const holder = vi.hoisted(() => ({ userId: null as string | null }));
 
@@ -29,7 +62,6 @@ let director: Actor;
 let admin: Actor;
 let learner: Actor;
 let foreignAssignmentId = "";
-let foreignCenterId = "";
 let foreignDeviceId = "";
 
 function phone(): string {
@@ -101,165 +133,388 @@ function resultsOf(body: unknown) {
   return (body as { results: { clientMutationId: string; outcome: string; code?: string; recordId?: string; conflictId?: string }[] }).results;
 }
 
-async function clearRecords() {
-  const grades = assignmentId
-    ? await prisma.gradeEntry.findMany({ where: { assignmentId }, select: { id: true } })
-    : [];
-  const notes = morningId
-    ? await prisma.progressNote.findMany({ where: { sectionId: morningId, body: { startsWith: "Day9 " } }, select: { id: true } })
-    : [];
-  const gradeIds = grades.map((row) => row.id);
-  const noteIds = notes.map((row) => row.id);
-  const filters = [
-    ...(gradeIds.length ? [{ gradeEntryId: { in: gradeIds } }] : []),
-    ...(noteIds.length ? [{ progressNoteId: { in: noteIds } }] : []),
-  ];
-  if (filters.length) await prisma.syncConflict.deleteMany({ where: { OR: filters } });
-  await prisma.jsonSyncItem.deleteMany({ where: { clientMutationId: { startsWith: "day9-" } } });
-  const ids = [...phoneIds];
-  if (ids.length > 0) {
-    await prisma.jsonSyncItem.deleteMany({ where: { deviceId: { in: ids } } });
-    await prisma.jsonSyncBatch.deleteMany({ where: { deviceId: { in: ids } } });
+type ActorRow = {
+  id: string;
+  role: RoleName;
+  centerId: string;
+  active: boolean;
+  displayName: string | null;
+  learnerProfile: {
+    id: string;
+    displayName: string;
+    enrollments: { sectionId: string }[];
+  } | null;
+  sectionAssignments: { sectionId: string; startsOn: Date; endsOn: Date | null }[];
+};
+
+// A Prisma code such as P2028, or a plain error name. Never the message:
+// messages can contain the query and the row that failed.
+function safeFailureLabel(error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    /^P\d{4}$/.test(error.code)
+  ) {
+    return error.code;
   }
+  if (error instanceof Error && /^[A-Za-z][A-Za-z0-9]*$/.test(error.name)) return error.name;
+  return "Error";
+}
+
+// Temporary. One line per step: label, milliseconds, and PASS or FAIL.
+// A failure adds only the safe label above. Row values stay out of the log.
+async function timed<T>(label: string, run: () => Promise<T>): Promise<T> {
+  const started = Date.now();
+  try {
+    const value = await run();
+    console.log(`[sync-records-test] ${label} ${Date.now() - started}ms PASS`);
+    return value;
+  } catch (error) {
+    console.log(`[sync-records-test] ${label} ${Date.now() - started}ms FAIL ${safeFailureLabel(error)}`);
+    throw error;
+  }
+}
+
+function toActor(user: ActorRow, label: string): Actor {
+  if (!user.active) throw new Error(`missing actor ${label}`);
+  const now = new Date();
+  const assignedSectionIds =
+    user.role === "TEACHER"
+      ? user.sectionAssignments
+          .filter((row) => isCurrentAssignment(row.startsOn, row.endsOn, now))
+          .map((row) => row.sectionId)
+      : [];
+  return {
+    id: user.id,
+    role: user.role,
+    centerId: user.centerId,
+    active: user.active,
+    displayName: user.learnerProfile?.displayName ?? user.displayName ?? "Account",
+    learnerId: user.learnerProfile?.id ?? null,
+    assignedSectionIds,
+    enrolledSectionIds: user.learnerProfile?.enrollments.map((row) => row.sectionId) ?? [],
+  };
+}
+
+async function morningSectionId(): Promise<string | null> {
+  if (morningId) return morningId;
+  const section = await prisma.section.findFirst({
+    where: {
+      name: MORNING_SECTION_NAME,
+      course: { center: { code: DEMO_CENTER_CODE } },
+    },
+    select: { id: true },
+  });
+  if (!section) return null;
+  morningId = section.id;
+  return section.id;
+}
+
+async function findDemoQuizIds(): Promise<string[]> {
+  const sectionId = await morningSectionId();
+  if (!sectionId) return [];
+  const rows = await prisma.assignment.findMany({
+    where: { sectionId, title: DEMO_QUIZ_TITLE },
+    select: { id: true },
+  });
+  return rows.map((row) => row.id);
+}
+
+// Conflicts point at versions, and versions point at the grade or note.
+// Audit rows and versions are append-only unless this same transaction
+// allows a demo reset. Skip the transaction when there is nothing to delete:
+// turning the switch on still costs a round trip on the one local connection.
+async function deleteProtectedRows(gradeIds: string[], noteIds: string[]) {
+  if (gradeIds.length === 0 && noteIds.length === 0) return;
   await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
+    const filters = [
+      ...(gradeIds.length > 0 ? [{ gradeEntryId: { in: gradeIds } }] : []),
+      ...(noteIds.length > 0 ? [{ progressNoteId: { in: noteIds } }] : []),
+    ];
+    await tx.syncConflict.deleteMany({ where: { OR: filters } });
     const entityIds = [...gradeIds, ...noteIds];
-    if (entityIds.length) await tx.auditLog.deleteMany({ where: { entityId: { in: entityIds } } });
-    if (gradeIds.length) await tx.gradeEntryVersion.deleteMany({ where: { gradeEntryId: { in: gradeIds } } });
-    if (noteIds.length) await tx.progressNoteVersion.deleteMany({ where: { progressNoteId: { in: noteIds } } });
-    if (gradeIds.length) await tx.gradeEntry.deleteMany({ where: { id: { in: gradeIds } } });
-    if (noteIds.length) await tx.progressNote.deleteMany({ where: { id: { in: noteIds } } });
+    await tx.auditLog.deleteMany({ where: { entityId: { in: entityIds } } });
+    if (gradeIds.length > 0) {
+      await tx.gradeEntryVersion.deleteMany({ where: { gradeEntryId: { in: gradeIds } } });
+    }
+    if (noteIds.length > 0) {
+      await tx.progressNoteVersion.deleteMany({ where: { progressNoteId: { in: noteIds } } });
+    }
+    if (gradeIds.length > 0) await tx.gradeEntry.deleteMany({ where: { id: { in: gradeIds } } });
+    if (noteIds.length > 0) await tx.progressNote.deleteMany({ where: { id: { in: noteIds } } });
   });
 }
 
-async function actorByEmail(email: string) {
-  const user = await prisma.user.findUniqueOrThrow({ where: { email }, select: { id: true } });
-  const actor = await loadActor(user.id);
-  if (!actor) throw new Error(`missing actor ${email}`);
-  return actor;
+async function clearRecords(knownQuizIds?: string[]) {
+  await timed("cleanup.records", () => clearRecordRows(knownQuizIds));
+}
+
+async function clearRecordRows(knownQuizIds?: string[]) {
+  await assertConnectedTestDatabase();
+  const quizIds = knownQuizIds ?? (assignmentId ? [assignmentId] : await findDemoQuizIds());
+  const sectionId = await morningSectionId();
+  const grades =
+    quizIds.length > 0
+      ? await prisma.gradeEntry.findMany({
+          where: { assignmentId: { in: quizIds } },
+          select: { id: true },
+        })
+      : [];
+  // "Day9 " is the body this file writes. Limited to Morning Group so a note
+  // with the same opening words in another section is left alone.
+  const notes = sectionId
+    ? await prisma.progressNote.findMany({
+        where: { sectionId, body: { startsWith: "Day9 " } },
+        select: { id: true },
+      })
+    : [];
+  const deviceIds = [...phoneIds];
+  // The day9- prefix is cleared even when no fixture id was stored.
+  // Phone ids are only devices this file created.
+  await prisma.jsonSyncItem.deleteMany({
+    where: {
+      OR: [
+        { clientMutationId: { startsWith: "day9-" } },
+        ...(deviceIds.length > 0 ? [{ deviceId: { in: deviceIds } }] : []),
+      ],
+    },
+  });
+  if (deviceIds.length > 0) {
+    await prisma.jsonSyncBatch.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  }
+  await deleteProtectedRows(
+    grades.map((row) => row.id),
+    notes.map((row) => row.id),
+  );
+}
+
+// Child rows block the center delete. Order follows the foreign keys.
+// The center is found by its code, so this still works when setup timed out
+// before foreignCenterId was stored.
+async function removeForeignCenter() {
+  await assertConnectedTestDatabase();
+  const center = await prisma.center.findUnique({
+    where: { code: FOREIGN_CENTER_CODE },
+    select: { id: true },
+  });
+  if (!center) return;
+  const centerId = center.id;
+  const grades = await prisma.gradeEntry.findMany({
+    where: { assignment: { section: { course: { centerId } } } },
+    select: { id: true },
+  });
+  await deleteProtectedRows(
+    grades.map((row) => row.id),
+    [],
+  );
+  await prisma.jsonSyncItem.deleteMany({ where: { device: { centerId } } });
+  await prisma.jsonSyncBatch.deleteMany({ where: { centerId } });
+  await prisma.assignment.deleteMany({ where: { section: { course: { centerId } } } });
+  await prisma.section.deleteMany({ where: { course: { centerId } } });
+  await prisma.course.deleteMany({ where: { centerId } });
+  await prisma.device.deleteMany({ where: { centerId } });
+  await prisma.user.deleteMany({ where: { centerId } });
+  await prisma.center.delete({ where: { id: centerId } });
 }
 
 describe("grade and note conflict sync", () => {
+  // The foreign-center removal measured 12 seconds. These two hooks alone
+  // get 30 seconds. The default 10 seconds starts cleanup while setup still
+  // holds the only database connection. Test timeouts stay at 30 seconds.
   beforeAll(async () => {
-    morningId = (
-      await prisma.section.findFirstOrThrow({
-        where: { name: "Morning Group", course: { center: { code: "DEMO" } } },
+    // Separate indexed reads. One join through the section, its learners, and
+    // the learner's account held the only local connection until the worker quit.
+    const section = await timed("setup.morning-section", () =>
+      prisma.section.findFirstOrThrow({
+        where: { name: MORNING_SECTION_NAME, course: { center: { code: DEMO_CENTER_CODE } } },
         select: { id: true },
-      })
-    ).id;
-    learnerId = (
-      await prisma.enrollment.findFirstOrThrow({
+      }),
+    );
+    morningId = section.id;
+
+    // First active enrollment, with no extra filter. This person can differ
+    // from the signed-in learner loaded below.
+    const enrollment = await timed("setup.enrollment", async () => {
+      const row = await prisma.enrollment.findFirst({
         where: { sectionId: morningId, status: "ACTIVE" },
         select: { learnerId: true },
-      })
-    ).learnerId;
-    teacherOne = await actorByEmail("teacher.one@demo.invalid");
-    teacherTwo = await actorByEmail("teacher.two@demo.invalid");
-    director = await actorByEmail("director@demo.invalid");
-    admin = await actorByEmail("admin@demo.invalid");
-    const learnerUser = await prisma.learnerProfile.findFirstOrThrow({
-      where: { learnerCode: "LNR-0001", center: { code: "DEMO" } },
-      select: { userId: true },
+      });
+      if (!row) throw new Error("missing learner");
+      return row;
     });
-    const loadedLearner = await loadActor(learnerUser.userId);
-    if (!loadedLearner) throw new Error("missing learner");
-    learner = loadedLearner;
-    const assignment = await prisma.assignment.create({
-      data: {
-        sectionId: morningId,
-        title: "Day9 synthetic quiz",
-        kind: "PAPER",
-        maxPoints: "20.00",
-        createdById: teacherOne.id,
-      },
-      select: { id: true },
-    });
-    assignmentId = assignment.id;
+    learnerId = enrollment.learnerId;
 
-    const center = await prisma.center.create({
-      data: { name: "Day9 sync center", code: "SYNC-TEST-DAY9", timezone: "UTC" },
-      select: { id: true },
+    await timed("setup.actors", async () => {
+      const people = await prisma.user.findMany({
+        where: {
+          center: { code: DEMO_CENTER_CODE },
+          OR: [
+            { email: { in: [...STAFF_EMAILS] } },
+            { learnerProfile: { is: { learnerCode: "LNR-0001" } } },
+          ],
+        },
+        select: {
+          email: true,
+          ...actorSelect,
+          learnerProfile: {
+            select: {
+              id: true,
+              learnerCode: true,
+              displayName: true,
+              enrollments: { where: { status: "ACTIVE" as const }, select: { sectionId: true } },
+            },
+          },
+        },
+      });
+      const learnerRow = people.find((row) => row.learnerProfile?.learnerCode === "LNR-0001");
+      if (!learnerRow) throw new Error("missing learner");
+      learner = toActor(learnerRow, "learner");
+      const byEmail = new Map(people.flatMap((row) => (row.email ? [[row.email, row] as const] : [])));
+      const requireStaff = (email: (typeof STAFF_EMAILS)[number]) => {
+        const user = byEmail.get(email);
+        if (!user) throw new Error(`missing actor ${email}`);
+        return toActor(user, email);
+      };
+      teacherOne = requireStaff("teacher.one@demo.invalid");
+      teacherTwo = requireStaff("teacher.two@demo.invalid");
+      director = requireStaff("director@demo.invalid");
+      admin = requireStaff("admin@demo.invalid");
     });
-    foreignCenterId = center.id;
-    const foreignTeacher = await prisma.user.create({
+
+    const existingQuizIds = await timed("setup.demo-quiz-lookup", () => findDemoQuizIds());
+    if (existingQuizIds.length > 0) {
+      assignmentId = existingQuizIds[0] ?? "";
+    } else {
+      const assignment = await timed("setup.demo-quiz-create", () =>
+        prisma.assignment.create({
+          data: {
+            sectionId: morningId,
+            title: DEMO_QUIZ_TITLE,
+            kind: "PAPER",
+            maxPoints: "20.00",
+            createdById: teacherOne.id,
+          },
+          select: { id: true },
+        }),
+      );
+      assignmentId = assignment.id;
+    }
+
+    // Remove a center left behind by a setup that timed out after committing.
+    await timed("setup.foreign-center-remove", () => removeForeignCenter());
+    const centerId = crypto.randomUUID();
+    const teacherId = crypto.randomUUID();
+    const deviceId = crypto.randomUUID();
+    // One nested create is one transaction, so a timeout cannot leave half of
+    // this center committed. Prisma still inserts each row inside that
+    // transaction (center, teacher, course, section, assignment, device).
+    // That is six statements and one commit, not one SQL statement.
+    await timed("setup.foreign-center-create", async () => {
+    const created = await prisma.center.create({
       data: {
-        centerId: center.id,
-        role: "TEACHER",
-        email: "day9-foreign@demo.invalid",
-        passwordHash: "day9-not-a-password",
-        displayName: "Day9 Foreign",
+        id: centerId,
+        name: "Day9 sync center",
+        code: FOREIGN_CENTER_CODE,
+        timezone: "UTC",
+        devices: { create: { id: deviceId, label: "Offline phone" } },
+        courses: {
+          create: {
+            title: "Day9 course",
+            code: "DAY9",
+            academicYear: 2099,
+            semester: "SEMESTER_1",
+            sections: {
+              create: {
+                name: "Day9 group",
+                assignments: {
+                  create: {
+                    title: "Day9 foreign quiz",
+                    kind: "PAPER",
+                    maxPoints: "10.00",
+                    createdBy: {
+                      create: {
+                        id: teacherId,
+                        role: "TEACHER",
+                        email: "day9-foreign@demo.invalid",
+                        passwordHash: "day9-not-a-password",
+                        displayName: "Day9 Foreign",
+                        center: { connect: { id: centerId } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
-      select: { id: true },
-    });
-    const course = await prisma.course.create({
-      data: { centerId: center.id, title: "Day9 course", code: "DAY9", academicYear: 2099, semester: "SEMESTER_1" },
-      select: { id: true },
-    });
-    const section = await prisma.section.create({
-      data: { courseId: course.id, name: "Day9 group" },
-      select: { id: true },
-    });
-    const foreignAssignment = await prisma.assignment.create({
-      data: {
-        sectionId: section.id,
-        title: "Day9 foreign quiz",
-        kind: "PAPER",
-        maxPoints: "10.00",
-        createdById: foreignTeacher.id,
+      select: {
+        devices: { select: { id: true } },
+        courses: { select: { sections: { select: { assignments: { select: { id: true } } } } } },
       },
-      select: { id: true },
     });
-    foreignAssignmentId = foreignAssignment.id;
-    foreignDeviceId = crypto.randomUUID();
-    await prisma.device.create({ data: { id: foreignDeviceId, centerId: center.id, label: "Offline phone" } });
-  });
+    foreignDeviceId = created.devices[0]?.id ?? "";
+    foreignAssignmentId = created.courses[0]?.sections[0]?.assignments[0]?.id ?? "";
+    if (!foreignDeviceId || !foreignAssignmentId) throw new Error("missing foreign fixture");
+    });
+  }, 30_000);
 
   beforeEach(async () => {
     await clearRecords();
   });
 
+  // A failed cleanup used to skip the disconnect and leave the only connection
+  // open. The local database does not close idle connections on its own.
   afterAll(async () => {
-    await clearRecords();
-    const leftovers = await prisma.centerSkillTag.findMany({
-      where: {
-        OR: [
-          { name: { startsWith: "Map reading " } },
-          { name: { startsWith: "Retry tag " } },
-          { name: { startsWith: "Shape sense " } },
-        ],
-      },
-      select: { id: true, name: true },
-    });
-    const testTagName = /^(?:Map reading|Retry tag|Shape sense) [0-9a-f]{8}$/i;
-    for (const row of leftovers) {
-      if (testTagName.test(row.name)) skillTagIds.add(row.id);
-    }
-    const tagIds = [...skillTagIds];
-    if (tagIds.length > 0) {
-      await prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
-        await tx.auditLog.deleteMany({ where: { entityId: { in: tagIds } } });
+    try {
+      await assertConnectedTestDatabase();
+      const quizIds = await timed("cleanup.demo-quiz-lookup", () => findDemoQuizIds());
+      await clearRecords(quizIds);
+      // This run's tags are deleted by the ids stored above. An earlier
+      // interrupted run can only be found by name. "Retry tag" plus eight hex
+      // characters is unique to this file. "Map reading" and "Shape sense"
+      // are also used by the skill-tag tests, so those names are not scanned.
+      await timed("cleanup.skill-tags", async () => {
+        const leftovers = await prisma.centerSkillTag.findMany({
+          where: {
+            center: { code: DEMO_CENTER_CODE },
+            name: { startsWith: "Retry tag " },
+          },
+          select: { id: true, name: true },
+        });
+        const retryTagName = /^Retry tag [0-9a-f]{8}$/i;
+        for (const row of leftovers) {
+          if (retryTagName.test(row.name)) skillTagIds.add(row.id);
+        }
+        const tagIds = [...skillTagIds];
+        if (tagIds.length === 0) return;
+        await prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
+          await tx.auditLog.deleteMany({ where: { entityId: { in: tagIds } } });
+        });
+        await prisma.centerSkillTag.deleteMany({ where: { id: { in: tagIds } } });
       });
-      await prisma.centerSkillTag.deleteMany({ where: { id: { in: tagIds } } });
+      await timed("cleanup.demo-quiz", async () => {
+        if (!morningId || quizIds.length === 0) return;
+        await prisma.assignment.deleteMany({
+          where: { id: { in: quizIds }, title: DEMO_QUIZ_TITLE, sectionId: morningId },
+        });
+      });
+      // Sync rows for these phones were removed in clearRecords. Grades that
+      // pointed at them were removed there too, so the phones can go next.
+      await timed("cleanup.phones", async () => {
+        const ids = [...phoneIds];
+        if (ids.length === 0) return;
+        await prisma.device.deleteMany({ where: { id: { in: ids } } });
+      });
+      await timed("cleanup.foreign-center", () => removeForeignCenter());
+    } finally {
+      await timed("cleanup.disconnect", () => prisma.$disconnect());
     }
-    if (assignmentId) await prisma.assignment.deleteMany({ where: { id: assignmentId } });
-    const ids = [...phoneIds];
-    if (ids.length > 0) {
-      await prisma.jsonSyncItem.deleteMany({ where: { deviceId: { in: ids } } });
-      await prisma.jsonSyncBatch.deleteMany({ where: { deviceId: { in: ids } } });
-      await prisma.device.deleteMany({ where: { id: { in: ids } } });
-    }
-    if (foreignCenterId) {
-      await prisma.assignment.deleteMany({ where: { id: foreignAssignmentId } });
-      const sections = await prisma.section.findMany({ where: { course: { centerId: foreignCenterId } }, select: { id: true } });
-      if (sections.length) await prisma.section.deleteMany({ where: { id: { in: sections.map((row) => row.id) } } });
-      await prisma.course.deleteMany({ where: { centerId: foreignCenterId } });
-      await prisma.device.deleteMany({ where: { centerId: foreignCenterId } });
-      await prisma.user.deleteMany({ where: { centerId: foreignCenterId } });
-      await prisma.center.delete({ where: { id: foreignCenterId } });
-    }
-    await prisma.$disconnect();
-  });
+  }, 30_000);
 
   it("accepts a later edit and keeps the earlier grade", async () => {
     const deviceA = phone();

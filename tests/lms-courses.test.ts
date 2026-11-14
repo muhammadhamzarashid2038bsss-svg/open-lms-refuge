@@ -11,6 +11,7 @@ import {
   readResourceForDownload,
 } from "../lib/data/courses";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 
 const holder = vi.hoisted(() => ({ actor: null as Actor | null }));
 
@@ -150,6 +151,7 @@ describe("LMS-1 course manager", () => {
 
     const course = await readCourse(teacherOne, courseId);
     expect(course?.resources.some((row) => row.title === "Temp syllabus note")).toBe(true);
+    await assertConnectedTestDatabase();
     await prisma.resource.delete({ where: { id: created.resourceId } });
   });
 });
@@ -159,6 +161,7 @@ describe("course creation without a first section", () => {
 
   afterAll(async () => {
     if (createdCourseIds.length === 0) return;
+    await assertConnectedTestDatabase();
     await prisma.sectionTeacher.deleteMany({
       where: { section: { courseId: { in: createdCourseIds } } },
     });

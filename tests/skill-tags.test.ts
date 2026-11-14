@@ -4,6 +4,7 @@ import type { Actor } from "../lib/auth/permissions";
 import { createCenterSkillTag, setCenterSkillTagActive } from "../lib/data/skill-tags";
 import { acceptRecordBatch } from "../lib/data/sync-records";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 
 const createdTagIds: string[] = [];
 
@@ -16,12 +17,17 @@ async function actorByEmail(email: string): Promise<Actor> {
 
 describe("center skill tags", () => {
   afterAll(async () => {
-    if (createdTagIds.length === 0) return;
-    await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
-      await tx.auditLog.deleteMany({ where: { entityId: { in: createdTagIds } } });
-    });
-    await prisma.centerSkillTag.deleteMany({ where: { id: { in: createdTagIds } } });
+    try {
+      if (createdTagIds.length === 0) return;
+      await assertConnectedTestDatabase();
+      await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
+        await tx.auditLog.deleteMany({ where: { entityId: { in: createdTagIds } } });
+      });
+      await prisma.centerSkillTag.deleteMany({ where: { id: { in: createdTagIds } } });
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   it("lets the center director add a short skill tag and keeps the name out of the audit row", async () => {
@@ -85,6 +91,7 @@ describe("center skill tags", () => {
     }, 200);
     expect((result.body as { results: { code?: string }[] }).results[0]?.code).toBe("invalid_note");
     expect(await prisma.progressNote.findUnique({ where: { id: recordId } })).toBeNull();
+    await assertConnectedTestDatabase();
     await prisma.device.deleteMany({ where: { id: deviceId } });
     await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;

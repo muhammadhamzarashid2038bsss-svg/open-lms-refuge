@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 
 // The first migration already attaches sync_conflicts_same_record. The Day 9
 // migration replaces the function body. PostgreSQL keeps the trigger, so a
@@ -27,6 +28,7 @@ let ownNoteResolved = "";
 let otherNoteVersion = "";
 
 async function removeFixtures() {
+  await assertConnectedTestDatabase();
   const gradeIds = [ownGradeId, otherGradeId].filter(Boolean);
   const noteIds = [ownNoteId, otherNoteId].filter(Boolean);
   if (gradeIds.length || noteIds.length) {
@@ -168,9 +170,14 @@ describe("sync conflict version trigger", () => {
     });
   });
 
+  // A failed cleanup used to skip the disconnect and leave the only connection
+  // open. The local database does not close idle connections on its own.
   afterAll(async () => {
-    await removeFixtures();
-    await prisma.$disconnect();
+    try {
+      await removeFixtures();
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   it("keeps the existing before-insert-or-update trigger on the replaced function", async () => {

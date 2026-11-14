@@ -4,6 +4,7 @@ import { loadActor } from "../lib/auth/load-actor";
 import type { Actor } from "../lib/auth/permissions";
 import { acceptSyncBatch, OFFLINE_PHONE_LABEL } from "../lib/data/sync-attendance";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 import { WEB_KIOSK_DEVICE_LABEL } from "../lib/lms/attendance";
 import { MAX_COMPRESSED_BYTES, MAX_UNCOMPRESSED_BYTES, type SyncWireEvent } from "../lib/sync/batch";
 
@@ -98,6 +99,7 @@ async function actorByEmail(email: string) {
 }
 
 async function removeOurs() {
+  await assertConnectedTestDatabase();
   await prisma.user.deleteMany({ where: { email: "sync-test-off@demo.invalid" } });
   await prisma.jsonSyncItem.deleteMany({ where: { clientMutationId: { startsWith: "sync-test-" } } });
   const ids = [...phoneIds];
@@ -224,9 +226,14 @@ describe("sync server", () => {
     await prisma.device.create({ data: { id: foreignDeviceId, centerId: center.id, label: OFFLINE_PHONE_LABEL } });
   });
 
+  // A failed cleanup used to skip the disconnect and leave the only connection
+  // open. The local database does not close idle connections on its own.
   afterAll(async () => {
-    await removeOurs();
-    await prisma.$disconnect();
+    try {
+      await removeOurs();
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   it("returns 401 JSON for a health check with no session", async () => {
@@ -268,6 +275,7 @@ describe("sync server", () => {
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({ status: "unauthorized" });
     } finally {
+      await assertConnectedTestDatabase();
       await prisma.user.deleteMany({ where: { id: disabled.id } });
     }
   });

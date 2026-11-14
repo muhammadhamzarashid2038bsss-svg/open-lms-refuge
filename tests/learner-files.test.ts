@@ -7,6 +7,7 @@ import { downloadSubmission } from "../lib/data/submissions";
 import { loadSectionGradebook } from "../lib/data/assignments";
 import { listLearnerHomework } from "../lib/data/learner-homework";
 import { prisma } from "../lib/db";
+import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 import {
   closeWorkingDatabase,
   LOCAL_DB_NAME,
@@ -502,24 +503,29 @@ describe("homework upload", () => {
 describe("learner homework and gradebook files", () => {
   const gradeViewsSince = new Date();
   afterAll(async () => {
-    const users = await prisma.user.findMany({
-      where: { email: { in: ["teacher.one@demo.invalid", "director@demo.invalid"] } },
-      select: { id: true },
-    });
-    const ids = users.map((user) => user.id);
-    if (ids.length === 0) return;
-    await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
-      await tx.auditLog.deleteMany({
-        where: {
-          action: "VIEW",
-          entityType: "GRADE_ENTRY",
-          actorId: { in: ids },
-          at: { gte: gradeViewsSince },
-          metadata: { equals: { source: "online" } },
-        },
+    try {
+      await assertConnectedTestDatabase();
+      const users = await prisma.user.findMany({
+        where: { email: { in: ["teacher.one@demo.invalid", "director@demo.invalid"] } },
+        select: { id: true },
       });
-    });
+      const ids = users.map((user) => user.id);
+      if (ids.length === 0) return;
+      await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT set_config('app.allow_demo_reset', 'on', true)`;
+        await tx.auditLog.deleteMany({
+          where: {
+            action: "VIEW",
+            entityType: "GRADE_ENTRY",
+            actorId: { in: ids },
+            at: { gte: gradeViewsSince },
+            metadata: { equals: { source: "online" } },
+          },
+        });
+      });
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   it("shows the learner only Digital and Both homework, and the teacher the stored file state", async () => {
