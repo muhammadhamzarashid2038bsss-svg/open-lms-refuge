@@ -762,3 +762,35 @@ I also decided not to implement scheduled scoring until a reliable production ho
 Week 3 was an important stage in the project because the LMS developed beyond basic classroom management into a system that can help educators understand learner progress, preserve important information during teacher transitions, and identify learners who may benefit from additional support.
 
 The three decisions above shaped the project around accuracy, privacy, and reliability. They also reinforced an important principle: technology should support educators in making better decisions without replacing their judgement or compromising the dignity and privacy of learners.
+
+## Day 16 of 20 · 2026-11-13 to 2026-11-15
+
+### What I built
+- Built a server only donor export module (`lib/export`) for generating controlled reports using synthetic learner data.
+- Implemented HMAC-SHA-256 pseudonymization using a high entropy `EXPORT_SECRET` environment variable. Pseudonyms are report scoped by default, meaning the same learner can be linked within one report but receives a different pseudonym in another report.
+- Implemented aggregate statistics for retention, attendance, assignment completion and approved demographic breakdowns.
+- Added adjustable small group suppression, with groups below the minimum threshold displayed as `<5`, and complementary suppression to reduce the risk of identifying small groups through other reported figures.
+- Enforced a strict server side field whitelist so names, contact details, addresses, exact birth dates, free text notes, learner codes and internal identifiers cannot be included in exports.
+- Restricted exports to active Center Directors and Admins, added saved funder requirements for pseudonymized learner level exports, and recorded successful exports in the audit log.
+- Added CSV formula protection to reduce spreadsheet formula injection risks.
+- Added enrollment completion dates and updated the attendance calculations used by the performance dashboard and teacher handoff reports. Unmarked sessions are excluded from the attendance rate rather than being treated as absences.
+- Created a separate native PostgreSQL 18.7 test environment because the existing PGLite test environment repeatedly encountered connection limits, connection errors and transaction timeouts.
+- Added a separate test database configuration, environment variables, database identity checks, safety guards and protected cleanup operations. The original Prisma development configuration and PGLite database were kept separate and unchanged.
+- Applied all nine Prisma migrations and seeded the new test database with synthetic demo data.
+- Successfully ran the complete Vitest suite against native PostgreSQL: 421 tests passed across 43 test files.
+
+### What went wrong
+- The donor export implementation and its database tests initially exposed reliability problems in the existing PGLite testing environment. Repeated test runs encountered connection resets, maximum connection errors and Prisma transaction timeouts.
+- I spent additional time investigating Prisma connection pooling, Vitest worker cleanup and test fixture setup. Changes to the connection cleanup alone did not resolve the underlying testing instability.
+- Instead of deleting or resetting the existing development database, I established a separate native PostgreSQL 18.7 database specifically for automated testing. I added safeguards to prevent test commands from accidentally connecting to the development database.
+- The migration and seed process worked successfully on the new test database, and the full test suite subsequently passed.
+- The Day 16 automated tests passed, but the four manual export checks could not yet be completed because the application does not have an Export screen or download endpoint. Those checks will be completed after the Day 17 interface is implemented.
+- I have not yet visually inspected an exported CSV through the application. I will not mark that manual check as completed until I can generate a file through the finished interface.
+
+### What I learned
+- I learned that HMAC-SHA-256 uses a secret key to make pseudonyms harder to guess than ordinary unsalted hashes. However, pseudonymized data is not anonymous, and protecting the secret key is essential.
+- I learned that report scoped pseudonyms allow records to be linked within one report without automatically allowing the same learner to be tracked across different reports.
+- I learned that small group suppression needs more than simply hiding numbers below five. Complementary suppression and repeated queries also matter because other published figures can reveal hidden values.
+- I learned that attendance rate and attendance coverage measure different things. Unmarked sessions should not be treated as absences, and the two figures need clearly defined denominators.
+- I learned that automated tests passing is not the same as completing manual acceptance checks. The server side export module can work correctly even when the user interface needed to operate it has not yet been built.
+- I learned that separating automated tests from the development database is important for protecting existing data and making tests more reliable. Native PostgreSQL provided a much more stable environment for this project's database backed tests.
