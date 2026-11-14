@@ -69,6 +69,23 @@ function ruleCode(error: unknown): string | null {
   return null;
 }
 
+// The phone still receives "database" and can retry. The label is a short code
+// such as P2028 so a slow local database is not mistaken for a rejected note.
+// The error message can contain note text or a query, so it is not used.
+export function syncDatabaseFailureLabel(error: unknown): string {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && /^P\d{4}$/.test(error.code)) {
+    return error.code;
+  }
+  if (error instanceof Error && /^[A-Za-z][A-Za-z0-9]*$/.test(error.name)) {
+    return error.name;
+  }
+  return "Error";
+}
+
+function reportUnclassifiedDatabaseFailure(error: unknown): void {
+  console.error(`[sync] database ${syncDatabaseFailureLabel(error)}`);
+}
+
 function fingerprintOf(mutation: RecordMutation): string {
   const content =
     mutation.entityType === "GRADE_ENTRY"
@@ -862,11 +879,13 @@ async function applyWithRetry(actor: Actor, deviceId: string, mutation: RecordMu
       } catch (again) {
         const code = ruleCode(again);
         if (code) return rejected(mutation.clientMutationId, code);
+        reportUnclassifiedDatabaseFailure(again);
         return retryable(mutation.clientMutationId, "database");
       }
     }
     const code = ruleCode(error);
     if (code) return rejected(mutation.clientMutationId, code);
+    reportUnclassifiedDatabaseFailure(error);
     return retryable(mutation.clientMutationId, "database");
   }
 }

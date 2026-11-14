@@ -55,7 +55,8 @@ describe("handoff profile calculations", () => {
     expect(measured.attendance?.unexcusedAbsences).toBe(1);
     expect(measured.attendance?.cancelledLeftOut).toBe(1);
     expect(measured.attendance?.futureLeftOut).toBe(1);
-    expect(measured.attendance?.rates.confirmedLabel).toBe("25.0%");
+    expect(measured.attendance?.rates.confirmedLabel).toBe("33.3%");
+    expect(measured.attendance?.rates.coverageLabel).toBe("75.0%");
   });
 
   it("does not turn a missing grade into zero and does not invent a trend", () => {

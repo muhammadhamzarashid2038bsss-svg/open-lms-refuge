@@ -596,7 +596,7 @@ describe("student transition profiles and audit trail", () => {
   it("stores attendance, grades, lessons, and the note version from that moment", async () => {
     const rich = await prisma.transitionProfile.findFirstOrThrow({ where: { handoffReportId: ids.d1Report, learnerId: ids.l1 } });
     expect(rich.attendanceKind).toBe("RECORDED");
-    expect(rich.attendanceRate?.toFixed(2)).toBe("25.00");
+    expect(rich.attendanceRate?.toFixed(2)).toBe("33.33");
     expect(rich.eligibleSessionCount).toBe(4);
     expect(rich.unmarkedCount).toBe(1);
     expect(rich.unexcusedAbsenceCount).toBe(1);

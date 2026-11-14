@@ -209,8 +209,8 @@ function handAttendance(
     else if (current.status === "EXCUSED") excused += 1;
   }
   const marked = present + late + absent + excused;
-  const confirmedLabel = eligible === 0 ? "No eligible sessions yet" : marked === 0 ? "No attendance recorded yet" : formatHand((present + late) / eligible);
-  const coverageLabel = eligible === 0 ? "No eligible sessions yet" : marked === 0 ? "No attendance recorded yet" : formatHand(marked / eligible);
+  const confirmedLabel = eligible === 0 ? "No eligible sessions yet" : marked === 0 ? "No attendance recorded yet" : formatHand((present + late) / marked);
+  const coverageLabel = eligible === 0 ? "No eligible sessions yet" : formatHand(marked / eligible);
   return { eligible, present, late, absent, excused, unmarked, confirmedLabel, coverageLabel };
 }
 

@@ -222,7 +222,7 @@ describe("dashboard measurement rules", () => {
     expect(model.learners[0]?.rows[0]?.gradeStatus).toBe("Awaiting grade");
   });
 
-  it("uses every eligible session as the attendance denominator", () => {
+  it("leaves an unmarked session out of the attendance rate and in coverage", () => {
     const sessions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((day) => ({
       id: `session-${day}`,
       title: `Class ${day}`,
@@ -252,7 +252,7 @@ describe("dashboard measurement rules", () => {
       absent: 1,
       excused: 1,
       unmarked: 1,
-      confirmedLabel: "70.0%",
+      confirmedLabel: "77.8%",
       coverageLabel: "90.0%",
     });
     expect(model.learners[0]?.sessions.map((session) => session.statusLabel)).toContain("Unmarked");
@@ -268,9 +268,39 @@ describe("dashboard measurement rules", () => {
       }),
     );
     expect(model.learners[0]?.attendance.confirmedLabel).toBe("No attendance recorded yet");
-    expect(model.learners[0]?.attendance.coverageLabel).toBe("No attendance recorded yet");
+    expect(model.learners[0]?.attendance.confirmedLabel).not.toBe("0.0%");
+    expect(model.learners[0]?.attendance.coverageLabel).toBe("0.0%");
     expect(model.learners[0]?.attendance.unmarked).toBe(1);
     expect(model.learners[0]?.attendance.absent).toBe(0);
+  });
+
+  it("counts a fully marked sheet from present and absent", () => {
+    const model = buildSectionPerformance(
+      blank({
+        sessions: [
+          { id: "present", title: "Present", startsAt: new Date("2026-10-01T09:00:00.000Z"), status: "HELD" },
+          { id: "absent", title: "Absent", startsAt: new Date("2026-10-02T09:00:00.000Z"), status: "HELD" },
+        ],
+        attendance: [event("present", "PRESENT", 1), event("absent", "ABSENT", 2)],
+      }),
+    );
+    expect(model.learners[0]?.attendance.confirmedLabel).toBe("50.0%");
+    expect(model.learners[0]?.attendance.coverageLabel).toBe("100.0%");
+  });
+
+  it("counts only present and late as full attendance", () => {
+    const model = buildSectionPerformance(
+      blank({
+        sessions: [
+          { id: "present", title: "Present", startsAt: new Date("2026-10-01T09:00:00.000Z"), status: "HELD" },
+          { id: "late", title: "Late", startsAt: new Date("2026-10-02T09:00:00.000Z"), status: "HELD" },
+        ],
+        attendance: [event("present", "PRESENT", 1), event("late", "LATE", 2)],
+      }),
+    );
+    expect(model.learners[0]?.attendance.confirmedLabel).toBe("100.0%");
+    expect(model.learners[0]?.attendance.coverageLabel).toBe("100.0%");
+    expect(model.learners[0]?.attendance.unmarked).toBe(0);
   });
 
   it("keeps a recorded absence as zero confirmed attendance", () => {
@@ -296,6 +326,7 @@ describe("dashboard measurement rules", () => {
     );
     expect(model.learners[0]?.attendance.present).toBe(1);
     expect(model.learners[0]?.attendance.absent).toBe(0);
+    expect(model.learners[0]?.attendance.confirmedLabel).toBe("100.0%");
     expect(model.learners[0]?.sessions[0]?.statusLabel).toBe("Present");
   });
 
@@ -442,9 +473,12 @@ describe("dashboard measurement rules", () => {
 
   it("rounds a seven-of-eleven attendance rate to one decimal", () => {
     expect(formatPercent((7 / 11) * 100)).toBe("63.6%");
-    expect(attendanceFromCounts({ eligibleSessions: 0, present: 0, late: 0, absent: 0, excused: 0, unmarked: 0 }).confirmedLabel).toBe(
-      "No eligible sessions yet",
-    );
+    const noneEligible = attendanceFromCounts({ eligibleSessions: 0, present: 0, late: 0, absent: 0, excused: 0, unmarked: 0 });
+    expect(noneEligible.confirmedLabel).toBe("No eligible sessions yet");
+    expect(noneEligible.coverageLabel).toBe("No eligible sessions yet");
+    const noneMarked = attendanceFromCounts({ eligibleSessions: 4, present: 0, late: 0, absent: 0, excused: 0, unmarked: 4 });
+    expect(noneMarked.confirmedLabel).toBe("No attendance recorded yet");
+    expect(noneMarked.coverageLabel).toBe("0.0%");
   });
 });
 

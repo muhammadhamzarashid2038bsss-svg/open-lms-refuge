@@ -231,6 +231,9 @@ enum AuditEntityType {
   SUBMISSION
   /// A center-owned skill category. The audit row stores this id, not the label.
   SKILL_TAG
+  /// A saved funder requirement that allows a learner-level donor export.
+  /// The audit row stores this id and a short reference, not the reason text.
+  FUNDER_REQUIREMENT
 }
 
 /// Editable records that can conflict. Attendance is not here: it is append-only.
@@ -279,7 +282,8 @@ model Center {
   /// FEAT-3 starting levels. A director may change these later.
   watchRiskThreshold       Int @default(40)
   highRiskThreshold        Int @default(70)
-  /// FEAT-4. A figure based on fewer learners than this is shown as "<5".
+  /// FEAT-4. A figure based on fewer learners than this is hidden.
+  /// The label is "<" plus this number, so the default of 5 is shown as "<5".
   smallGroupSuppressionMin Int @default(5)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -294,9 +298,39 @@ model Center {
   auditLogs        AuditLog[]
   jsonSyncBatches  JsonSyncBatch[]
   deviceHandovers  DeviceHandover[]
-  skillTags        CenterSkillTag[]
+  skillTags          CenterSkillTag[]
+  funderRequirements FunderRequirement[]
 
   @@map("centers")
+}
+
+/// A funder's written demand for learner-level rows in a donor export.
+/// Aggregate totals stay the default. This row is the only way to turn on
+/// learner-level rows, and cross-report linkage is a separate yes/no.
+/// The reason is kept for the center's own record. It is not copied into the
+/// export file or the audit metadata, because free text can name a person.
+model FunderRequirement {
+  id                   String    @id @default(uuid()) @db.Uuid
+  centerId             String    @db.Uuid
+  center               Center    @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  funderName           String    @db.VarChar(80)
+  /// Short token such as UNHCR-2026-Q3. This is what the audit row stores.
+  requirementReference String    @db.VarChar(80)
+  /// Why learner-level rows are required. Not exported and not audited.
+  learnerLevelReason   String    @db.VarChar(200)
+  /// Separate from learner-level rows. Off keeps a new pseudonym per report.
+  crossReportLinkage   Boolean
+  approvedById         String    @db.Uuid
+  approvedBy           User      @relation(fields: [approvedById], references: [id], onDelete: Restrict)
+  approvedAt           DateTime
+  active               Boolean   @default(true)
+  deactivatedAt        DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([centerId, requirementReference])
+  @@index([centerId, active])
+  @@map("funder_requirements")
 }
 
 /// Which optional facts this center chose to collect (SYS-2). Default is off.
@@ -370,6 +404,7 @@ model User {
   riskScoringRuns         RiskScoringRun[]
   auditLogs               AuditLog[]
   conflictsResolved       SyncConflict[]
+  funderRequirementsApproved FunderRequirement[]
   authSessions            AuthSession[]
   deviceHandoversFrom     DeviceHandover[] @relation("DeviceHandoverFrom")
   deviceHandoversReleased DeviceHandover[] @relation("DeviceHandoverReleasedBy")
@@ -509,6 +544,10 @@ model Enrollment {
   status      EnrollmentStatus @default(ACTIVE)
   enrolledOn  DateTime         @db.Date
   withdrawnOn DateTime?        @db.Date
+  /// Last day this learner was enrolled, inclusive. Set only when status
+  /// becomes COMPLETED. Empty on older completed rows, which have no reliable
+  /// end date. updatedAt is not that date: any later edit would move it.
+  completedOn DateTime?        @db.Date
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 

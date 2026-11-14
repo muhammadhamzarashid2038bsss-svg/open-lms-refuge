@@ -93,23 +93,23 @@ The current status is the latest attendance event for that learner and session. 
 
 Unmarked is its own count. It is never labeled Absent.
 
-**Confirmed attendance rate** = (Present + Late) ÷ eligible sessions.
+**Attendance rate** = (Present + Late) ÷ (Present + Late + Absent + Excused).
 
-**Attendance recording coverage** = (Present + Late + Absent + Excused) ÷ eligible sessions.
+**Attendance coverage** = (Present + Late + Absent + Excused) ÷ eligible sessions.
 
-The denominator of both rates is every eligible session, including unmarked ones. Unmarked sessions are still not called absences. Coverage shows how much of that denominator has a recorded status.
+The attendance rate leaves unmarked sessions out of both sides. A blank sheet does not lower that rate and is not called an absence. Coverage keeps unmarked sessions in the denominator, so it shows how much of the eligible set has a recorded status.
 
-When the learner has eligible sessions and none of them has a recorded status, both rates display **No attendance recorded yet**. They do not display 0%.
+When the learner has eligible sessions and none of them has a recorded status, the attendance rate displays **No attendance recorded yet**. It does not display 0%. Coverage displays **0.0%**, because none of those eligible sessions has a recorded status.
 
-When there are no eligible sessions, both rates display **No eligible sessions yet**.
+When there are no eligible sessions, both labels display **No eligible sessions yet**.
 
-When at least one status is recorded, the rates display as percents rounded to one decimal, even if Present + Late is zero because the recorded statuses are Absent or Excused.
+When at least one status is recorded, the labels display as percents rounded to one decimal, even if Present + Late is zero because the recorded statuses are Absent or Excused.
 
 A section rate pools every learner’s counts, then uses the same two formulas. The section grade average is the one place that gives each learner equal weight.
 
-Example: 10 eligible sessions, with Present 6, Late 1, Absent 1, Excused 1, and Unmarked 1. Confirmed attendance = 7 ÷ 10 = 70.0%. Recording coverage = 9 ÷ 10 = 90.0%. Unmarked stays 1. A cancelled session and a future session are outside the 10.
+Example: 10 eligible sessions, with Present 6, Late 1, Absent 1, Excused 1, and Unmarked 1. Attendance rate = 7 ÷ 9 = 77.8%. Attendance coverage = 9 ÷ 10 = 90.0%. Unmarked stays 1. A cancelled session and a future session are outside the 10.
 
-Example: 10 eligible sessions and no recorded status. The page says **No attendance recorded yet**. Unmarked is 10.
+Example: 10 eligible sessions and no recorded status. The attendance rate says **No attendance recorded yet**. Coverage is **0.0%**. Unmarked is 10.
 
 ## Academic trajectory
 

@@ -2,6 +2,9 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { TRAJECTORY_RULE, type LearnerPerformance, type SectionPerformance } from "@/lib/lms/dashboard-metrics";
 
+const ATTENDANCE_NOTE =
+  "Attendance rate is Present and Late divided by classes with a recorded mark. A blank sheet is left out of that rate. Attendance coverage is classes with a recorded mark divided by every class that already happened. If classes happened and none were marked, the rate says no attendance was recorded and coverage is 0.0%.";
+
 const tableClass = "w-full border-collapse text-left text-base";
 const cellClass = "border-b border-zinc-300 p-2 align-top";
 const headClass = "border-b-2 border-zinc-950 p-2 align-bottom font-semibold";
@@ -63,6 +66,7 @@ export function SectionPerformanceView({
           </div>
         ) : null}
       </ReceiptSection>
+      <p className="text-base leading-6">{ATTENDANCE_NOTE}</p>
       {model.learners.length === 0 ? <p className="text-lg">No learner is enrolled in this section.</p> : null}
       {model.learners.length > 0 ? (
         <div className="overflow-x-auto">
@@ -75,8 +79,8 @@ export function SectionPerformanceView({
                 <th className={headClass}>Awaiting grade</th>
                 <th className={headClass}>Files submitted</th>
                 <th className={headClass}>Overdue files</th>
-                <th className={headClass}>Confirmed attendance</th>
-                <th className={headClass}>Recording coverage</th>
+                <th className={headClass}>Attendance rate</th>
+                <th className={headClass}>Attendance coverage</th>
                 <th className={headClass}>Trajectory</th>
               </tr>
             </thead>
@@ -254,6 +258,7 @@ export function CenterPerformanceView({
       <p className="text-base leading-6">
         The counts below show how many learners have each label. A section does not receive one label of its own.
       </p>
+      <p className="text-base leading-6">{ATTENDANCE_NOTE}</p>
       {sections.length === 0 ? <p className="text-lg">No sections yet.</p> : null}
       {sections.length > 0 ? (
         <div className="overflow-x-auto">
@@ -263,8 +268,8 @@ export function CenterPerformanceView({
               <tr>
                 <th className={headClass}>Section</th>
                 <th className={headClass}>Grade average</th>
-                <th className={headClass}>Confirmed attendance</th>
-                <th className={headClass}>Recording coverage</th>
+                <th className={headClass}>Attendance rate</th>
+                <th className={headClass}>Attendance coverage</th>
                 <th className={headClass}>Overdue files</th>
                 <th className={headClass}>Improving</th>
                 <th className={headClass}>Steady</th>
@@ -329,8 +334,8 @@ function SummaryList({ model }: { model: SectionPerformance }) {
       <p>Grade average: {model.gradeAverageLabel}. Learners in that average: {model.learnersInAverage}.</p>
       <p>Awaiting grade: {model.awaitingGrade}. Needs review: {model.needsReview}.</p>
       <p>Digital files submitted: {model.files.submittedLabel}. Overdue files: {model.files.overdueLabel}.</p>
-      <p>Confirmed attendance: {model.attendance.confirmedLabel}.</p>
-      <p>Recording coverage: {model.attendance.coverageLabel}.</p>
+      <p>Attendance rate: {model.attendance.confirmedLabel}.</p>
+      <p>Attendance coverage: {model.attendance.coverageLabel}.</p>
       <p>
         Unmarked eligible sessions: {model.attendance.unmarked}. Unmarked is not absent. Cancelled classes left out:{" "}
         {model.cancelledSessions}. Future classes left out: {model.futureSessions}.
@@ -347,13 +352,14 @@ function SummaryList({ model }: { model: SectionPerformance }) {
 function AttendanceDetail({ learner }: { learner: LearnerPerformance }) {
   return (
     <div className="flex flex-col gap-2 text-lg">
+      <p className="text-base leading-6">{ATTENDANCE_NOTE}</p>
       <p>Eligible sessions: {learner.attendance.eligibleSessions}.</p>
       <p>
         Present {learner.attendance.present}, Late {learner.attendance.late}, Absent {learner.attendance.absent}, Excused{" "}
         {learner.attendance.excused}, Unmarked {learner.attendance.unmarked}.
       </p>
-      <p>Confirmed attendance: {learner.attendance.confirmedLabel}.</p>
-      <p>Recording coverage: {learner.attendance.coverageLabel}.</p>
+      <p>Attendance rate: {learner.attendance.confirmedLabel}.</p>
+      <p>Attendance coverage: {learner.attendance.coverageLabel}.</p>
       <p>
         Cancelled classes left out: {learner.cancelledLeftOut}. Future classes left out: {learner.futureLeftOut}. The
         current status is the latest mark the server received. An older correction stays in history and is not counted

@@ -179,6 +179,17 @@ export function canViewAuditLog(actor: Actor): boolean {
   return activeActor(actor) && (actor.role === "ADMIN" || actor.role === "CENTER_DIRECTOR");
 }
 
+// FEAT-4. Donor exports name no learner, but they still describe a real center.
+// A director can export only their own center. An admin can export a center
+// because account administration already spans centers. Teachers and learners
+// cannot. A switched-off account cannot. The export module checks this again
+// before it builds a file. Hiding a button is not the check.
+export function canExportCenter(actor: Actor, centerId: string): boolean {
+  if (!activeActor(actor) || centerId.length === 0) return false;
+  if (actor.role === "ADMIN") return true;
+  return actor.role === "CENTER_DIRECTOR" && sharesCenter(actor, centerId);
+}
+
 // The director keeps the center's short skill-tag list. Teachers only choose
 // from tags that are still active.
 export function canManageSkillTags(actor: Actor, centerId: string): boolean {

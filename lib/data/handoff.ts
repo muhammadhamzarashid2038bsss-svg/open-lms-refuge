@@ -121,7 +121,7 @@ function skillLabels(gaps: readonly string[], custom: string | null, active: boo
 function confirmedRate(present: number, late: number, eligible: number, marked: number): { kind: "RECORDED" | "NO_ELIGIBLE_SESSIONS" | "NO_ATTENDANCE_RECORDED"; rate: string | null; label: string } {
   if (eligible === 0) return { kind: "NO_ELIGIBLE_SESSIONS", rate: null, label: "No eligible sessions yet" };
   if (marked === 0) return { kind: "NO_ATTENDANCE_RECORDED", rate: null, label: "No attendance recorded yet" };
-  const rate = roundPercent(((present + late) / eligible) * 100);
+  const rate = roundPercent(((present + late) / marked) * 100);
   return { kind: "RECORDED", rate, label: `${rate}% present or late` };
 }
 
