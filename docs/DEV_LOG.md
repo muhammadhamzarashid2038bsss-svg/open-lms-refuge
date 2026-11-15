@@ -794,3 +794,60 @@ The three decisions above shaped the project around accuracy, privacy, and relia
 - I learned that attendance rate and attendance coverage measure different things. Unmarked sessions should not be treated as absences, and the two figures need clearly defined denominators.
 - I learned that automated tests passing is not the same as completing manual acceptance checks. The server side export module can work correctly even when the user interface needed to operate it has not yet been built.
 - I learned that separating automated tests from the development database is important for protecting existing data and making tests more reliable. Native PostgreSQL provided a much more stable environment for this project's database backed tests.
+
+## Day 17 of 20 · 2026-11-15
+
+### What I built
+- Built the visual Grant Export screen for Directors and Admins, with Aggregate report as the default option.
+- Added the option for pseudonymized learner-level exports when an active funder requirement exists, with a warning that pseudonymized data is still sensitive and is not anonymous.
+- Implemented server-side CSV and PDF report generation, including the center name, reporting period, headline statistics, and chart support where the data can be presented accurately.
+- Enforced the same strict server-side field whitelist, small-group suppression, and complementary suppression rules across both CSV and PDF exports.
+- Added automated privacy leakage tests that scan generated CSV and PDF content and metadata for prohibited synthetic learner information.
+- Fixed an additional attendance privacy issue. The report previously showed a 33.3% attendance coverage figure even when the marked-session count was suppressed. Coverage is now hidden whenever the related attendance rate is suppressed.
+- Completed the previously pending Day 16 database migrations for funder requirements and enrollment completion dates.
+
+### What went wrong
+- The Day 16 manual checklist could not be completed when originally scheduled because the Export screen and download endpoint had not yet been implemented. These checks were carried forward and completed after the Day 17 interface became available.
+- The development database initially encountered connection problems. These were investigated and resolved, allowing the pending migrations and original DEMO data to be verified.
+- The first attempt at the deliberate privacy leakage experiment used `Demo Learner 01`, but that name was not present in the disposable export-test fixture. The experiment was redesigned to use an existing synthetic display name already stored in the test fixture and collected by the leakage scanner.
+- The final Git review identified trailing whitespace in `docs/future-improvements.md`. Correcting it also exposed an unintended UTF-8 BOM change. The original file encoding was restored, the whitespace was removed, and the amended commit eventually passed the Git whitespace check.
+- The pseudonymized warning could not be manually verified through the normal demo interface because the DEMO center did not have an active funder requirement. This limitation was documented rather than modifying the original demo data to force the option to appear.
+
+### What I learned
+- I learned how to generate PDF reports on the server and keep their contents consistent with CSV exports.
+- I learned that privacy protection must apply to every output format, including report content and metadata.
+- I learned that complementary suppression is important because publishing one count can reveal another hidden count through subtraction.
+- I learned that percentages can also reveal suppressed information when they are calculated from hidden totals. Related counts and percentages must therefore be suppressed together when necessary.
+- I learned how to verify that an automated privacy test actually works by deliberately introducing a synthetic data leak, observing the test fail, and then restoring the original code and confirming that it passes.
+- I learned the importance of backing up and verifying a local development database before carrying out database-related work.
+- I learned that automated tests, manual acceptance checks, deliberate negative-control experiments, and production builds provide different kinds of confidence. All are important when validating a feature that handles sensitive learner information.
+
+### Tests performed and confirmed
+
+**Day 16 carry-over checklist**
+- **Database migrations:** Verified that the two previously pending Day 16 migrations, `20261113160000_funder_requirements` and `20261113190000_enrollment_completed_on`, were applied. Prisma confirmed that all 9 migrations were present and the development database schema was up to date.
+- **Development data preservation:** Confirmed that the original DEMO center and its data remained intact, including 30 learner profiles and 30 enrollments.
+- **Director export test:** Signed in as the Director and generated an Aggregate CSV report. Opened the file and confirmed that it contained aggregate statistics without visible learner names or direct identifiers.
+- **Small-group suppression test:** Verified that demographic groups below the minimum threshold of 5 were displayed as `<5`, with complementary suppression applied where necessary to prevent disclosure by subtraction.
+- **Permission test:** Signed in as Teacher One and confirmed that the Grant Export link was unavailable, direct access to `/export` was denied, and no CSV or PDF download was generated.
+- **Audit log test:** Checked the Director's Audit Log and confirmed that export events recorded the actor, date, report period, format, and relevant export details.
+
+**Day 17 functional and privacy checklist**
+- **Visual export test:** Signed in as the Director and generated both Aggregate CSV and PDF reports. Opened both files and confirmed that their statistics, suppression results, center name, and reporting period matched.
+- **Manual privacy leak test:** Used Ctrl + F to search for `Demo Learner 01` in both the generated CSV and PDF. Neither file returned a match.
+- **Attendance privacy test:** Confirmed that attendance coverage was suppressed whenever the related attendance rate was suppressed, preventing the coverage figure from revealing a withheld count.
+- **Admin authorization test:** Signed in as Demo Admin and confirmed that the Grant Export page displayed a center selector.
+- **Admin export test:** Generated Aggregate CSV and PDF reports as Demo Admin and confirmed that both downloads contained the correct center and reporting period.
+- **Admin audit log test:** Confirmed that separate CSV and PDF export records were created, correctly attributed to Demo Admin and the DEMO center.
+- **Deliberate privacy leakage experiment:** Temporarily inserted an existing synthetic learner display name from the disposable export-test fixture into the actual CSV output. The existing privacy test detected the prohibited value and failed with the expected generic leakage-detection message. Restored the original CSV writer and reran the same test successfully. The prohibited value was not printed in the test output.
+- **Experiment cleanup:** Confirmed that the temporary experiment branch was deleted, no experiment changes remained, and `main` was clean at the original Day 17 commit.
+
+**Automated validation and final Git checks**
+- Focused export test suite: 29 passed.
+- Full native PostgreSQL test suite: 429 passed, 0 failed, 0 skipped.
+- Production build: passed.
+- Final Git review: passed. No environment files, credentials, secrets, private data, generated reports, database files, Prisma schema changes, or migrations were included in the Day 17 commit.
+- Successfully pushed the completed work to GitHub on `main`. Confirmed that the local branch and `origin/main` were synchronized and the working tree was clean.
+
+**Outstanding manual verification**
+- The pseudonymized learner-level warning was not visually verified in the normal demo interface because the DEMO center did not have an active funder requirement. The automated tests cover the eligibility and warning logic, but the visual check remains outstanding until a suitable test setup is available.
