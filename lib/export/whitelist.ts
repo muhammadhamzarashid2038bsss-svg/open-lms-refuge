@@ -13,6 +13,7 @@ import {
 
 export const EXPORT_FIELD_WHITELIST = [
   "kind",
+  "centerName",
   "mode",
   "reportId",
   "periodStart",
@@ -86,6 +87,7 @@ const PSEUDONYM = /^ps_[0-9a-f]{64}$/;
 
 const TOP_LEVEL = [
   "kind",
+  "centerName",
   "mode",
   "reportId",
   "periodStart",
@@ -108,6 +110,7 @@ export function assertExportDocument(report: GrantExport): void {
   walkKeys(report);
   exactKeys(report, TOP_LEVEL);
   if (report.kind !== "grant-export") fail("kind");
+  if (!acceptableCenterName(report.centerName)) fail("centerName");
   if (report.mode !== "aggregate" && report.mode !== "pseudonymized") fail("mode");
   if (!REPORT_ID.test(report.reportId)) fail("reportId");
   if (!DAY.test(report.periodStart) || !DAY.test(report.periodEnd) || !DAY.test(report.asOf)) fail("date");
@@ -166,6 +169,14 @@ function walkKeys(value: unknown, seen = new Set<unknown>()): void {
     }
     walkKeys(child, seen);
   }
+}
+
+const CONTROL = /[\u0000-\u001f\u007f]/;
+
+/// A center name may be shown to a funder. It is rejected when it is empty,
+/// very long, or contains a control character, so it cannot smuggle a note.
+export function acceptableCenterName(value: string): boolean {
+  return typeof value === "string" && value.length >= 1 && value.length <= 200 && !CONTROL.test(value);
 }
 
 const SAFE_PHRASE = new Set(["Completion date missing"]);

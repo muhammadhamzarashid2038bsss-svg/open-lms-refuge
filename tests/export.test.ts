@@ -1,4 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
+import { PDFDocument } from "pdfkit";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Prisma } from "../generated/prisma/client";
 import type { Actor, RoleName } from "../lib/auth/permissions";
@@ -6,11 +7,22 @@ import { completeEnrollment } from "../lib/data/enrollment-status";
 import { prisma } from "../lib/db";
 import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 import { buildSectionPerformance } from "../lib/lms/dashboard-metrics";
+import { GET as getExport, POST as postExport } from "../app/api/export/route";
 import { buildGrantExport } from "../lib/export/aggregate";
+import { comparableChart } from "../lib/export/chart";
 import { escapeCsvField, grantExportCsv } from "../lib/export/csv";
+import { grantExportPdf } from "../lib/export/pdf";
+import { learnerLevelOffer, listActiveExportRequirements } from "../lib/export/offer";
 import { EXPORT_LIMITATION, type ExportClassMark, type GrantExport } from "../lib/export/types";
 import { addCalendarDays, formatCivilDate, localDateOfInstant, parseIsoDate, zonedDateTimeToUtc } from "../lib/lms/timetable";
 import * as exportApi from "../lib/export";
+import { collectProhibitedValues, LEAK_FOUND, pdfText, scanPdf, scanText } from "./support/export-leakage";
+
+const sessionActor = vi.hoisted(() => ({ actor: null as Actor | null }));
+
+vi.mock("@/lib/auth/actor", () => ({
+  getActor: async () => sessionActor.actor,
+}));
 
 const SECRET = "0123456789abcdef".repeat(4);
 const SECRET_B = "fedcba9876543210".repeat(4);
@@ -258,6 +270,7 @@ describe("donor attendance suppression", () => {
       secret,
       request: {
         centerId: "00000000-0000-4000-8000-0000000000c1",
+        centerName: "Unit Center",
         reportId,
         periodStart: "2026-02-02",
         periodEnd: "2026-02-02",
@@ -310,6 +323,63 @@ describe("donor attendance suppression", () => {
     expect(csv).not.toContain("0.0%");
   });
 
+  it("hides a one-third coverage percentage when the marked-session count is suppressed", async () => {
+    const people = Array.from({ length: 5 }, (_, index) => ({
+      learnerCode: `LNR-C${String(index).padStart(2, "0")}`,
+      ageBand: "AGE_15_17" as const,
+    }));
+    const classes: ExportClassMark[] = people.flatMap((person) =>
+      [0, 1, 2].map((session) => ({
+        sessionKey: `session-${session}`,
+        sectionKey: "section-1",
+        learnerCode: person.learnerCode,
+        sessionOn: "2026-02-02",
+        sessionStatus: "HELD" as const,
+        occurred: true,
+        mark: session === 0 ? ("PRESENT" as const) : null,
+      })),
+    );
+    const built = buildGrantExport({
+      secret,
+      request: {
+        centerId: "00000000-0000-4000-8000-0000000000c1",
+        centerName: "Unit Center",
+        reportId,
+        periodStart: "2026-02-02",
+        periodEnd: "2026-02-02",
+        asOf: "2026-02-02",
+        suppressionMin: 5,
+        approvedBreakdowns: [],
+        mode: "aggregate",
+      },
+      facts: {
+        genderEnabled: false,
+        people,
+        enrollments: people.map((person) => ({
+          learnerCode: person.learnerCode,
+          sectionKey: "section-1",
+          status: "ACTIVE" as const,
+          enrolledOn: "2026-01-01",
+          withdrawnOn: null,
+          completedOn: null,
+        })),
+        classes,
+        tasks: [],
+      },
+    });
+    expect(built.ok).toBe(true);
+    if (!built.ok) throw new Error(built.message);
+    const csv = grantExportCsv(built.report);
+    expect(field(csv, "count", "attendance_confirmed")).toBe("<5");
+    expect(field(csv, "count", "attendance_eligible")).toBe("<5");
+    expect(field(csv, "count", "attendance_rate")).toBe("<5");
+    expect(field(csv, "count", "attendance_coverage")).toBe("<5");
+    expect(csv).not.toContain("33.3%");
+    const text = await pdfText(await grantExportPdf(built.report));
+    expect(text).toContain("attendance_coverage: <5");
+    expect(text).not.toContain("33.3%");
+  });
+
   it("publishes attendance when each underlying learner group meets the center minimum", () => {
     const marks = [
       ...Array<"PRESENT">(5).fill("PRESENT"),
@@ -337,6 +407,94 @@ describe("donor attendance suppression", () => {
     expect(csv).not.toContain("attendance_learners,,0");
   });
 });
+
+describe("export chart and leakage scanner", () => {
+  it("charts one breakdown only when every cell is a published learner count", () => {
+    const hidden = comparableChart(sampleReport([
+      { dimension: "ageBand", rows: [{ value: "AGE_6_8", learners: "<5" }, { value: "AGE_18_24", learners: 12 }] },
+    ]));
+    expect(hidden).toBeNull();
+    const single = comparableChart(sampleReport([
+      { dimension: "ageBand", rows: [{ value: "AGE_15_17", learners: 11 }] },
+      { dimension: "gender", rows: [{ value: "FEMALE", learners: 6 }, { value: "MALE", learners: 5 }] },
+    ]));
+    expect(single).toEqual({
+      dimension: "gender",
+      rows: [
+        { label: "FEMALE", count: 6 },
+        { label: "MALE", count: 5 },
+      ],
+    });
+  });
+
+  it("detects a prohibited value planted only in a test PDF", async () => {
+    const sentinel = "LEAKPROBE-DAY17-VALUE";
+    const dirty = await tinyPdf(sentinel, "Clean page");
+    expect(await scanPdf(dirty, [sentinel])).toEqual({ ok: false, message: LEAK_FOUND });
+    const clean = await tinyPdf("Grant export", "Clean page");
+    expect(await scanPdf(clean, [sentinel])).toEqual({ ok: true });
+    expect(scanText([`note ${sentinel}`], [sentinel])).toEqual({ ok: false, message: LEAK_FOUND });
+    expect(scanText(["LEAKPROBE-  DAY17-VALUE"], [sentinel])).toEqual({ ok: false, message: LEAK_FOUND });
+    expect(scanText(["planned work"], ["plan"])).toEqual({ ok: true });
+    expect(scanText(["the plan stands"], ["plan"])).toEqual({ ok: false, message: LEAK_FOUND });
+  });
+});
+
+function sampleReport(breakdowns: GrantExport["breakdowns"]): GrantExport {
+  return {
+    kind: "grant-export",
+    centerName: "Chart Center",
+    mode: "aggregate",
+    reportId: "11111111-1111-4111-8111-111111111111",
+    periodStart: "2026-01-01",
+    periodEnd: "2026-01-31",
+    asOf: "2026-01-31",
+    suppressionMin: 5,
+    pseudonymScope: "report",
+    limitation: EXPORT_LIMITATION,
+    registeredLearners: 11,
+    retentionCohort: "<5",
+    retainedLearners: "<5",
+    retentionRate: "<5",
+    attendance: { learners: "<5", confirmed: "<5", eligible: "<5", rate: "<5", coverage: "<5" },
+    assignmentCompletion: { learners: "<5", completed: "<5", expected: "<5", rate: "<5" },
+    breakdowns,
+    learners: [],
+  };
+}
+
+function exportRequest(fields: Record<string, string>, headers: Record<string, string> = {}): Request {
+  return new Request("http://local.test/api/export", {
+    method: "POST",
+    headers: {
+      origin: "http://local.test",
+      "content-type": "application/x-www-form-urlencoded",
+      ...headers,
+    },
+    body: new URLSearchParams(fields),
+  });
+}
+
+async function expectNoFile(response: Response, status: number): Promise<void> {
+  expect(response.status).toBe(status);
+  expect(response.headers.get("content-disposition")).toBeNull();
+  const text = await response.text();
+  expect(text.startsWith("%PDF")).toBe(false);
+  expect(text.includes("record_type")).toBe(false);
+}
+
+function tinyPdf(title: string, pageText: string): Promise<Uint8Array> {
+  const doc = new PDFDocument({ info: { Title: title, Creator: "Open LMS Refuge", Producer: "PDFKit" } });
+  const chunks: Buffer[] = [];
+  const done = new Promise<Uint8Array>((resolve, reject) => {
+    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+  });
+  doc.text(pageText);
+  doc.end();
+  return done;
+}
 
 describe("database-backed donor export", () => {
   // A five-statement seed was measured at 26 seconds. A five-minute hook
@@ -376,7 +534,7 @@ describe("database-backed donor export", () => {
 
   it("exposes only the protected operations", () => {
     expect(Object.keys(exportApi).sort()).toEqual(
-      ["EXPORT_DENIED", "EXPORT_LIMITATION", "approveFunderRequirement", "exportCenterCsv"].sort(),
+      ["EXPORT_DENIED", "EXPORT_LIMITATION", "approveFunderRequirement", "exportCenterCsv", "exportCenterReport"].sort(),
     );
   });
 
@@ -392,6 +550,7 @@ describe("database-backed donor export", () => {
     expect(result.filename).toBe(`grant-export-${main.periodStart}-to-${main.periodEnd}.csv`);
     expect(result.filename).not.toContain("NICK");
     expect(result.filename).not.toContain("LNR");
+    expect(field(result.csv, "report", "center_name")).toBe("Day 16 Center");
     expect(field(result.csv, "report", "mode")).toBe("aggregate");
     expect(field(result.csv, "count", "registered_learners")).toBe("11");
     expect(field(result.csv, "count", "retention_cohort")).toBe("11");
@@ -451,14 +610,14 @@ describe("database-backed donor export", () => {
     if (!result.ok) return;
     expect(field(result.csv, "count", "attendance_learners")).toBe("6");
     expect(field(result.csv, "count", "attendance_rate")).toBe("<5");
-    expect(field(result.csv, "count", "attendance_coverage")).toBe("50.0%");
+    expect(field(result.csv, "count", "attendance_coverage")).toBe("<5");
   });
 
   it("leaves a partly unmarked session out of the attendance rate", async () => {
     const result = await exportOneDay(main.centerId, main.directorId, "2026-02-05");
     expect(field(result, "count", "attendance_learners")).toBe("6");
     expect(field(result, "count", "attendance_rate")).toBe("<5");
-    expect(field(result, "count", "attendance_coverage")).toBe("50.0%");
+    expect(field(result, "count", "attendance_coverage")).toBe("<5");
   });
 
   it("counts a fully marked session from present, late, absent, and excused", async () => {
@@ -893,6 +1052,15 @@ describe("database-backed donor export", () => {
           periodEnd: main.periodEnd,
         }),
       ).rejects.toThrow(/audit failed/);
+      await expect(
+        exportApi.exportCenterReport({
+          actor: actor(main.directorId, "CENTER_DIRECTOR", main.centerId),
+          centerId: main.centerId,
+          periodStart: main.periodStart,
+          periodEnd: main.periodEnd,
+          format: "pdf",
+        }),
+      ).rejects.toThrow(/audit failed/);
     } finally {
       spy.mockRestore();
     }
@@ -933,6 +1101,197 @@ describe("database-backed donor export", () => {
     }
   });
 
+  it("lets an active admin export two centers and denies an inactive admin", async () => {
+    const period = { periodStart: "2026-01-01", periodEnd: "2026-01-31" };
+    const admin = actor(side.adminId, "ADMIN", side.b);
+    const first = await exportApi.exportCenterCsv({ actor: admin, centerId: main.centerId, ...period });
+    const second = await exportApi.exportCenterCsv({ actor: admin, centerId: side.b, ...period });
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(field(first.csv, "report", "center_name")).toBe("Day 16 Center");
+    expect(field(second.csv, "report", "center_name")).toBe("DAY16B");
+    const directorDenied = await exportApi.exportCenterCsv({
+      actor: actor(main.directorId, "CENTER_DIRECTOR", main.centerId),
+      centerId: side.b,
+      ...period,
+    });
+    expect(directorDenied).toEqual({ ok: false, message: exportApi.EXPORT_DENIED });
+    const inactiveAdmin = await addStaff(main.centerId, "ADMIN", "day17-inactive-admin@example.test");
+    await prisma.user.update({
+      where: { id: inactiveAdmin },
+      data: { active: false, deactivatedAt: new Date("2026-02-02T00:00:00.000Z") },
+    });
+    const deniedMain = await exportApi.exportCenterCsv({
+      actor: actor(inactiveAdmin, "ADMIN", main.centerId, true),
+      centerId: main.centerId,
+      periodStart: main.periodStart,
+      periodEnd: main.periodEnd,
+    });
+    const deniedOther = await exportApi.exportCenterCsv({
+      actor: actor(inactiveAdmin, "ADMIN", side.b, true),
+      centerId: side.b,
+      ...period,
+    });
+    expect(deniedMain).toEqual({ ok: false, message: exportApi.EXPORT_DENIED });
+    expect(deniedOther).toEqual({ ok: false, message: exportApi.EXPORT_DENIED });
+  });
+
+  it("offers the learner-level warning only when an active requirement exists", async () => {
+    expect(learnerLevelOffer(0)).toEqual({ offered: false, warning: null });
+    const saved = await exportApi.approveFunderRequirement({
+      actor: actor(main.directorId, "CENTER_DIRECTOR", main.centerId),
+      centerId: main.centerId,
+      funderName: "Example Fund",
+      requirementReference: "FUND-DAY17-WARN",
+      learnerLevelReason: "Rows are required for this test only.",
+      crossReportLinkage: false,
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    const rows = await listActiveExportRequirements(main.centerId);
+    const offer = learnerLevelOffer(rows.length);
+    expect(offer.offered).toBe(true);
+    expect(offer.warning).toBe("Pseudonymized learner-level data is still sensitive and is not anonymous.");
+    expect(rows.some((row) => row.id === saved.id)).toBe(true);
+    expect(rows.every((row) => !("learnerLevelReason" in row))).toBe(true);
+    await prisma.funderRequirement.update({
+      where: { id: saved.id },
+      data: { active: false, deactivatedAt: new Date() },
+    });
+    const after = await listActiveExportRequirements(main.centerId);
+    expect(after.some((row) => row.id === saved.id)).toBe(false);
+    expect(learnerLevelOffer(after.filter((row) => row.id === saved.id).length).offered).toBe(false);
+  });
+
+  it("writes the same privacy-safe figures to csv and pdf", async () => {
+    const address = "14 Synthetic Lane West";
+    const birth = "1990-04-17";
+    const grades = await prisma.gradeEntry.findMany({
+      where: { academicNote: { not: null }, assignment: { section: { course: { centerId: main.centerId } } } },
+      select: { id: true, academicNote: true },
+      take: 2,
+    });
+    const first = grades[0];
+    const second = grades[1];
+    expect(first && second).toBeTruthy();
+    if (!first || !second) return;
+    try {
+      await prisma.gradeEntry.update({ where: { id: first.id }, data: { academicNote: address } });
+      await prisma.gradeEntry.update({ where: { id: second.id }, data: { academicNote: birth } });
+      const prohibited = await collectProhibitedValues(main.centerId, [process.env.EXPORT_SECRET ?? ""]);
+      expect(prohibited.some((value) => value === address)).toBe(true);
+      expect(prohibited.some((value) => value === birth)).toBe(true);
+      const input = {
+        actor: actor(main.directorId, "CENTER_DIRECTOR", main.centerId),
+        centerId: main.centerId,
+        periodStart: main.periodStart,
+        periodEnd: main.periodEnd,
+      };
+      const csv = await exportApi.exportCenterCsv(input);
+      const pdf = await exportApi.exportCenterReport({ ...input, format: "pdf" });
+      expect(csv.ok && pdf.ok).toBe(true);
+      if (!csv.ok || !pdf.ok) return;
+      expect(csv.filename).toBe(`grant-export-${main.periodStart}-to-${main.periodEnd}.csv`);
+      expect(pdf.filename).toBe(`grant-export-${main.periodStart}-to-${main.periodEnd}.pdf`);
+      const centerName = field(csv.csv, "report", "center_name");
+      expect(scanText([csv.csv, csv.filename], prohibited, [centerName])).toEqual({ ok: true });
+      expect(await scanPdf(pdf.body, prohibited, [centerName])).toEqual({ ok: true });
+      const text = await pdfText(pdf.body);
+      expect(text).toContain("Day 16 Center");
+      expect(text).toContain(`period_start: ${main.periodStart}`);
+      expect(text).toContain(`period_end: ${main.periodEnd}`);
+      expect(text).toContain(`registered_learners: ${field(csv.csv, "count", "registered_learners")}`);
+      expect(text).toContain(`retention_rate: ${field(csv.csv, "count", "retention_rate")}`);
+      expect(text).toContain(`attendance_rate: ${field(csv.csv, "count", "attendance_rate")}`);
+      expect(text).toContain("Group sizes");
+      expect(text).not.toContain("ps_");
+      const audit = await prisma.auditLog.findFirstOrThrow({ where: { entityType: "EXPORT", entityId: pdf.reportId } });
+      expect(audit.metadata).toMatchObject({ format: "PDF", mode: "AGGREGATE" });
+    } finally {
+      await prisma.gradeEntry.update({ where: { id: first.id }, data: { academicNote: first.academicNote } });
+      await prisma.gradeEntry.update({ where: { id: second.id }, data: { academicNote: second.academicNote } });
+    }
+  });
+
+  it("omits the chart when a breakdown hides a small group", async () => {
+    const director = await prisma.user.findFirstOrThrow({ where: { centerId: side.d, role: "CENTER_DIRECTOR" } });
+    const result = await exportApi.exportCenterReport({
+      actor: actor(director.id, "CENTER_DIRECTOR", side.d),
+      centerId: side.d,
+      periodStart: "2026-01-01",
+      periodEnd: "2026-01-31",
+      format: "pdf",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const text = await pdfText(result.body);
+    expect(text).toContain("registered_learners: 20");
+    expect(text).toContain("AGE_6_8: <5");
+    expect(text).toContain("AGE_18_24: 12");
+    expect(text).not.toContain("Group sizes");
+  });
+
+  it("rejects a download that is not a same-origin request from an allowed account", async () => {
+    const fields = { format: "csv", periodStart: main.periodStart, periodEnd: main.periodEnd };
+    await expectNoFile(await getExport(), 405);
+    sessionActor.actor = null;
+    await expectNoFile(await postExport(exportRequest(fields)), 401);
+    sessionActor.actor = actor(main.directorId, "CENTER_DIRECTOR", side.b);
+    await expectNoFile(await postExport(exportRequest(fields, { origin: "https://evil.example" })), 403);
+    await expectNoFile(
+      await postExport(exportRequest(fields, { origin: "http://local.test", "sec-fetch-site": "cross-site" })),
+      403,
+    );
+    await expectNoFile(await postExport(exportRequest({ ...fields, format: "html" })), 400);
+    await expectNoFile(await postExport(exportRequest({ ...fields, periodStart: "2026-02-31" })), 400);
+    await expectNoFile(
+      await postExport(exportRequest({ ...fields, periodStart: "2026-05-02", periodEnd: "2026-05-01" })),
+      400,
+    );
+    await expectNoFile(
+      await postExport(exportRequest({ ...fields, mode: "pseudonymized", requirementId: "not-an-id" })),
+      400,
+    );
+    await expectNoFile(
+      await postExport(exportRequest({ ...fields, mode: "pseudonymized", requirementId: randomUUID() })),
+      400,
+    );
+    const directed = await postExport(exportRequest({ ...fields, centerId: side.b }));
+    expect(directed.status).toBe(200);
+    expect(field(await directed.text(), "report", "center_name")).toBe("Day 16 Center");
+    sessionActor.actor = actor(side.adminId, "ADMIN", side.b);
+    const adminMain = await postExport(exportRequest({ ...fields, centerId: main.centerId }));
+    const adminOther = await postExport(exportRequest({ ...fields, periodStart: "2026-01-01", periodEnd: "2026-01-31", centerId: side.b }));
+    expect(adminMain.status).toBe(200);
+    expect(adminOther.status).toBe(200);
+    expect(field(await adminMain.text(), "report", "center_name")).toBe("Day 16 Center");
+    expect(field(await adminOther.text(), "report", "center_name")).toBe("DAY16B");
+    await expectNoFile(await postExport(exportRequest({ ...fields, centerId: randomUUID() })), 403);
+    await expectNoFile(await postExport(exportRequest({ ...fields, centerId: "not-a-center" })), 403);
+    const existingInactive = await prisma.user.findFirst({
+      where: { email: "day17-inactive-admin@example.test" },
+      select: { id: true },
+    });
+    const inactiveAdmin = existingInactive ?? {
+      id: await addStaff(main.centerId, "ADMIN", "day17-inactive-admin@example.test"),
+    };
+    await prisma.user.update({
+      where: { id: inactiveAdmin.id },
+      data: { active: false, deactivatedAt: new Date("2026-02-02T00:00:00.000Z") },
+    });
+    sessionActor.actor = actor(inactiveAdmin.id, "ADMIN", main.centerId, true);
+    await expectNoFile(await postExport(exportRequest({ ...fields, centerId: main.centerId })), 403);
+    sessionActor.actor = actor(main.directorId, "CENTER_DIRECTOR", main.centerId);
+    const pdf = await postExport(exportRequest({ ...fields, format: "pdf" }));
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers.get("content-type")).toContain("application/pdf");
+    expect(pdf.headers.get("content-disposition")).toBe(
+      `attachment; filename="grant-export-${main.periodStart}-to-${main.periodEnd}.pdf"`,
+    );
+    const bytes = new Uint8Array(await pdf.arrayBuffer());
+    expect(Buffer.from(bytes.subarray(0, 5)).toString("utf8")).toBe("%PDF-");
+  });
+
   it("prefixes formula text and leaves real numbers alone", () => {
     expect(escapeCsvField("=1+1")).toBe("'=1+1");
     expect(escapeCsvField("+1")).toBe("'+1");
@@ -946,6 +1305,7 @@ describe("database-backed donor export", () => {
     expect(escapeCsvField("<5")).toBe("<5");
     const csv = grantExportCsv({
       kind: "grant-export",
+      centerName: "Formula Center",
       mode: "aggregate",
       reportId: "11111111-1111-4111-8111-111111111111",
       periodStart: "2026-01-01",

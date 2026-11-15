@@ -95,6 +95,9 @@ export type ExportFacts = {
 
 export type ExportRequest = {
   centerId: string;
+  /// The center's own name. It is not a learner's name. The protected export
+  /// reads it from the center row. A caller cannot substitute a different one.
+  centerName: string;
   reportId?: string;
   periodStart: string;
   periodEnd: string;
@@ -110,6 +113,8 @@ export type ExportFigure = number | string;
 
 export type GrantExport = {
   kind: "grant-export";
+  /// Printed in the report body. Kept out of the file name and PDF properties.
+  centerName: string;
   mode: ExportMode;
   reportId: string;
   periodStart: string;

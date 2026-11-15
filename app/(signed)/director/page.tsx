@@ -63,6 +63,10 @@ async function DirectorHome({ searchParams }: { searchParams: Promise<{ notice?:
         <Link className="underline" href="/audit">
           Audit log
         </Link>
+        {" · "}
+        <Link className="underline" href="/export">
+          Grant export
+        </Link>
       </p>
       <p className="text-lg">
         <Link className="underline" href="/director/skill-tags">

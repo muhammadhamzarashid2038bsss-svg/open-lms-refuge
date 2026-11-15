@@ -23,7 +23,8 @@
 // that no class was eligible, would tell the reader that hidden count exactly.
 // Those figures use the center's "<" label instead, and they do not show 0
 // or 0.0%. A percent is also hidden when either learner group is below the
-// minimum, including a rate of 0% or 100%.
+// minimum, including a rate of 0% or 100%. Coverage uses the same marked-session
+// count as its numerator, so it stays hidden whenever that count is hidden.
 //
 // Assignment completion uses the evidence the database actually stores.
 // Paper and in-class exams are complete only with a settled grade and no open
@@ -60,7 +61,7 @@ import {
   type GenderName,
   type GrantExport,
 } from "./types";
-import { assertExportDocument } from "./whitelist";
+import { acceptableCenterName, assertExportDocument } from "./whitelist";
 
 const INVALID = "The export could not be built from the center records.";
 const COMPLETION_DATE_MISSING = "Completion date missing";
@@ -95,6 +96,8 @@ export function buildGrantExport(input: {
   const min = request.suppressionMin;
   if (!Number.isInteger(min) || min < 2 || min > 100) return { ok: false, message: MIN_INVALID };
   const reportId = canonicalReportId(request.reportId);
+  const centerName = typeof request.centerName === "string" ? request.centerName.trim() : "";
+  if (!acceptableCenterName(centerName)) return { ok: false, message: INVALID };
   const start = calendarDay(request.periodStart);
   const end = calendarDay(request.periodEnd);
   const asOf = calendarDay(request.asOf);
@@ -132,6 +135,7 @@ export function buildGrantExport(input: {
 
   const report: GrantExport = {
     kind: "grant-export",
+    centerName,
     mode,
     reportId,
     periodStart: start,
@@ -362,6 +366,11 @@ function attendanceFigures(marks: readonly Mark[], min: number, label: string): 
   // marked === 0 and eligible === 0 are the same rule: the underlying learner
   // group is zero, so the center's "<min" label is used. Do not divide by zero
   // and do not substitute a sentence that names that exact zero.
+  //
+  // Coverage's numerator is that same marked-session count. A funder who can
+  // estimate the eligible sessions could multiply the percentage and recover
+  // the count this report is refusing to print. The percentage is therefore
+  // printed only when the rate check and the coverage check both pass.
   const publish = marked > 0 && base >= min && confirmedLearners >= min && gapLearners >= min;
   const publishCoverage = eligible > 0 && base >= min && recordedLearners >= min && unmarkedLearners >= min;
   return {
@@ -369,7 +378,7 @@ function attendanceFigures(marks: readonly Mark[], min: number, label: string): 
     confirmed: publish ? confirmed : label,
     eligible: publish ? marked : label,
     rate: publish ? formatPercent((confirmed / marked) * 100) : label,
-    coverage: publishCoverage ? formatPercent((marked / eligible) * 100) : label,
+    coverage: publish && publishCoverage ? formatPercent((marked / eligible) * 100) : label,
   };
 }
 

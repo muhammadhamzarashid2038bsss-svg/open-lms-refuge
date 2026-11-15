@@ -1,8 +1,8 @@
-// The only public donor-export entry point. It authenticates the actor against
-// PostgreSQL, reads that center's saved settings and records, generates a new
-// report id, and writes the audit row before the CSV can be returned. If the
-// audit insert fails, the transaction rolls back and this function rejects,
-// so there is no file to send.
+// The donor-export entry point. It authenticates the actor against PostgreSQL,
+// reads that center's saved settings and records, generates a new report id,
+// and writes the audit row before a file can be returned. CSV and PDF are two
+// projections of that one report. If the audit insert fails, the transaction
+// rolls back and this function rejects, so there is no file to send.
 //
 // The request is a date range and, for a learner-level file, the id of a
 // saved funder requirement. Facts, suppression settings, and report ids from
@@ -18,6 +18,7 @@ import { buildGrantExport } from "./aggregate";
 import { exportFilename, grantExportCsv } from "./csv";
 import { assertExportServer } from "./guard";
 import { loadExportFacts } from "./load";
+import { grantExportPdf } from "./pdf";
 import { canonicalReportId } from "./pseudonym";
 import { readExportSecret } from "./secret";
 import { EXPORT_DENIED, type BreakdownDimension, type ExportMode } from "./types";
@@ -27,8 +28,20 @@ const CLOCK_INVALID = "The center clock could not be read.";
 const MIN_INVALID = "This center's small-group minimum cannot be used for an export.";
 const REQUIREMENT_MISSING = "A learner-level export needs an active funder requirement approved for this center.";
 
+export type ExportFormat = "csv" | "pdf";
+
 export type CenterExportResult =
   | { ok: true; csv: string; filename: string; reportId: string }
+  | { ok: false; message: string };
+
+export type CenterExportFile =
+  | {
+      ok: true;
+      body: Uint8Array;
+      filename: string;
+      reportId: string;
+      contentType: "text/csv; charset=utf-8" | "application/pdf";
+    }
   | { ok: false; message: string };
 
 export async function exportCenterCsv(input: {
@@ -39,6 +52,25 @@ export async function exportCenterCsv(input: {
   mode?: ExportMode;
   requirementId?: string;
 }): Promise<CenterExportResult> {
+  const result = await exportCenterReport({ ...input, format: "csv" });
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    csv: new TextDecoder().decode(result.body),
+    filename: result.filename,
+    reportId: result.reportId,
+  };
+}
+
+export async function exportCenterReport(input: {
+  actor: Actor | null;
+  centerId: string;
+  periodStart: string;
+  periodEnd: string;
+  mode?: ExportMode;
+  requirementId?: string;
+  format?: ExportFormat;
+}): Promise<CenterExportFile> {
   assertExportServer();
   if (!input.actor) return { ok: false, message: EXPORT_DENIED };
   const periodStart = calendarDay(input.periodStart);
@@ -46,6 +78,8 @@ export async function exportCenterCsv(input: {
   if (!periodStart || !periodEnd || periodStart > periodEnd) return { ok: false, message: RANGE_INVALID };
   const mode = input.mode ?? "aggregate";
   if (mode !== "aggregate" && mode !== "pseudonymized") return { ok: false, message: RANGE_INVALID };
+  const format = input.format ?? "csv";
+  if (format !== "csv" && format !== "pdf") return { ok: false, message: RANGE_INVALID };
   const actorId = input.actor.id;
   const centerId = input.centerId;
 
@@ -56,7 +90,7 @@ export async function exportCenterCsv(input: {
       const secret = readExportSecret();
       const center = await tx.center.findUnique({
         where: { id: centerId },
-        select: { id: true, code: true, timezone: true, smallGroupSuppressionMin: true },
+        select: { id: true, name: true, code: true, timezone: true, smallGroupSuppressionMin: true },
       });
       if (!center) return { ok: false, message: "The export could not be built from the center records." };
       if (!isValidTimeZone(center.timezone)) return { ok: false, message: CLOCK_INVALID };
@@ -85,6 +119,7 @@ export async function exportCenterCsv(input: {
       const built = buildGrantExport({
         request: {
           centerId,
+          centerName: center.name.trim(),
           reportId,
           periodStart,
           periodEnd,
@@ -98,8 +133,8 @@ export async function exportCenterCsv(input: {
         secret,
       });
       if (!built.ok) return built;
-      const csv = grantExportCsv(built.report);
-      await recordExportAudit(tx, actor, reportId, "CSV", mode === "pseudonymized" ? "PSEUDONYMIZED" : "AGGREGATE", {
+      const body = format === "pdf" ? await grantExportPdf(built.report) : Buffer.from(grantExportCsv(built.report), "utf8");
+      await recordExportAudit(tx, actor, reportId, format === "pdf" ? "PDF" : "CSV", mode === "pseudonymized" ? "PSEUDONYMIZED" : "AGGREGATE", {
         periodStart,
         periodEnd,
         suppressionMin,
@@ -109,7 +144,13 @@ export async function exportCenterCsv(input: {
         requirementReference: requirement?.requirementReference,
         crossReportLinkage: requirement ? requirement.crossReportLinkage : undefined,
       });
-      return { ok: true, csv, filename: exportFilename(periodStart, periodEnd), reportId };
+      return {
+        ok: true,
+        body,
+        filename: exportFilename(periodStart, periodEnd, format),
+        reportId,
+        contentType: format === "pdf" ? "application/pdf" : "text/csv; charset=utf-8",
+      };
     },
     // One transaction so the audit row commits with the decision to return the
     // file. PostgreSQL's default is Read Committed: each query can see a newer

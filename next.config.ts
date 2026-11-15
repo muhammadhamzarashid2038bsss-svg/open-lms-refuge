@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // PDFKit loads its standard-font files from disk. Bundling those files has
+  // picked the wrong copy, so the Node server requires the package directly.
+  serverExternalPackages: ["pdfkit"],
   experimental: {
     agentFeedback: true,
   },

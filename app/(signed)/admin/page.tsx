@@ -39,6 +39,10 @@ async function AdminHome({ searchParams }: { searchParams: Promise<{ notice?: st
         <Link className="underline" href="/audit">
           Audit log
         </Link>
+        {" · "}
+        <Link className="underline" href="/export">
+          Grant export
+        </Link>
       </p>
       {staffing ? <ReassignSectionForm sections={staffing.sections} teachers={staffing.teachers} /> : null}
       <PinResetForm showCenterCode />

@@ -7,6 +7,6 @@ import { assertExportServer } from "./guard";
 
 assertExportServer();
 
-export { exportCenterCsv, type CenterExportResult } from "./run";
+export { exportCenterCsv, exportCenterReport, type CenterExportFile, type CenterExportResult } from "./run";
 export { approveFunderRequirement, type FunderRequirementResult } from "./requirements";
 export { EXPORT_DENIED, EXPORT_LIMITATION } from "./types";

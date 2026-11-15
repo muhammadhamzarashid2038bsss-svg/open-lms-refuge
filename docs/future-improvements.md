@@ -272,6 +272,19 @@ Do not claim production or real-pilot readiness merely because the automated tes
 
 ---
 
+## 6. Grant export
+
+### 21. Funder-requirement management screen
+
+**Observation:** Day 17 can download an aggregate report, and it can download a pseudonymized learner-level file when an active `FunderRequirement` row already exists. The Export page does not create, edit, or turn off that row. `approveFunderRequirement` remains a server function with no screen.
+
+**Possible improvement:** Add a separate screen where a Director of the center, or an Admin, can record a funder requirement with the funder name, the short reference, the reason, and whether pseudonyms may stay the same across reports. The reason must stay out of the export file and the audit log. The normal demo seed should still not invent a requirement.
+
+**Priority:** Later
+**Status:** Not implemented. Recorded during Day 17 so the missing screen is not treated as part of the download work.
+
+---
+
 ## Priority Summary
 
 | Improvement | Priority | Status |
@@ -291,5 +304,6 @@ Do not claim production or real-pilot readiness merely because the automated tes
 | Real R2 upload/download testing | High before digital pilot | Outstanding verification |
 | Worksheet compression readability | Medium | Outstanding verification |
 | Real upload interruption and retry | High before digital pilot | Outstanding verification |
+| Funder-requirement management screen | Later | Not implemented |
 
 **Important:** These improvements are not automatically added to the current development schedule. Review them against the PRD, Execution Plan V3, real educator feedback, and the project's remaining priorities before implementation.
