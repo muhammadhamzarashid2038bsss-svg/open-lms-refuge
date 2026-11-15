@@ -1,41 +1,183 @@
-# Architecture decisions
+# Technical decision log
 
-Short record of choices that affect how the app runs locally and in production.
+Choices that change how the app stores data, syncs a phone, or builds a donor file. Each entry is backed by the requirements, the development log, the schema, the code, or a commit. A reason written in those sources is labeled **documented**. A reason inferred by reading the code, where nobody wrote it down at the time, is labeled **reconstructed**.
 
-## DATABASE_POOL_MAX for local Prisma Postgres
+Where a decision date cannot be tied to a meeting or a log entry, the date is the earliest verifiable implementation date. The requirement text for several of these choices is already in `docs/PRD.md` in commit `abd8d57` on 2026-10-24. That date is when the text entered this repository. It is not proof of a separate design meeting.
 
-**Decision:** Read `DATABASE_POOL_MAX` when constructing `PrismaPg` in `lib/db.ts`. When unset, the driver keeps its default pool size.
+This log describes the system on `main` at the start of Day 18, commit `0d2acd0`.
 
-**Why:** `npx prisma dev` serves a local Postgres proxy that effectively allows **one client connection at a time**. A larger pool (or parallel test workers) opens a second connection and fails with `P1017` / “Server has closed the connection”, especially during long `prisma db seed` transactions.
+## 1. IndexedDB versus LocalStorage
 
-**Local setup:** Set `DATABASE_POOL_MAX=1` in `.env` while using `prisma dev`. Vitest is configured to run test **files** one at a time for the same reason.
+**Decision:** Live phone data is stored in the IndexedDB database `olr-local`. localStorage key `olr.device.v1` remains a read-only backup of the older device queue. This version of the app reads that key and does not write it.
 
-**Rejected:** Relying only on `connection_limit` in the URL string — the pg adapter pool uses `max`, not that query parameter.
+**Why:** Documented. The requirements say IndexedDB replaces the HTML5 LocalStorage named in v1 because LocalStorage is small, about 5 MB, and easy to lose. The Day 7 log on 2026-11-08 says IndexedDB fits attendance events, rosters, snapshots, and device records, and that it is not encrypted automatically. The code comments in `lib/device/local-db.ts` add a constraint the requirements do not: the two stores cannot be saved in one step, so the copy is verified by reading it back, and the original key is never deleted.
 
-## Report-scoped pseudonyms for donor exports
+**Alternatives considered:** Documented. The v1 requirements named LocalStorage as the phone store. The current requirements replace that choice. No other storage engine is named in the repository.
 
-**Decision:** A donor file is built on the server from the center's PostgreSQL rows. The caller supplies a date range, not the learner facts, the suppression minimum, or a report id. The server creates a new random report id for every download.
+**Trade-offs:** IndexedDB can hold structured rows and homework file bytes, which a short localStorage string cannot. The backup key can still diverge from IndexedDB. When it does, the phone stops instead of guessing which copy is right. Anyone who can open this browser's storage tools can read both stores. A granted persistence promise does not stop the browser from deleting IndexedDB later.
 
-Learner codes are turned into pseudonyms with HMAC-SHA-256 and `EXPORT_SECRET`. The key must be 64 lowercase hexadecimal characters, which is what `crypto.randomBytes(32).toString("hex")` prints. Checking that shape does not prove the key was random. It rejects the example placeholder and ordinary passwords. A plain SHA-256 hash of a learner code is not used: codes are short and the hash method is public, so someone can try `LNR-0001`, `LNR-0002`, and so on until a value in the file matches. HMAC mixes in the secret first. Without the key, the same guess does not match. The key stays on the server.
+**Date:** Requirement text: 2026-10-24, commit `abd8d57`. Documented implementation narrative: Day 7 log, 2026-11-08. Earliest verifiable IndexedDB code: commit `e711a08` on 2026-11-08. The device-queue key itself is older: `lib/device/shared-device.ts` was added in commit `29a483e` on 2026-11-05.
 
-The default HMAC input is the report id plus the learner code. The same learner keeps one pseudonym inside that file. The next download gets a new report id, so the pseudonym changes.
+## 2. Version vectors versus timestamps
 
-**Pseudonymized is not anonymous.** A pseudonymized file still has one row per learner. Someone who knows a learner code and the secret can check a guess. An aggregate file has no learner rows at all. Aggregate is the default.
+**Decision:** Grades and progress notes carry a version vector: a map from device id to that device's save count for the one record. The server compares vectors. It accepts a save only when the sending device raised its own count and left every other count unchanged. Concurrent vectors are kept as two full copies. The phone clock is stored and is not used to pick a winner.
 
-**Funder approval:** A learner-level file is refused unless this center has an active `FunderRequirement` row, created by a director of that center or an admin. The row records the funder, a short reference, why learner-level rows are required, whether cross-report linkage is required, who approved it, and when. A typed id or a note in the request is not approval. Asking for learner-level rows does not turn on linkage. Linkage stays off unless that saved row says it is required. The audit row stores the short reference and the linkage flag. It does not store the reason text or any learner code. The demo seed does not invent a funder requirement.
+**Why:** Documented. The requirements say phone clocks are often wrong, so ordering never relies on the timestamp alone. The schema comment on `GradeEntry.versionVector` says the same thing. The Day 2 log on 2026-11-03 describes the scoreboard. The Week 2 review on 2026-11-10 records that both copies were kept when two browsers edited the same record, and that a later edit worked after a teacher resolved the conflict.
 
-**Small groups:** The center's saved `smallGroupSuppressionMin` is the only threshold. A stored value outside 2–100 stops the export. Every published count is a count of learners. A count below the minimum, including zero, is shown as `<` plus the minimum, so the default looks like `<5`. A percentage is published only when the learner group in the numerator and the learner group left over are both at least the minimum. That hides 0% and 100%. If exactly one demographic cell is hidden, the next smallest cell is hidden too, so one hidden number cannot be recovered by subtracting the others from the total. Two hidden cells still reveal only their sum.
+**Alternatives considered:** Documented. Ordering by the phone timestamp alone is the alternative the requirements and the code comments reject. `deviceRecordedAt` and `recordedAt` are still stored so a person can read them. The repository does not record an evaluation of other conflict algorithms by name.
 
-This does not make re-identification impossible. A later export with an overlapping date range can be subtracted from this one. Someone who already knows part of a hidden group can learn the rest. Age and gender stay in separate tables and are not crossed on a learner row.
+**Trade-offs:** Two offline phones cannot silently wipe each other. The cost is a human step: an assigned teacher must choose the shown copy, the other copy, or a merged value. Until then the screen shows the copy the server received later, by `syncedAt`. A vector that raises another device's count is rejected. Attendance does not use vectors, because a correction is a new row.
 
-**Counts:** A learner is counted once even with two sections. An active enrollment stays open from its start date. A withdrawn enrollment includes the withdrawn date and stops after it. A completed enrollment includes `completedOn`, written by `completeEnrollment` when a director or admin marks an active enrollment completed. That day still counts. `updatedAt` is not the completion date, because a later edit of the same row would move it. A completed row saved before this column existed can have an empty date. The export does not invent one. That learner is left out of the registered count. If their enrollment date is on or before the end of the report, the cohort, the retained count, and the retention rate all say `Completion date missing` instead of a number. The selected dates are calendar dates in the center's timezone. Class and due instants are converted with that timezone, including daylight-saving changes. Enrollment dates are the calendar dates stored in PostgreSQL and are not shifted again.
+**Date:** Requirement text: 2026-10-24, commit `abd8d57`. Design note: Day 2 log, 2026-11-03. Columns first shipped in commit `b7ca0f5` on 2026-11-04. Comparison and resolution shipped in commit `f467859` on 2026-11-10. The 2026-11-03 log is the design note, not the date the comparison code ran.
 
-Attendance uses the mark the server received last (`syncedAt`, then `createdAt`, then id). The phone's clock is not the order. Present and Late are confirmed. Absent and Excused are recorded and are not confirmed. The denominator is those recorded sessions only. An unmarked session is left out of the numerator and the denominator. It is not called an absence, and it does not lower the rate. If every eligible session is unmarked, or there is no eligible session, the recorded group is zero. The donor file uses the center's `<` label for those attendance figures. It does not say that attendance was never recorded, and it does not say that no session was eligible, because either sentence would reveal that the hidden count is exactly zero. It does not show 0 or 0.0%. Cancelled and future sessions are left out. When a recorded rate is hidden because a learner group is too small, the session totals are hidden too.
+## 3. Append-only attendance records
 
-The Performance Dashboard uses the same two formulas. Attendance rate is Present and Late divided by recorded marks. Attendance coverage is recorded marks divided by every eligible session, so a blank sheet stays in coverage and out of the rate. The shared example is 7 attended, 1 absent, 1 excused, and 1 unmarked: rate 77.8%, coverage 90.0%. A donor file can still hide that percent when a learner group is below the center minimum. The dashboard shows the percent to the director, because that page is not a donor file.
+**Decision:** An attendance mark is inserted and then left unchanged. A correction is a new row with its own `clientEventId`. The database trigger `attendance_records_append_only` rejects updates. It rejects deletes unless the local demo reset has set `app.allow_demo_reset` for that one transaction.
 
-**Snapshot:** The local database defaults to Read Committed. In that mode each query can see a commit that landed after the previous query, so the enrollment read and the attendance read could disagree. The export sets Repeatable Read on its one transaction. PostgreSQL then shows every read the rows that were committed before the transaction's first query. The audit insert uses that same transaction, so it commits with the file or not at all. This is not Serializable. Two exports at the same moment can still describe two different snapshots.
+**Why:** Documented. The requirements say a correction is a new record and never an overwrite. The Week 1 review on 2026-11-06 gives the example of Absent later corrected to Present, with the original row kept. The schema comment states the same rule. The current mark used by reports is the row the server received last.
 
-Assignment completion uses stored evidence only. Paper and in-class exams count as complete when there is a settled grade and no open conflict. There is no separate "handed in" flag. Digital work counts when the latest submission is stored. Hybrid work needs both. An assignment with no due date, or a maximum of zero points, is left out, matching the gradebook rule that an undated task is never overdue. A grade does not, by itself, prove a paper was physically handed in. It is the only evidence the database has.
+**Alternatives considered:** Documented. Updating the same row in place is the alternative the trigger and the Week 1 review reject. The demo-reset switch is a narrow exception for rebuilding synthetic data. The schema says application code must not set that switch.
 
-**Rejected:** Hashing a learner code with no key. One lifetime pseudonym for every learner. Letting the caller supply facts, a report id, or the suppression minimum. Publishing a completion count of zero when fewer than the minimum learners finished. Calling small-group suppression a guarantee against re-identification.
+**Trade-offs:** History survives a mistaken tap and a retried upload. The table grows by one row per correction. The phone must keep enough local history to know which earlier event a correction points at. Confirmed rows are marked acknowledged on the phone and are not deleted. That retention is described as a discrepancy in `docs/architecture.md` because the requirements can be read as allowing deletion after confirmation.
+
+**Date:** Requirement text: 2026-10-24, commit `abd8d57`. Trigger shipped in commit `b7ca0f5` on 2026-11-04, which is earlier than the Week 1 write-up. Documented rationale in the log: 2026-11-06. Kiosk history shipped in commit `62c86c7` on 2026-11-07.
+
+## 4. Local cache and privacy choices
+
+**Decision:** The phone keeps unsent and confirmed records in IndexedDB under the account that wrote them. Sign-out writes a lock and then asks the server to revoke the session. The lock hides the queue on screen. It does not encrypt, delete, or move the rows. A different account is blocked while waiting items remain and no handover note points at that lock.
+
+**Why:** Documented. `lib/device/shared-device.ts` says logout must not delete records that have not been sent, and must lock the phone so the next person cannot read them on screen. `lib/device/local-db.ts` and `lib/device/file-queue.ts` say IndexedDB is not encrypted and that logout does not delete file rows. The Day 7 log records the same limit. The handover row on the server stores a reason, a count, and a device label, and the schema says it does not contain the records, a PIN, or a password.
+
+**Alternatives considered:** No encryption design is recorded in the repository. This entry does not treat encryption as an option that was formally rejected. The recorded choice is the lock, the account fields on each row, and the comments that say the stores are readable.
+
+**Trade-offs:** A shared phone can keep marks that have not reached the server, which matters when the connection drops during sign-out. The same browser profile still holds every account's rows. Filtering by `centerId` and `userId` is an application rule. Browser storage tools can read past it. The offline session snapshot uses the phone clock with an offset measured when the class was loaded. The code says that check is not a security boundary. Ending the server session is.
+
+**Date:** Documented in the Day 7 log on 2026-11-08 and in the code comments added with commit `e711a08` that day. The lock-before-revoke order shipped in commit `d89ce75` on 2026-11-09. The server handover table shipped in commit `29a483e` on 2026-11-05.
+
+## 5. Separate file-upload and submission queue
+
+**Decision:** Homework bytes use their own phone store, `fileQueue`, and their own server table, `file_upload_queue`. They are not members of the JSON sync batch. A retry uses `clientSubmissionId`. The database stores size, MIME type, a SHA-256 checksum, and a private storage key. It does not store the bytes.
+
+**Why:** Documented. The schema comment says a photo must not block attendance and a retry must not duplicate the gradebook row. The Day 2 log on 2026-11-03 records the separate queue. The Week 2 review on 2026-11-10 explains that photographs are larger and can fail partway, so they have their own IndexedDB queue and a foreground upload. The file stays on the phone until the server has read the stored bytes and the checksum matches.
+
+**Alternatives considered:** Documented. Putting the file bytes inside the compressed JSON batch is the alternative those sources reject. `JsonSyncEntityType` has no file value.
+
+**Trade-offs:** Attendance can sync while a photo is still waiting. The phone must have room for the bytes, and logout will not remove them. A real Cloudflare R2 bucket is not configured in this repository. When the storage settings are empty, the app says file storage is unavailable. `docs/STORAGE.md` and the Day 10 log record that real-bucket testing is still pending.
+
+**Date:** Schema comment and table: commit `b7ca0f5` on 2026-11-04. Design note: Day 2 log, 2026-11-03. Phone queue: commit `cc998df` on 2026-11-10, which raised IndexedDB from version 2 to version 3. Documented rationale for the phone queue: Week 2 review, 2026-11-10.
+
+## 6. HMAC versus plain hashing for pseudonymization
+
+**Decision:** Learner codes that appear in a donor file are turned into pseudonyms with HMAC-SHA-256 and `EXPORT_SECRET`. The key stays on the server. A plain SHA-256 hash of the learner code is not used. The implementation uses Node's built-in `crypto`, not Crypto-JS.
+
+**Why:** Documented. The requirements specify HMAC-SHA-256 with a secret kept outside the code, and they drop Crypto-JS because that library was no longer treated as actively maintained. `lib/export/pseudonym.ts` explains the guessing problem: learner codes are short and a public hash with no secret can be tried until a value in the file matches. HMAC mixes the secret in first. The Day 16 log on 2026-11-13 to 2026-11-15 records the same lesson, including that a pseudonymized file is not anonymous.
+
+**Alternatives considered:** Documented. Plain SHA-256 of the learner code is rejected in the code comment and in the export decision that shipped with the feature. Crypto-JS is the library named and not used in the requirements. The key-shape check accepts 64 lowercase hexadecimal characters and rejects the example placeholder. The comment in `lib/export/secret.ts` says that shape does not prove the key was random.
+
+**Trade-offs:** Without the secret, guessing a code does not reproduce the pseudonym. With the secret, a known code can be checked against the file. The secret must be protected on the server. `server-only` stops a client component from importing the export folder. The check of the key's shape will also reject a long passphrase that is not 64 hex characters, even if that passphrase is hard to guess.
+
+**Date:** Requirement text: 2026-10-24, commit `abd8d57`. Implementation: commit `9274935` on 2026-11-15. Day 16 log: 2026-11-13 to 2026-11-15.
+
+## 7. Report-scoped pseudonyms
+
+**Decision:** The default HMAC input includes a new random report id, so the same learner gets one pseudonym inside one file and a different pseudonym on the next download. A stable pseudonym across reports is used only when a saved `FunderRequirement` has `crossReportLinkage` set. The requirement id then replaces the report id. The caller cannot choose that id, and asking for learner-level rows does not turn linkage on.
+
+**Why:** Documented. `lib/export/pseudonym.ts` says two downloads should not line up by themselves. The funder row is the only switch for linkage. The Day 16 log records report scope as the default. The Day 17 log records that learner-level export stays off unless an active funder requirement exists. The audit row stores the short reference and the linkage flag, and it does not store the reason text, because free text can name a person.
+
+**Alternatives considered:** Documented in the export notes that shipped on 2026-11-15. One lifetime pseudonym for every learner was rejected there. Letting the caller supply a report id was rejected there. The code matches that note: `exportCenterReport` generates the report id with `randomUUID()`, and the HTTP route does not read a report id from the form.
+
+**Trade-offs:** A single file still contains the same aggregate figures as an aggregate download: retention, attendance, coverage, assignment completion, and separate age and gender counts. The learner row itself contains only the pseudonym. Linkage across reports is possible only after a director or admin has saved a requirement that asks for it. There is no screen for that save. `approveFunderRequirement` is a server function, and the Export page can only select a row that already exists. A pseudonymized file remains re-identifiable by someone who has the secret and a learner code.
+
+**Date:** Implementation and the written export note: commit `9274935` on 2026-11-15. Funder-requirement table: migration `20261113160000_funder_requirements`. Day 17 log, which covers the approval gate: 2026-11-15.
+
+## 8. Small-group suppression and its limitations
+
+**Decision:** The center's `smallGroupSuppressionMin` is the only threshold. The default is 5, printed as `<5`. A stored value outside 2–100 stops the export. Counts below the minimum, including zero, use that label. A percentage is published only when both the group being measured and the group left over are at least the minimum. If exactly one breakdown cell is hidden, the next smallest cell is hidden too. The report text says overlapping exports and outside knowledge can still narrow a hidden group.
+
+**Why:** Documented. The requirements ask for figures based on fewer than 5 learners to be shown as `<5`, with an adjustable threshold. The schema default and the export code implement that, and they add the floor of 2 and the ceiling of 100. `lib/export/suppression.ts` explains complementary suppression: one hidden cell can otherwise be recovered by subtracting the visible cells from the total. The same file says this does not close every path. The limitation string is stored on the file as `EXPORT_LIMITATION`.
+
+**Alternatives considered:** Documented. The export notes reject publishing a completion count of zero when fewer than the minimum learners finished, and they reject calling suppression a guarantee against re-identification. The dashboard may show 0% coverage or a sentence that nobody was marked. The donor file uses the `<` label instead, because that sentence would reveal that the hidden count is exactly zero.
+
+**Trade-offs:** Small classes are harder to read out of one table. They are not safe from a second export with an overlapping date range, or from someone who already knows part of the group. Two hidden cells reveal their sum. Breakdown cells whose count is zero are omitted before complementary suppression, so a missing category is not printed as zero. Coverage is also withheld when the attendance-rate counts are withheld, because the coverage numerator is that same recorded-session count. Aggregate remains the default. A pseudonymized learner list is omitted entirely when the registered group is below the minimum.
+
+**Date:** The center column shipped in commit `b7ca0f5` on 2026-11-04. The suppression rules shipped in commit `9274935` on 2026-11-15. The coverage dependency, hiding coverage when the recorded-session count is withheld, is in commit `a4fc7f1` on 2026-11-15. Day 16 log: 2026-11-13 to 2026-11-15.
+
+## 9. Coarse absence reasons
+
+**Decision:** Absent and Excused may carry one code from a fixed list: Illness, Family care, Transport or cost, Family circumstances (details not recorded), and Unknown. There is no free-text reason column. Present and Late cannot carry a reason in the application. Family circumstances does not store a story. In the risk service it suggests a human check-in and does not raise the numeric score.
+
+**Why:** Documented. The requirements list those five reasons and say the system never records legal status or free-text details about a family's situation. The Day 6 log on 2026-11-07 records the same list and the absence of a free-text box. The attendance tests reject a free-text reason and reject a reason attached to Present.
+
+**Alternatives considered:** Documented. A free-text family story is the alternative the requirements and the Day 6 log reject. The database check is wider than the screen: it only forces Present to have an empty reason, and it allows a reason on Late. That difference is recorded in `docs/architecture.md`. It was not a written decision to allow Late reasons. The application refuses them.
+
+**Trade-offs:** Reports and the risk score can tell illness from transport without storing a narrative. A center cannot record a situation that does not fit the five codes, except as Unknown or as family circumstances with no details. The Late gap means a direct database write could store a reason the screens will not send.
+
+**Date:** Requirement text: 2026-10-24, commit `abd8d57`. Enum and database check: commit `b7ca0f5` on 2026-11-04. Screen and tests: Day 6 log, 2026-11-07, commit `62c86c7`.
+
+## 10. Excluding legal-status information from the data model
+
+**Decision:** The database has no column for immigration status, legal status, an identity-document number, a home address, or an exact birth date. A learner row stores a learner code, a first name or nickname, an age band, and section membership. A center may turn on gender, from a fixed list, and a director-only phone number. The phone number is a separate table and is not exported.
+
+**Why:** Documented. The requirements under SYS-2 list what is collected and what is never collected. The opening comment in `prisma/schema.prisma` repeats that list. `tests/phase1-schema.test.ts` queries the catalog for column names matching address, passport, immigration, birth date, identity document, legal status, and similar names, and expects no rows.
+
+**Alternatives considered:** The requirements forbid collecting legal status. The repository does not record a prototype that stored it and was later removed. The first migration creates the schema without those columns.
+
+**Trade-offs:** A donor or a risk score cannot slice learners by legal status, which is the point of the rule. Staff also cannot use this database as a case file. Optional phone numbers exist only when a center enables them, and a database rule rejects a phone row when the switch is off. Progress-note and grade-comment columns are length-limited academic text. They are a poor place for a life story, and the screens that write them say so. The columns can still hold whatever a person types inside the length limit.
+
+**Date:** Requirement text: 2026-10-24, commit `abd8d57`. Earliest verifiable schema: commit `b7ca0f5` on 2026-11-04. The catalog test is in `tests/phase1-schema.test.ts`, added with that schema work.
+
+## 11. Reachability is a health request, not the phone's online flag
+
+**Decision:** Attendance sync treats the server as reachable only when `GET /api/sync/health` returns HTTP 200, a JSON content type, and a body of exactly `{"status":"ok"}`. `navigator.onLine` is accepted by the classifier and ignored.
+
+**Why:** Documented. The requirements say the app checks whether it can actually reach the server, not only whether the phone says it is online. `lib/sync/health.ts` says a phone often reports the opposite of what the school server can do. The Day 8 work, commit `09c651f` on 2026-11-09, is the first sync upload that uses this check.
+
+**Alternatives considered:** Documented. Trusting `navigator.onLine` is the alternative the health module rejects. A redirect or an HTML sign-in page is classified as unavailable, so a login page is not treated as a successful sync.
+
+**Trade-offs:** The phone does not upload into a dead session or a captive portal that only looks online. Sync runs only while a signed-in page is open. There is no background upload after the page is gone. A health check that fails leaves the marks pending and schedules a retry.
+
+**Date:** Requirement text: 2026-10-24, commit `abd8d57`. Implementation: commit `09c651f` on 2026-11-09.
+
+## 12. Sealed session cookie
+
+**Decision:** The browser cookie holds an `AuthSession` id sealed with `iron-session`. Logout sets `revokedAt`. A session also ends after 8 hours, or after 30 minutes without a page load. Those limits use the server clock. Passwords and PINs are hashed with Node's `scrypt`.
+
+**Why:** Documented. The Week 1 review on 2026-11-06 says `iron-session` was chosen instead of a larger authentication framework so the app could keep learner code and PIN sign-in. `docs/DATABASE.md` records `scrypt`, and names `bcrypt` and `argon2` as maintained alternatives that were not adopted. Argon2 is described there as needing a native add-on.
+
+**Alternatives considered:** Documented. A larger authentication framework is the alternative named in the Week 1 review. `bcrypt` and `argon2` are the hash alternatives named in `docs/DATABASE.md`. The repository does not record a trial of those libraries.
+
+**Trade-offs:** A copied cookie stops working after revoke, which matters on a shared phone. The cookie seal is not a substitute for the phone lock: the offline class snapshot can still show a class until its copied expiry, and that offline check is not a security boundary. Five failed sign-ins lock the attempt key for 15 minutes. Unknown emails get the same message as a wrong password.
+
+**Date:** Documented rationale: Week 1 review, 2026-11-06. Earliest verifiable sign-in and session-table commit: `29a483e` on 2026-11-05. That commit adds migration `20261104183108_auth_sessions_lockout_handover`. The folder timestamp is 2026-11-04. The commit that put it in the repository is the following day.
+
+## 13. Repeatable Read for one export transaction
+
+**Decision:** The donor export runs in one PostgreSQL transaction at Repeatable Read. The audit insert uses that same transaction. If the insert fails, the function rejects and there is no file to send.
+
+**Why:** Documented. `lib/export/run.ts` says the local database defaults to Read Committed, where the enrollment read and the attendance read could see different commits. Repeatable Read shows every read the rows that were committed before the transaction's first query. The comment also says this is not Serializable.
+
+**Alternatives considered:** Documented in that comment. Read Committed is the default being avoided for this transaction. Serializable is named and not used.
+
+**Trade-offs:** One export's enrollment, attendance, and grades describe the same snapshot, and the audit row commits with that decision. Two exports at the same moment can still describe two different snapshots. The transaction timeout is 20 seconds, which the comment ties to the local one-connection database proxy.
+
+**Date:** Commit `9274935` on 2026-11-15. The comment in `lib/export/run.ts` is the written rationale. No earlier log entry describes this isolation choice.
+
+## 14. Local Prisma pool size
+
+**Decision:** `lib/db.ts` reads `DATABASE_POOL_MAX` when it constructs the Prisma Postgres driver. When the variable is unset, the driver keeps its default pool size. Local development with `npx prisma dev` sets the pool to 1.
+
+**Why:** Documented in this file since the export work, and in the code comment around the pool. `npx prisma dev` serves a local Postgres proxy that effectively allows one client connection at a time. A larger pool opens a second connection and fails with `P1017` during long seed transactions. Vitest runs test files one at a time for the same reason.
+
+**Alternatives considered:** Documented. Relying only on `connection_limit` in the URL was rejected because the driver pool uses `max`, not that query parameter.
+
+**Trade-offs:** Local tests and seed runs stay inside the proxy's limit. A hosted database can raise `DATABASE_POOL_MAX`. Forgetting the local setting brings back the closed-connection errors. This choice is about the development database, not about learner privacy.
+
+**Date:** Commit `b49a83a` on 2026-11-06, message `Support configurable Prisma connection pool`. The written note in this log was expanded with the export commit `9274935` on 2026-11-15. The 2026-11-06 commit is the earliest verifiable implementation.
+
+## Related pages
+
+- `docs/architecture.md` — diagrams of the running system, and the places where an older sentence disagrees with the code.
+- `docs/DATABASE.md` — table-by-table guide.
+- `docs/STORAGE.md` — private homework files, and the bucket that is not created yet.
+- `docs/PRD.md` — the original requirements. It is not a claim that every line is built.
+- `docs/DEV_LOG.md` — the day-by-day notes cited above.

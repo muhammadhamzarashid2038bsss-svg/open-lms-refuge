@@ -1,6 +1,7 @@
-// Center totals for one date range. exportCenterCsv is the only public entry
-// point: it checks the director or admin, reads PostgreSQL, and writes the
-// audit row before returning a file. This function only calculates.
+// Center totals for one date range. The Export page calls exportCenterReport.
+// That function checks the director or admin, reads PostgreSQL, and writes the
+// audit row before returning a file. exportCenterCsv is the CSV wrapper around
+// it. This function only calculates.
 //
 // Registered learners are distinct people whose enrollment overlaps the range.
 // A second section does not count the same person twice. Retention uses the

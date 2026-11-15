@@ -1,6 +1,6 @@
 # Database
 
-This database holds the Phase 1 records for one learning center: people, classes, attendance, grades, notes, and the bookkeeping needed to sync a phone that was offline.
+This database holds the Phase 1 records for learning centers: people, classes, attendance, grades, notes, and the bookkeeping needed to sync a phone that was offline. A center-owned row stores a center id, so one database can hold more than one center. The normal demo seed currently creates one center.
 
 The app talks to PostgreSQL through [Prisma](https://www.prisma.io/) 7.10. Prisma is the tool that turns `prisma/schema.prisma` into tables and into TypeScript queries. Prisma 8 was a release candidate when this was added, so the project stays on 7.10.
 
@@ -32,13 +32,15 @@ A version vector is a small scoreboard: each phone has a count of how many times
 | Editable record | Grade, progress note | The phone reuses the same record id and bumps its own count on the version vector. | The server keeps both full copies, marks a conflict, and shows the copy it received later until a teacher chooses. |
 | File upload | Homework photo | The photo waits in its own queue. It is not inside the JSON batch. | A retry uses the same `clientSubmissionId`, so the gradebook does not grow a second row. |
 
-JSON sync is the compressed batch of attendance, grades, notes, and lesson progress. The file queue is a different table with no link to that batch. A slow photo must not block the attendance batch, and the database never stores the photo bytes. It stores the size, the MIME type (what kind of file it is), a checksum (a fingerprint of the bytes), and a private storage key. The key is not a public web link.
+JSON sync is the compressed batch of attendance, grades, and progress notes. The schema also allows a `LESSON_PROGRESS` label and a separate note-view receipt. No phone workflow currently saves lesson completion or sends it in that batch. Note-view receipts are implemented, and they are not lesson progress. The file queue is a different table with no link to that batch. A slow photo must not block the attendance batch, and the database never stores the photo bytes. It stores the size, the MIME type (what kind of file it is), a checksum (a fingerprint of the bytes), and a private storage key. The key is not a public web link.
 
 `syncedAt` means when the server received that row or that version. `deviceRecordedAt` and `recordedAt` are the phone’s clock, kept so a person can read them, not so the software can sort them.
 
 ## How the tables connect
 
 A foreign key is a link the database refuses to break. An index is a shortcut for a search the app does often, such as “attendance for this session” or “open conflicts.”
+
+The three diagrams below are a subset of the tables, drawn when this page was first written. They are still accurate for the tables they show. The full set, including funder requirements, audit rows, and sync conflicts, is in `docs/architecture.md`.
 
 ```mermaid
 erDiagram
@@ -86,7 +88,7 @@ erDiagram
 
 ### Center
 
-One learning center. The demo row is named Demo Learning Center and its code is `DEMO`. The timezone is only for showing the timetable later. Saved times stay in UTC, which is a shared clock that does not shift with a phone’s settings.
+One center row. The normal demo seed creates a single row named Demo Learning Center, code `DEMO`. The timezone is an IANA name. The timetable uses it to show class times, and a donor export uses it to turn the reporting period and class instants into calendar dates. Saved timestamps stay in UTC, which is a shared clock that does not shift with a phone’s settings.
 
 The center also stores the starting risk levels from the requirements (Watch at 40, High at 70) and the export minimum. A figure based on fewer learners than that minimum is hidden, including a count of zero. The default minimum is 5, which is shown as “<5”. The export refuses a saved minimum below 2 or above 100. Those are settings, not personal data.
 
@@ -96,7 +98,9 @@ One row per optional fact, per center, with an on/off switch. The demo center al
 
 ### FunderRequirement
 
-A director or admin records that one funder has asked this center for learner-level export rows. The row stores the funder name, a short reference, the reason, whether the same pseudonym may be reused across reports, who approved it, and whether it is still active. The demo seed does not contain one. A learner-level export looks for an active row. It does not trust an id typed into the request. The reason text stays on this row and is not copied into the audit log.
+A saved demand from one funder for learner-level export rows. The row stores the funder name, a short reference, the reason, whether the same pseudonym may be reused across reports, who approved it, and whether it is still active. The demo seed does not contain one. A learner-level export looks for an active row. It does not trust an id typed into the request. The reason text stays on this row and is not copied into the audit log.
+
+The table and the server function `approveFunderRequirement` exist. A management screen does not. The Export page can list an active row that is already stored and can offer the learner-level download. It cannot create, edit, or turn off a requirement. That screen is future work, recorded in `docs/future-improvements.md`.
 
 ### User
 
@@ -217,7 +221,7 @@ The retry line for those files. It points at one submission and tracks attempts 
 
 ### LessonProgress
 
-Whether a learner finished a class session: not started, in progress, or completed. A completed row must have a completion time. The others must not. This is a status flag, not a version-vector record. The requirements treat grades and progress notes as the editable records that can conflict. The optional section checklist is deferred until an offline update rule exists for two phones changing the same learner and session.
+Whether a learner finished a class session: not started, in progress, or completed. A completed row must have a completion time. The others must not. This is a status flag, not a version-vector record. The `LESSON_PROGRESS` label exists on the JSON sync enum, but no phone workflow currently saves or synchronizes lesson completion. Seed data and tests can write rows, and a handoff report can read them. The optional section checklist stays deferred until an offline update rule exists for two phones changing the same learner and session.
 
 ### ProgressNote
 
@@ -275,7 +279,7 @@ A database rule requires both preserved versions, and requires them to be the sa
 
 ### JsonSyncBatch and JsonSyncItem
 
-One compressed JSON upload, and the records inside it. Attendance, grades, progress notes, and lesson progress can be in the batch. File uploads cannot. `clientMutationId` plus the device id is unique, so a retry does not apply the same save twice. The demo stores two small batches, one per kiosk phone, each with two attendance items already marked applied. The compressed size is a stand-in number. The gzip bytes are not stored.
+One compressed JSON upload, and the records inside it. The phone currently sends attendance, grades, progress notes, and note-view receipts. The `LESSON_PROGRESS` label is on the enum, and the `LessonProgress` table exists, but no phone workflow saves or synchronizes lesson completion. File uploads cannot be in the batch. `clientMutationId` plus the device id is unique, so a retry does not apply the same save twice. The demo stores two small batches, one per kiosk phone, each with two attendance items already marked applied. The compressed size is a stand-in number. The gzip bytes are not stored.
 
 ## Demo data
 
@@ -310,4 +314,4 @@ This computer did not have PostgreSQL installed. Local development uses Prisma�
 
 In Prisma Studio, open `attendance_records` and search for `demo-att-morning-2-4`. You should see two rows for the same learner and session. Then open `sync_conflicts`. You should see two open rows, each pointing at two different version ids.
 
-The risk service, the login screens, and the sync engine that writes these tables from a phone are not part of this step. The tables are the contract those pieces will use.
+Sign-in, the offline phone, attendance sync, grade and note conflicts, the risk service, and donor exports now use these tables. How those pieces fit together is described in `docs/architecture.md`. This page remains the table-by-table guide.
