@@ -2,7 +2,7 @@
 
 This is a small Python service that calculates a supportive check-in score. It is separate from the Next.js learning app. It does not read the database, and it does not store flags.
 
-It accepts an anonymous learner code and numbers only. It refuses names, contact details, and notes. Read `docs/RISK_MODEL.md` in the project root for the formulas and the limits of the score.
+It accepts the centre's learner code and numbers only. That code is not anonymous: the centre can match it to the learner. It refuses names, contact details, and notes. Read `docs/RISK_MODEL.md` in the project root for the formulas and the limits of the score.
 
 The weights are starting estimates. A person decides whether to check in. Do not put this service on the public internet.
 

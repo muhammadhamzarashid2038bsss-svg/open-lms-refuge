@@ -10,7 +10,7 @@ Day 14 calculates the score. Day 15 connects that calculation to the learning ap
 
 The request may contain:
 
-- An anonymous learner code, such as `LNR-0014`.
+- The centre's learner code, such as `LNR-0014`. This is the code stored on the learner profile. It is not anonymous, because the centre can match it back to the learner.
 - The scoring date. This is a calendar date, not a phone clock time.
 - Class sessions, each with a date, a status, and a yes/no flag for "Family circumstances (details not recorded)".
 - Two assignment counts: how many were expected, and how many of those are missing.

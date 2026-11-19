@@ -237,7 +237,7 @@ Append-only history for notes. Same sync fields as `GradeEntryVersion`, plus the
 
 ### HandoffReport
 
-The section pack created when a teacher is deactivated or a section is reassigned. It points at the outgoing teacher, the incoming teacher when there is one, and the person who should read it (the incoming teacher, or the director if nobody has been assigned).
+The section pack created when a teacher is deactivated or a section is reassigned. It points at the outgoing teacher, the recipient, and a named next teacher only when one was explicitly chosen. On deactivation, the recipient is the only other teacher already teaching that section, or the centre director when there is not exactly one. A newly arriving volunteer is not identified automatically.
 
 The demo includes one report for the afternoon group, dated the day Teacher Two takes over from Teacher Three. Switching a teacher off, or ending their section assignment, now builds a report in the same database transaction. `sourceKey` makes a repeated request return the existing pack instead of a second one. The seed report uses the key `seed:afternoon-teacher-three`.
 

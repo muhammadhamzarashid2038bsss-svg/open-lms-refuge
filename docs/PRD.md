@@ -95,7 +95,7 @@ FEAT-2 Multi-Teacher Handoff & Audit Trail System · Phase 1 · Must
 Real-world problem: volunteer turnover leads to lost paper records, unrecorded learning gaps, and fragmented progress tracking.
 •Teachers record lesson completion status, progress notes, and skill-gap tags (reading, writing, speaking, number sense, or custom).
 •When a teacher account is deactivated or a section is reassigned, the system automatically builds a Student Transition Profile for each affected learner and one section-level handoff report. Contents: progress notes, physical lesson completion, skill gaps, attendance trends, grade trends, and historical records.
-•The report is assigned to the incoming teacher (or to the director if none yet) and can be printed or saved as a PDF.
+•Original requirement: assign the report to the incoming teacher, or to the director if none has been named, and allow it to be printed or saved as a PDF. Current implementation: deactivation assigns it to the only other current teacher, or to the director when there is not exactly one. Ending a section assignment can name the next teacher. A new volunteer is not chosen automatically. Printing uses the browser print dialog. The app does not create the PDF itself and cannot tell whether one was saved.
 •Teacher accounts are deactivated, never deleted, so history is preserved.
 •Audit trail: a log of who viewed or changed grades, notes, handoff reports, risk flags, and exports, and when.
 FEAT-3 Early Drop-Out Risk Scoring Algorithm · Phase 1 · Must
@@ -104,7 +104,7 @@ Real-world problem: drop-outs are rarely sudden. They start with quiet attendanc
 •Starting weights: w1 = 0.5, w2 = 0.3, w3 = 0.2, kept in a config file. These are educated starting guesses, to be calibrated with real centers. The documentation says so openly.
 •Edge-case rules: excused absences count at a reduced weight (starting at 25%). An absence marked “Family circumstances (details not recorded)” does not raise the score but adds a “check-in suggested” note. Sessions that were cancelled are ignored. A learner with fewer than 3 data points gets “insufficient data” instead of a score, to prevent false positives.
 •Starting levels: Watch at 40 or above, High at 70 or above, adjustable by the director.
-•Privacy: the service receives only an anonymous learner code and numbers. No names, no notes, no personal details.
+•Original requirement: send no names, notes, or other personal details, only a learner identifier and numbers. Current implementation: the identifier is the centre's real learner code. The centre can match it back to the learner. It is not anonymous. Names, note text, and phone numbers are not sent.
 •Output: flagged learners appear on the director dashboard with plain-language reasons and a suggested supportive check-in (for example a home visit or a conversation). Flags can be marked “Check-in done” or dismissed with a reason. Nothing happens automatically.
 •Unit testing and edge-case calibration: an automated pytest suite proves how the edge cases above change the result, including excused illness versus unexcused gaps, new learners, a single bad grade, all assignments missing while attending, and changed weights.
 •The absence reason list is coarse by design: Illness, Family care, Transport or cost, Family circumstances (details not recorded), Unknown. The system never records legal status or free-text details about a family’s situation.
@@ -183,7 +183,7 @@ Phase 1 is done when:
 1.A teacher can take attendance for 30 learners in under 2 minutes with no internet, and the records reach the server automatically when internet returns, with no losses and no duplicates.
 2.Two offline edits to the same grade produce a visible conflict and nothing is lost.
 3.Paper and digital grades appear together in the performance dashboard.
-4.Deactivating a teacher produces a handoff report for the incoming teacher.
+4.Original Phase 1 criterion: deactivating a teacher produces a handoff report for the incoming teacher. Current behavior: the report is created. The recipient is an explicitly named next teacher, otherwise the only other teacher already on that section, otherwise the centre director. A newly arriving volunteer is not identified automatically, so this criterion is not fully met.
 5.The risk service passes its pytest suite, including every edge case in FEAT-3, and flags use supportive wording.
 6.Exports contain no names or contact details (checked by an automated test), suppress small groups, and download as CSV and PDF.
 7.The build, the TypeScript tests, and pytest all pass.

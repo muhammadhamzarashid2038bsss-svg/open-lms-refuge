@@ -584,12 +584,16 @@ The implementation was committed and pushed to GitHub. Real Cloudflare R2 accept
 - Added snapshot protection so that the handoff preserves the relevant information from the time of the transition. Later changes to a progress note do not silently change the historical handoff.
 - Added clear handling for incomplete historical data. For example, older handoff reports created before the new snapshot fields were introduced display a notice when detailed historical information is unavailable.
 - Added recipient assignment. Reports go to the incoming teacher or to the Director when a single incoming teacher cannot be determined.
+
+  Later review, November 2026: 'incoming teacher' here means the only other current teacher, or a teacher named during reassignment, not a newly arriving volunteer. 'Anonymous learner code' was too strong. The service receives the centre's real learner code, which the centre can match to the learner.
 - Added the ability to print or save handoff reports as PDFs using the browser's print function.
 - Built an Audit Log screen for Directors and Admins. It records important actions, including viewing grades, opening progress notes, opening handoff reports, and requesting a handoff report printout.
 - Protected the audit trail by recording action details and limited metadata without copying private progress note text, passwords, tokens, or unnecessary personal information.
 - Ensured that deactivated teachers cannot sign in while their historical records remain preserved.
 - Added safeguards against duplicate handoff generation. Deactivating an already inactive account or ending an already ended assignment does not generate another handoff.
 - Added role-based access controls so that incoming teachers can view their assigned handoff reports, outgoing teachers cannot access reports intended for their replacements, and Directors can access reports and audit records for their center.
+
+  Later review, November 2026: 'incoming teacher' here means the only other current teacher, or a teacher named during reassignment, not a newly arriving volunteer. 'Anonymous learner code' was too strong. The service receives the centre's real learner code, which the centre can match to the learner.
 
 ### What went wrong
 
@@ -626,6 +630,8 @@ The implementation was committed and pushed to GitHub. Real Cloudflare R2 accept
 - Built a standalone Python FastAPI risk-scoring service under `services/risk_engine/`, completely separate from the Next.js application and Prisma database.
 - Installed Python 3.14.6 and created an isolated Python virtual environment with the required dependencies, including FastAPI, Pydantic, Uvicorn, pytest, and Ruff.
 - Established strict privacy rules. The service accepts only an anonymous learner code and the minimum numeric information needed for scoring. It does not accept learner names, nicknames, contact details, progress-note text, or raw family narratives.
+
+  Later review, November 2026: 'incoming teacher' here means the only other current teacher, or a teacher named during reassignment, not a newly arriving volunteer. 'Anonymous learner code' was too strong. The service receives the centre's real learner code, which the centre can match to the learner.
 - Implemented the three weighted risk indicators:
   - Absence pattern: five consecutive unexcused absences produce an indicator of 1.0. Ordinary excused absences contribute at 25% of the unexcused weight. Cancelled sessions are excluded, while blank sessions end an absence run without being counted as absences.
   - Missing assignments: calculated as missing assignments divided by expected assignments, with explicit handling for zero expected assignments.
@@ -684,6 +690,8 @@ The implementation was committed and pushed to GitHub. Real Cloudflare R2 accept
 - Connected the Next.js application to the standalone Python FastAPI risk-scoring service through a protected server-to-server request. The browser never communicates directly with the scoring service.
 - Implemented shared-key authentication between the two services. The key is stored in the local `.env` file and is not exposed through frontend environment variables or committed to Git. The Python service rejects scoring requests with a missing or incorrect key.
 - Enforced privacy by sending only anonymous learner codes and approved numerical indicators to the risk service. Names, nicknames, database identifiers, contact details, progress notes, and private family narratives remain inside the main LMS.
+
+  Later review, November 2026: 'incoming teacher' here means the only other current teacher, or a teacher named during reassignment, not a newly arriving volunteer. 'Anonymous learner code' was too strong. The service receives the centre's real learner code, which the centre can match to the learner.
 - Added a scoring-run system using `RiskScoringRun` records. Each run stores its calculation version, weights, thresholds, and scoring metadata. Results are saved against the existing `RiskFlag` records.
 - Implemented safeguards against duplicate scoring results. A run cannot create multiple flags for the same learner, retries do not overwrite completed human decisions, and later scoring runs preserve older results.
 - Built the Director's Check-in Suggestions page at `/director/check-ins`. It displays learners who may benefit from additional support, their risk level, score, and plain-language reasons.
@@ -750,6 +758,8 @@ This approach means that the application can report insufficient data instead of
 2. **Decision:** Make privacy and learner dignity part of the system architecture, not just the interface.
 **Why:** The LMS handles information about vulnerable learners, so privacy cannot depend only on hiding sensitive details from the screen. During the development of Progress Notes, Handoff Reports, audit logging, and the risk-scoring service, I consistently limited what information each feature could access and store.
 For example, the risk service receives anonymous learner codes and approved numerical indicators rather than names, private notes, or family narratives. Audit logs record that an action happened without copying the contents of private notes. Risk suggestions also remain supportive recommendations for human review rather than automatic decisions about a learner.
+
+Later review, November 2026: 'incoming teacher' here means the only other current teacher, or a teacher named during reassignment, not a newly arriving volunteer. 'Anonymous learner code' was too strong. The service receives the centre's real learner code, which the centre can match to the learner.
 This decision shaped how I designed the database, APIs, permissions, and user interfaces. I learned that protecting learners requires privacy safeguards throughout the application, not only at the point where information is displayed.
 
 3. **Decision:** Design for reliability, shared devices, and imperfect connectivity rather than assuming everything will always work.
