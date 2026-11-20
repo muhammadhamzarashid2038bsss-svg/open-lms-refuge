@@ -64,9 +64,9 @@ The product requirements in [docs/PRD.md](docs/PRD.md) sort the work into three 
 | Courses, sections, and learning materials | LMS-1 | Phase 1. Saving a resource on the phone is Phase 2. | Works for links and files the server can already store. Saving materials for offline reading is not built. |
 | Weekly timetable and Today's classes | LMS-2 | Phase 1 for the schedule and links. Offline media is Phase 2. | Works. Live classes can store a Google Meet, Zoom, or Jitsi link. |
 | Attendance kiosk and offline marks | LMS-3 | Phase 1. Automatic tracking of online classes is Phase 2. | The kiosk and offline save exist. A browser may refuse to save attendance if it will not promise to keep the data. |
-| Attendance sync | FEAT-1 | Phase 1 | Works in automated tests. Attendance can be gzip-compressed. Grades and notes sync as plain JSON. |
+| Attendance sync | FEAT-1 | Phase 1 | Partly works. Automated tests cover compression, fallback to plain JSON, and server storage. Full offline-to-database browser verification remains unfinished. |
 | Shared-phone lock and handover | SYS-1 | Phase 1 | The screen lock and a staff handover note exist. Local records are not encrypted or deleted on sign-out. |
-| Grades, homework files, and the gradebook | LMS-4 | Phase 1 | Paper grades and the learner file queue work. A real Cloudflare R2 bucket has not been created, so a live file upload is not confirmed. |
+| Grades, homework files, and the gradebook | LMS-4 | Phase 1 | Gradebook entries and the learner file queue work. A real Cloudflare R2 bucket has not been created, so a live file upload is not confirmed. |
 | Progress notes and skill gaps | FEAT-2 | Phase 1 | Works, including offline edits and conflicts. Custom skill tags are chosen from a centre list. |
 | Teacher handoff reports | FEAT-2 | Phase 1 | A report is created when a teacher is switched off or a section is reassigned. A brand-new volunteer is not chosen automatically. |
 | Performance dashboard | LMS-7 | Phase 1 | Works for assigned teachers and the director of that centre. |
@@ -74,7 +74,7 @@ The product requirements in [docs/PRD.md](docs/PRD.md) sort the work into three 
 | Donor CSV and PDF exports | FEAT-4 | Phase 1 | Aggregate export works for a director or admin. Learner-level export needs a funder requirement that is already stored. There is no screen to create that requirement. |
 | Quizzes | LMS-5 | Phase 2 | Not built. |
 | Low-bandwidth AI help for teachers | LMS-8 | Phase 2 | Not built. |
-| Exam-browser and photo proctoring | LMS-6 | Phase 3 | Not built. The requirements say this needs a separate privacy review before any work starts. |
+| Exam Integrity Suite (exam browser and photo proctoring) | LMS-6 | Phase 3 | Not built. The requirements say this needs a separate privacy review before any work starts. |
 
 ## Setup and local development
 
