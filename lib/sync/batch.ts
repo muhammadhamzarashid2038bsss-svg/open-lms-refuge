@@ -206,17 +206,34 @@ function buildEnvelope(localDeviceId: string, events: FutureAttendanceEvent[]): 
   return { envelope, json, bytes: utf8Bytes(json) };
 }
 
-/// Null means this browser has no CompressionStream. The caller then keeps plain JSON.
+/// Chrome leaves CompressionStream's writer.write() unresolved. The health
+/// check has already succeeded by then, so the panel stays on "sending" and
+/// never posts the marks. A Blob stream finishes. Null still means "send the
+/// plain JSON": compression is only there to save prepaid data.
+const GZIP_LIMIT_MS = 5000;
+
 export async function gzipWithCompressionStream(bytes: Uint8Array): Promise<Uint8Array | null> {
   const factory = globalThis.CompressionStream;
   if (typeof factory !== "function") return null;
-  const stream = new factory("gzip");
-  const writer = stream.writable.getWriter();
-  await writer.write(bytes as BufferSource);
-  await writer.close();
-  const compressed = new Uint8Array(await new Response(stream.readable).arrayBuffer());
-  if (compressed.byteLength === 0) return null;
-  return compressed;
+  // A view into a larger buffer is copied first. The stream must see only
+  // these bytes, and a later encode must not change them while they compress.
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const compressed = await Promise.race([
+      new Response(new Blob([copy]).stream().pipeThrough(new factory("gzip"))).arrayBuffer(),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), GZIP_LIMIT_MS);
+      }),
+    ]);
+    if (!compressed || compressed.byteLength === 0) return null;
+    return new Uint8Array(compressed);
+  } catch {
+    return null;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 type Fit = { ok: true; compressed: Uint8Array | null } | { ok: false };

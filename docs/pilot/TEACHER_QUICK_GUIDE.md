@@ -21,18 +21,20 @@ Learners have a different home page. Theirs has **Today's classes**. Yours uses 
 
 1. On the timetable, tap **Take attendance** on the class.
 2. For each learner, tap **Present**, **Absent**, **Late**, or **Excused**.
-3. For **Absent** or **Excused**, you can add a reason: **Illness**, **Family care**, **Transport or cost**, **Family circumstances (details not recorded)**, or **Unknown**. Tap the reason again to clear it. Do not type a family story. There is no box for one.
+3. For **Absent** or **Excused**, you can add a reason: **Illness**, **Family care**, **Transport or cost**, **Family circumstances (details not recorded)**, or **Unknown**. Tap the reason again to clear it. Select only the reason category. Do not write family details in notes, comments, or other fields.
 4. Tap **Save attendance**.
 
 The screen shows **Waiting to send** when marks are still on the phone.
 
-If the phone says it cannot keep the data, believe that message. The mark was not saved. Try again on a phone that can keep browser data, or mark attendance while the page is connected.
+If the screen says **These marks are on this phone, waiting to send. This browser did not promise to keep them.**, the marks were saved locally, but the browser has not promised to protect them from automatic removal. Keep the phone connected and send the marks through **Attendance sync** as soon as possible.
+
+If the screen explicitly says **The marks were not stored**, the attendance changes were not saved. Do not assume they will sync. Resolve the storage problem before trying again.
 
 ## Work offline
 
 Open the class once while the phone is online. The screen says **Open this class once while connected** when that step is still needed.
 
-After that, the attendance screen can open without internet, including from the installed app. The installed app opens the attendance screen first. It does not lock the rest of the app.
+After that, the attendance screen can open without internet, including from the installed app. The installed app opens the attendance screen first. This does not lock the phone or prevent someone from opening other apps.
 
 Marks stay on the phone until the server confirms them. Confirmed marks stay on the phone too.
 
@@ -58,7 +60,7 @@ On the teacher home you can:
 
 Keep notes short. Do not write a learner's legal status, home address, exact birth date, or a sensitive family story.
 
-**Save a practice record on this phone** only stores a practice line with no personal details. It does not mark attendance or save a grade.
+**Save a practice record on this phone** only stores a practice line with no personal details. It does not mark attendance or save a grade. This is a practice feature, not a way to record learner activity. Do not enter real learner information.
 
 ## Shared phones
 

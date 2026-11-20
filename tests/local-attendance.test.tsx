@@ -27,6 +27,8 @@ import { ABSENCE_REASONS, ATTENDANCE_STATUSES, type AbsenceReasonName, type Atte
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const saved = "Saved on this phone, waiting to send";
+const heldWithoutPromise = "These marks are on this phone, waiting to send. This browser did not promise to keep them.";
+const unreadable = "This phone's saved attendance could not be read. It was not deleted, and these marks were not stored.";
 const phoneNow = new Date("2026-11-08T08:00:00.000Z");
 const owner = { userId: "user-a", centerId: "center-a" };
 const sectionId = "section-1";
@@ -62,6 +64,12 @@ const learners = [
 
 const roomy: StorageProbe = {
   persist: async () => true,
+  estimate: async () => ({ usage: 0, quota: 50_000_000 }),
+};
+
+/// Chrome returns false from persist() for a normal site. IndexedDB still works.
+const persistenceRefused: StorageProbe = {
+  persist: async () => false,
   estimate: async () => ({ usage: 0, quota: 50_000_000 }),
 };
 
@@ -482,20 +490,111 @@ describe("local attendance", () => {
     expect(await rows(db.real, "events")).toHaveLength(before.length + 1);
   });
 
-  it("does not save when persistent storage is denied or there is not enough free space", async () => {
-    const deniedDb = tracked();
-    const denied = await saveLocalAttendance({
-      factory: deniedDb.factory,
+  it("stores a verified class and marks when persistent storage is refused but IndexedDB has room", async () => {
+    const db = tracked();
+    const stored = await storeAuthorizedClass({
+      factory: db.factory,
+      storage: persistenceRefused,
+      owner,
+      sectionId,
+      classSessionId,
+      ...labels,
+      clock: clock(),
+      learners: listed(learners),
+      phoneNow,
+    });
+    expect(stored.ok).toBe(true);
+    expect(db.opens()).toBeGreaterThan(0);
+
+    const marks = [mark("learner-01", "PRESENT"), mark("learner-02", "ABSENT", "ILLNESS")];
+    const result = await saveLocalAttendance({
+      factory: db.factory,
+      storage: persistenceRefused,
+      owner,
+      ...scope,
+      phoneNow,
+      marks,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.message).toBe(heldWithoutPromise);
+    expect(result.message).not.toBe(saved);
+    expect(result.count).toBe(2);
+    const view = await readLocalAttendance(db.factory, owner, scope);
+    expect(view.ok).toBe(true);
+    if (!view.ok) return;
+    expect(view.pendingCount).toBe(2);
+    expect(view.sessionEvents.map((event) => event.clientEventId).sort()).toEqual(marks.map((item) => item.clientEventId).sort());
+    expect(view.sessionEvents.every((event) => event.syncState === "pending")).toBe(true);
+
+    const failedRequest: StorageProbe = {
+      persist: async () => {
+        throw new Error("persist failed");
+      },
+      estimate: async () => ({ usage: 0, quota: 50_000_000 }),
+    };
+    const afterFailure = await saveLocalAttendance({
+      factory: db.factory,
+      storage: failedRequest,
+      owner,
+      ...scope,
+      phoneNow,
+      marks: [mark("learner-03", "LATE")],
+    });
+    expect(afterFailure.ok).toBe(true);
+    if (!afterFailure.ok) return;
+    expect(afterFailure.message).toBe(heldWithoutPromise);
+    expect(afterFailure.count).toBe(3);
+    const reread = await readLocalAttendance(db.factory, owner, scope);
+    expect(reread.ok).toBe(true);
+    if (!reread.ok) return;
+    expect(reread.sessionEvents).toHaveLength(3);
+  });
+
+  it("does not report a save when persistent storage is refused and IndexedDB cannot be opened", async () => {
+    let opens = 0;
+    const factory = {
+      open() {
+        opens += 1;
+        throw new Error("blocked");
+      },
+    } as unknown as IDBFactory;
+    const stored = await storeAuthorizedClass({
+      factory,
+      storage: persistenceRefused,
+      owner,
+      sectionId,
+      classSessionId,
+      ...labels,
+      clock: clock(),
+      learners: listed(learners),
+      phoneNow,
+    });
+    expect(stored.ok).toBe(false);
+    if (!stored.ok) {
+      expect(stored.message).toBe(unreadable);
+      expect(stored.message).not.toContain("did not promise");
+      expect(stored.message).not.toContain("did not allow saved data");
+    }
+    const result = await saveLocalAttendance({
+      factory,
+      storage: persistenceRefused,
       owner,
       ...scope,
       phoneNow,
       marks: [mark("learner-01", "PRESENT")],
-      storage: { persist: async () => false, estimate: async () => ({ usage: 0, quota: 50_000_000 }) },
     });
-    expect(denied.ok).toBe(false);
-    if (!denied.ok) expect(denied.message).toContain("unavailable");
-    expect(deniedDb.opens()).toBe(0);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toBe(unreadable);
+      expect(result.count).toBeNull();
+      expect(result.message).not.toBe(saved);
+      expect(result.message).not.toBe(heldWithoutPromise);
+    }
+    expect(opens).toBe(2);
+  });
 
+  it("does not save when free space is too small or cannot be measured", async () => {
     const fullDb = tracked();
     const full = await storeAuthorizedClass({
       factory: fullDb.factory,
@@ -506,11 +605,46 @@ describe("local attendance", () => {
       clock: clock(),
       learners: listed(learners),
       phoneNow,
-      storage: { persist: async () => true, estimate: async () => ({ usage: 20, quota: 20 }) },
+      storage: { persist: async () => false, estimate: async () => ({ usage: 20, quota: 20 }) },
     });
     expect(full.ok).toBe(false);
     if (!full.ok) expect(full.message).toContain("enough free space");
     expect(fullDb.opens()).toBe(0);
+
+    const unmeasured = tracked();
+    const failedEstimate = await saveLocalAttendance({
+      factory: unmeasured.factory,
+      owner,
+      ...scope,
+      phoneNow,
+      marks: [mark("learner-01", "PRESENT")],
+      storage: {
+        persist: async () => true,
+        estimate: async () => {
+          throw new Error("estimate failed");
+        },
+      },
+    });
+    expect(failedEstimate.ok).toBe(false);
+    if (!failedEstimate.ok) {
+      expect(failedEstimate.message).toContain("unavailable");
+      expect(failedEstimate.message).not.toBe(heldWithoutPromise);
+      expect(failedEstimate.count).toBeNull();
+    }
+    expect(unmeasured.opens()).toBe(0);
+
+    const missing = tracked();
+    const noStorage = await saveLocalAttendance({
+      factory: missing.factory,
+      owner,
+      ...scope,
+      phoneNow,
+      marks: [mark("learner-01", "PRESENT")],
+      storage: null,
+    });
+    expect(noStorage.ok).toBe(false);
+    if (!noStorage.ok) expect(noStorage.message).toContain("unavailable");
+    expect(missing.opens()).toBe(0);
   });
 
   it("stores only the class list fields and does not call the server save", async () => {

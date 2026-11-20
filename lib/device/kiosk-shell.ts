@@ -355,7 +355,13 @@ export async function mountKioskShell(doc: KioskDocument, env: KioskEnv = {}): P
     try {
       slot.textContent = persistenceLines(await readPersistenceOnce(browser)).join(" ");
     } catch {
-      slot.textContent = "This phone could not say whether saved data may stay. Local attendance saving is unavailable.";
+      // A thrown status read is not proof that IndexedDB refused the write.
+      slot.textContent = persistenceLines({
+        persisted: null,
+        request: "failed",
+        usageBytes: null,
+        quotaBytes: null,
+      }).join(" ");
     }
   }
   void showStorage();

@@ -1,6 +1,6 @@
 # Privacy
 
-This note explains what this version of Open LMS Refuge stores, where it is stored, and what leaves the centre's own application. It is a description of the software. It is not legal advice, and it is not a claim that the software meets any particular law.
+This note explains what this version of Open LMS Refuge stores, where information is stored, which external services may receive it, and what privacy protections and limitations exist. It is a description of the software. It is not legal advice, and it is not a claim that the software meets any particular law.
 
 A learning centre must decide whether this prototype is appropriate for its learners, and it must review the consent sheet in [pilot/INFORMATION_AND_CONSENT_TEMPLATE.md](pilot/INFORMATION_AND_CONSENT_TEMPLATE.md) before any real use.
 
@@ -24,8 +24,8 @@ These limits do not stop every possible collection. A teacher can type a legal s
 
 | Information | Where it is entered | Where it is stored | Sent outside this app? |
 | --- | --- | --- | --- |
-| Staff email, display name, and password | Staff sign-in, and password reset by an admin or director. Demo accounts come from the seed. | The password is stored as a hash. The plain password is not stored. | No. |
-| Learner code, nickname, age band, and PIN | Learner sign-in. Demo profiles come from the seed. There is no registration form. | The PIN is stored as a hash. | The learner code is sent to the risk service when a director runs a score. The nickname, age band, and PIN are not. |
+| Staff email, display name, and password | Staff accounts in the demo come from the seed. Staff enter their email and password at sign-in. An admin or director can reset the password. | The password is stored as a hash. The plain password is not stored. | No. |
+| Learner code, nickname, age band, and PIN | Learner profiles in the demo come from the seed. At sign-in, learners enter the centre code, learner code, and 4-digit PIN. There is no registration form. | The PIN is stored as a hash. | The learner code is sent to the risk service when a director runs a score. The nickname, age band, and PIN are not. |
 | Attendance and a closed absence reason | The attendance screen, including offline. Reasons are Illness, Family care, Transport or cost, Family circumstances (details not recorded), and Unknown. | PostgreSQL, and on the phone until and after sync. | Dates, statuses, and a yes/no family-circumstances flag go to the risk service. The reason words do not. |
 | Grades and an optional grade comment | The gradebook and the offline record editor. The comment can be up to 500 characters. | PostgreSQL, with older versions kept. A waiting edit is also on the phone. | Points and maximums can go to the risk service. The comment does not. |
 | Homework files | The learner homework page. Large photos are reduced on the phone first. | The file waits in IndexedDB. Metadata is in PostgreSQL. The bytes go to Cloudflare R2 only when that storage is configured. | The file bytes go to R2 when it is configured. They are not sent to the risk service. |

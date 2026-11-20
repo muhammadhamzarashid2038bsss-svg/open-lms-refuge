@@ -6,6 +6,7 @@ import {
   MAX_EVENTS_PER_BATCH,
   MAX_UNCOMPRESSED_BYTES,
   resolveBatchLimits,
+  gzipWithCompressionStream,
   selectSyncBatch,
   validateSyncEnvelope,
   type GzipFn,
@@ -253,6 +254,20 @@ describe("sync batches", () => {
     expect(packed.ok && packed.encoded).toBeNull();
     expect(packed.ok && packed.remaining).toHaveLength(2);
     expect(packed.ok && packed.blockedBy).toEqual({ clientEventId: "event-0001", reason: "invalid" });
+  });
+
+  it("compresses a byte view without waiting on writer.write", async () => {
+    const text = JSON.stringify({ version: 1, status: "LATE" });
+    const encoded = new TextEncoder().encode(text);
+    const wider = new Uint8Array(encoded.byteLength + 8);
+    wider.set(encoded, 2);
+    const view = wider.subarray(2, 2 + encoded.byteLength);
+    const compressed = await gzipWithCompressionStream(view);
+    expect(compressed).not.toBeNull();
+    if (!compressed) return;
+    expect(compressed[0]).toBe(0x1f);
+    expect(compressed[1]).toBe(0x8b);
+    expect(gunzipSync(Buffer.from(compressed)).toString("utf8")).toBe(text);
   });
 
   it("round trips gzip and omits ownership fields", async () => {

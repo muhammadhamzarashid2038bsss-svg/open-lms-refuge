@@ -121,6 +121,7 @@ describe("installable shell", () => {
     });
     expect(persistCalls).toBe(0);
     expect(kept.request).toBe("already-kept");
+    expect(persistenceLines(kept).join(" ")).toContain("Storage persistence is already active.");
     expect(persistenceLines(kept).join(" ")).toContain("Storage used: 10 bytes");
     const refused = await readPersistenceOnce({
       persisted: async () => false,
@@ -132,7 +133,61 @@ describe("installable shell", () => {
     });
     expect(persistCalls).toBe(1);
     expect(refused.request).toBe("denied");
-    expect(persistenceLines(refused).join(" ")).toContain("Local attendance saving is unavailable.");
+    expect(persistenceLines(refused).join(" ")).toContain("does not itself prevent attendance from being stored");
+    expect(persistenceLines(refused).join(" ")).not.toContain("Local attendance saving is unavailable");
+  });
+
+  it("describes persistence without calling a refusal a blocked save", () => {
+    const warning = "The browser may still remove local records, and you can still clear this site's data.";
+    const granted = persistenceLines({ persisted: true, request: "granted", usageBytes: 1, quotaBytes: 9 });
+    const already = persistenceLines({ persisted: true, request: "already-kept", usageBytes: null, quotaBytes: null });
+    const denied = persistenceLines({ persisted: false, request: "denied", usageBytes: 4, quotaBytes: 8 });
+    const failed = persistenceLines({ persisted: null, request: "failed", usageBytes: null, quotaBytes: null });
+    const unsupported = persistenceLines({ persisted: null, request: "unsupported", usageBytes: null, quotaBytes: null });
+
+    expect(granted[0]).toBe("Browser storage persistence: yes.");
+    expect(granted[1]).toBe("The browser has granted storage persistence.");
+    expect(already[1]).toBe("Storage persistence is already active.");
+    expect(denied[0]).toBe("Browser storage persistence: no.");
+    expect(denied[1]).toBe(
+      "The browser did not grant protection against automatic removal. This does not itself prevent attendance from being stored.",
+    );
+    expect(failed[0]).toBe("Browser storage persistence: unknown.");
+    expect(failed[1]).toBe(
+      "The browser could not confirm storage persistence. This does not itself prevent attendance from being stored.",
+    );
+    expect(unsupported[1]).toBe("Storage persistence cannot be confirmed. Whether attendance can be stored is checked separately.");
+    for (const lines of [granted, already, denied, failed, unsupported]) {
+      expect(lines).toContain(warning);
+      expect(lines.join(" ")).not.toContain("Local attendance saving is unavailable");
+      expect(lines.join(" ")).not.toContain("Kept on this phone");
+    }
+    expect(granted.join(" ")).toContain("Storage used: 1 bytes");
+    expect(unsupported.join(" ")).toContain("Storage space could not be read.");
+  });
+
+  it("records granted, failed, and unsupported persistence without blocking language", async () => {
+    const granted = await readPersistenceOnce({
+      persisted: async () => false,
+      persist: async () => true,
+      estimate: async () => ({ usage: 2, quota: 20 }),
+    });
+    expect(granted.request).toBe("granted");
+    expect(persistenceLines(granted).join(" ")).toContain("The browser has granted storage persistence.");
+
+    const failed = await readPersistenceOnce({
+      persist: async () => {
+        throw new Error("persist failed");
+      },
+      estimate: async () => ({ usage: 2, quota: 20 }),
+    });
+    expect(failed.request).toBe("failed");
+    expect(persistenceLines(failed).join(" ")).toContain("could not confirm storage persistence");
+    expect(persistenceLines(failed).join(" ")).not.toContain("Local attendance saving is unavailable");
+
+    const unsupported = await readPersistenceOnce(null);
+    expect(unsupported.request).toBe("unsupported");
+    expect(persistenceLines(unsupported).join(" ")).toContain("checked separately");
   });
 });
 

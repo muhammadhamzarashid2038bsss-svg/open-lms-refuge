@@ -18,7 +18,7 @@ Teachers may sign in, open their sections, mark attendance, send saved attendanc
 
 Learners may sign in with a centre code, a learner code, and a PIN, see today's classes, open materials, and submit a homework file when file storage is set up.
 
-The app does not have a registration form. The centre creates accounts outside the normal screens, or uses the synthetic demo data only for a practice run.
+The app does not have an in-app learner registration form. The demo learner accounts are created using synthetic seed data. Before a real pilot, the centre must establish and document how learner accounts will be created and managed.
 
 ## What the app stores
 
@@ -40,15 +40,21 @@ Please do not put legal status, identity-document numbers, home addresses, exact
 
 ## Where information is kept
 
-The centre's records are stored in the centre's database on the server [Centre name] chooses. This template does not name a hosting company, because this project does not yet have a finished production deployment.
+When deployed for a centre, its records are stored in a PostgreSQL database configured for that installation. The centre must identify the actual hosting provider, server location, and person responsible for managing access before the trial begins.
+
+The current project has been developed using a local Prisma development database. It does not yet have a finished production deployment, so this template does not assume that a centre's hosting arrangements are already in place.
 
 A phone also keeps copies in the browser so attendance can be marked offline. That phone storage is **not encrypted**. Signing out locks the screen inside the app. It does not encrypt the copies, and it does not delete unsent attendance, grades, notes, or homework files.
 
 ## Risk scores
 
-If [Centre name] turns on the scoring service, a director can start a check. The service receives the learner's real learner code, attendance dates and statuses, assignment counts, grade points, and the centre's score thresholds. It does not receive names or note text.
+If the scoring service is configured and a director starts a check, the Next.js server sends information to the Python scoring service.
 
-The learner code is not anonymous. The centre can match it back to the learner. If the service is not configured, no score is created.
+The service receives the learner's real learner code, the scoring date, attendance dates and statuses, a yes/no family-circumstances flag, assignment counts, grade points, and the centre's Watch and High score thresholds.
+
+It does not receive learner names, phone numbers, progress-note text, grade comments, or internal database IDs.
+
+The learner code is not anonymous. The centre can match it back to the learner. If the service is not configured, no scoring request is sent and no score is created.
 
 ## Homework files
 
@@ -68,6 +74,42 @@ A second kind of report can list learners as codes called pseudonyms. That repor
 - Switching an account off keeps the old records.
 - A small class can still be recognisable in a report even when small counts are hidden.
 - This sheet does not promise anonymity, complete security, or legal compliance.
+
+## Pilot arrangements
+
+*This section must be completed by the participating centre before the pilot begins.*
+
+Pilot start date: [To be agreed with the centre]
+
+Pilot end date: [To be agreed with the centre]
+
+Will participation be voluntary? [Centre to explain its policy and available alternatives]
+
+How can a participant stop taking part? [Centre to explain the process and what happens to their account and records]
+
+## Services used during this trial
+
+Risk-scoring service: [ ] Enabled [ ] Not enabled [ ] Not available
+
+Cloudflare R2 homework storage: [ ] Enabled [ ] Not enabled [ ] Not available
+
+Hosting provider and server location: [Centre to complete after hosting is selected]
+
+Who is responsible for managing access to learner records? [Name or role]
+
+## Access and retention
+
+Who at the centre can access learner records?
+
+[Centre to complete]
+
+How long will records be kept?
+
+[Centre to complete]
+
+What will happen to records when the trial ends?
+
+[Centre to complete]
 
 ## Questions and concerns
 

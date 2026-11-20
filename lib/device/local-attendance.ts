@@ -35,6 +35,11 @@ const NOT_STORED = decideMarkWrite(false).message;
 const UNAVAILABLE = "Local attendance saving is unavailable on this phone. The marks were not stored.";
 const NO_ROOM = "This phone does not have enough free space. Local attendance saving is unavailable. The marks were not stored.";
 const DENIED = "This phone did not allow saved data to stay. Local attendance saving is unavailable. The marks were not stored.";
+/// Chrome and Edge on a shared center phone usually refuse the persistence
+/// promise until the site is installed. IndexedDB can still store the marks
+/// and read them back when the measured free space covers them. This sentence
+/// must not say "Saved on this phone": that wording is only for a granted promise.
+const HELD_WITHOUT_PROMISE = "These marks are on this phone, waiting to send. This browser did not promise to keep them.";
 const UNREADABLE = "This phone's saved attendance could not be read. It was not deleted, and these marks were not stored.";
 const EXPIRED = "This sign-in is no longer valid for saving on this phone. The marks were not stored.";
 const OTHER_ACCOUNT = "These marks belong to a different sign-in. They were not stored.";
@@ -156,6 +161,16 @@ function readinessMessage(readiness: StorageReadiness): string | null {
   if (readiness.estimate === "ready" && !readiness.enoughRoom) return NO_ROOM;
   if (readiness.persistence === "denied") return DENIED;
   return UNAVAILABLE;
+}
+
+/// A class list or a mark is written when the measured free space covers it.
+/// navigator.storage.persist() only asks the browser to avoid automatic
+/// eviction. A false or failed answer is not proof that IndexedDB is blocked.
+/// The stronger saved sentence still requires that promise, and it is used
+/// only after the transaction and the separate read-back both succeed.
+function writeBlocked(readiness: StorageReadiness): string | null {
+  if (readiness.readyForWrite) return null;
+  return readinessMessage(readiness);
 }
 
 function bytesFor(value: unknown): number {
@@ -506,7 +521,7 @@ export async function storeAuthorizedClass(input: {
 
   const storage = input.storage === undefined ? browserStorageProbe() : input.storage;
   const readiness = await checkStorageReadiness(bytesFor({ id, learners }), storage);
-  const blocked = readinessMessage(readiness);
+  const blocked = writeBlocked(readiness);
   if (blocked) return { ok: false, message: blocked, unreadable: false };
 
   try {
@@ -650,8 +665,9 @@ export async function saveLocalAttendance(input: {
 
   const storage = input.storage === undefined ? browserStorageProbe() : input.storage;
   const readiness = await checkStorageReadiness(bytesFor(normalized.marks), storage);
-  const blocked = readinessMessage(readiness);
+  const blocked = writeBlocked(readiness);
   if (blocked) return { ok: false, message: blocked, count: null, unreadable: false };
+  const savedWording = readiness.mayClaimSaved;
 
   try {
     const view = await withDatabase(input.factory, async (db) => {
@@ -748,7 +764,12 @@ export async function saveLocalAttendance(input: {
       });
       return confirmed;
     });
-    return { ok: true, message: SAVED_MESSAGE, count: view.pendingCount, events: view.sessionEvents };
+    return {
+      ok: true,
+      message: savedWording ? SAVED_MESSAGE : HELD_WITHOUT_PROMISE,
+      count: view.pendingCount,
+      events: view.sessionEvents,
+    };
   } catch (error) {
     const failed = refusal(error, NOT_STORED);
     return { ok: false, message: failed.message, count: null, unreadable: failed.unreadable };

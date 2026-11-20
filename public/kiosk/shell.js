@@ -2157,6 +2157,11 @@ const NOT_STORED = (0, offline_decisions_1.decideMarkWrite)(false).message;
 const UNAVAILABLE = "Local attendance saving is unavailable on this phone. The marks were not stored.";
 const NO_ROOM = "This phone does not have enough free space. Local attendance saving is unavailable. The marks were not stored.";
 const DENIED = "This phone did not allow saved data to stay. Local attendance saving is unavailable. The marks were not stored.";
+/// Chrome and Edge on a shared center phone usually refuse the persistence
+/// promise until the site is installed. IndexedDB can still store the marks
+/// and read them back when the measured free space covers them. This sentence
+/// must not say "Saved on this phone": that wording is only for a granted promise.
+const HELD_WITHOUT_PROMISE = "These marks are on this phone, waiting to send. This browser did not promise to keep them.";
 const UNREADABLE = "This phone's saved attendance could not be read. It was not deleted, and these marks were not stored.";
 const EXPIRED = "This sign-in is no longer valid for saving on this phone. The marks were not stored.";
 const OTHER_ACCOUNT = "These marks belong to a different sign-in. They were not stored.";
@@ -2204,6 +2209,16 @@ function readinessMessage(readiness) {
     if (readiness.persistence === "denied")
         return DENIED;
     return UNAVAILABLE;
+}
+/// A class list or a mark is written when the measured free space covers it.
+/// navigator.storage.persist() only asks the browser to avoid automatic
+/// eviction. A false or failed answer is not proof that IndexedDB is blocked.
+/// The stronger saved sentence still requires that promise, and it is used
+/// only after the transaction and the separate read-back both succeed.
+function writeBlocked(readiness) {
+    if (readiness.readyForWrite)
+        return null;
+    return readinessMessage(readiness);
 }
 function bytesFor(value) {
     // estimate() does not reserve space. The extra bytes cover the index keys
@@ -2560,7 +2575,7 @@ async function storeAuthorizedClass(input) {
         return { ok: false, message: snapshotDecisionMessage(decision.reason), unreadable: false };
     const storage = input.storage === undefined ? (0, storage_readiness_1.browserStorageProbe)() : input.storage;
     const readiness = await (0, storage_readiness_1.checkStorageReadiness)(bytesFor({ id, learners }), storage);
-    const blocked = readinessMessage(readiness);
+    const blocked = writeBlocked(readiness);
     if (blocked)
         return { ok: false, message: blocked, unreadable: false };
     try {
@@ -2689,9 +2704,10 @@ async function saveLocalAttendance(input) {
     const serverIds = new Map(input.marks.map((mark) => [mark.learnerId, mark.serverEventId]));
     const storage = input.storage === undefined ? (0, storage_readiness_1.browserStorageProbe)() : input.storage;
     const readiness = await (0, storage_readiness_1.checkStorageReadiness)(bytesFor(normalized.marks), storage);
-    const blocked = readinessMessage(readiness);
+    const blocked = writeBlocked(readiness);
     if (blocked)
         return { ok: false, message: blocked, count: null, unreadable: false };
+    const savedWording = readiness.mayClaimSaved;
     try {
         const view = await withDatabase(input.factory, async (db) => {
             const expected = await (0, local_db_1.runLocalTransaction)(db, [...ATTENDANCE_STORES, "deviceLock"], "readwrite", async (tx) => {
@@ -2801,7 +2817,12 @@ async function saveLocalAttendance(input) {
             });
             return confirmed;
         });
-        return { ok: true, message: SAVED_MESSAGE, count: view.pendingCount, events: view.sessionEvents };
+        return {
+            ok: true,
+            message: savedWording ? SAVED_MESSAGE : HELD_WITHOUT_PROMISE,
+            count: view.pendingCount,
+            events: view.sessionEvents,
+        };
     }
     catch (error) {
         const failed = refusal(error, NOT_STORED);
@@ -3076,9 +3097,13 @@ async function revokeServerSession() {
 });
   define("lib/device/persistence-status.ts", function (exports, require) {
 "use strict";
-// One look at whether this phone will keep saved marks. persist() is asked
-// at most once, and it is not asked again when the browser already agreed.
-// A refusal leaves local attendance saving unavailable. There is no server fallback.
+// One look at browser storage persistence. persist() asks the browser to
+// protect stored data from automatic eviction. It is asked at most once, and
+// it is not asked again when the browser already agreed. A refusal, a failed
+// request, or no answer does not mean IndexedDB cannot store attendance.
+// The save path measures free space, writes the rows, and reads them back.
+// The person can still clear the site, and the browser can still remove
+// local records later. This display does not decide whether a mark is saved.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.readPersistenceOnce = readPersistenceOnce;
 exports.persistenceLines = persistenceLines;
@@ -3131,21 +3156,25 @@ async function readPersistenceOnce(storage) {
     }
     return snapshot;
 }
+/// "Browser storage persistence" is the eviction promise, not proof that a
+/// mark is in IndexedDB. The warning stays on every result because a granted
+/// promise can still be cleared by the person or removed by the browser.
+const EVICTION_WARNING = "The browser may still remove local records, and you can still clear this site's data.";
 function persistenceLines(snapshot) {
     const kept = snapshot.persisted === true ? "yes" : snapshot.persisted === false ? "no" : "unknown";
     const request = snapshot.request === "granted"
-        ? "The browser agreed to keep saved data."
+        ? "The browser has granted storage persistence."
         : snapshot.request === "already-kept"
-            ? "Saved data is already allowed to stay."
+            ? "Storage persistence is already active."
             : snapshot.request === "denied"
-                ? "This phone did not allow saved data to stay. Local attendance saving is unavailable."
+                ? "The browser did not grant protection against automatic removal. This does not itself prevent attendance from being stored."
                 : snapshot.request === "failed"
-                    ? "This phone could not say whether saved data may stay. Local attendance saving is unavailable."
-                    : "This phone cannot keep saved data. Local attendance saving is unavailable.";
+                    ? "The browser could not confirm storage persistence. This does not itself prevent attendance from being stored."
+                    : "Storage persistence cannot be confirmed. Whether attendance can be stored is checked separately.";
     const space = snapshot.usageBytes !== null && snapshot.quotaBytes !== null
         ? `Storage used: ${snapshot.usageBytes} bytes. Storage available to this site: ${snapshot.quotaBytes} bytes.`
         : "Storage space could not be read.";
-    return [`Kept on this phone: ${kept}.`, request, space];
+    return [`Browser storage persistence: ${kept}.`, request, EVICTION_WARNING, space];
 }
 
 });
@@ -3408,7 +3437,13 @@ async function mountKioskShell(doc, env = {}) {
             slot.textContent = (0, persistence_status_1.persistenceLines)(await (0, persistence_status_1.readPersistenceOnce)(browser)).join(" ");
         }
         catch {
-            slot.textContent = "This phone could not say whether saved data may stay. Local attendance saving is unavailable.";
+            // A thrown status read is not proof that IndexedDB refused the write.
+            slot.textContent = (0, persistence_status_1.persistenceLines)({
+                persisted: null,
+                request: "failed",
+                usageBytes: null,
+                quotaBytes: null,
+            }).join(" ");
         }
     }
     void showStorage();
