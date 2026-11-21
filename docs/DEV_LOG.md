@@ -861,3 +861,41 @@ The three decisions above shaped the project around accuracy, privacy, and relia
 
 **Outstanding manual verification**
 - The pseudonymized learner-level warning was not visually verified in the normal demo interface because the DEMO center did not have an active funder requirement. The automated tests cover the eligibility and warning logic, but the visual check remains outstanding until a suitable test setup is available.
+
+## Day 18 of 20 · 2026-11-17
+
+### What I built
+
+- Created `docs/architecture.md`, containing five Mermaid diagrams that visually explain the implemented architecture of Open LMS Refuge.
+- Created diagrams covering the database structure, local storage, offline synchronization, conflict resolution, and the privacy and data export pipeline.
+- Reviewed the diagrams against the actual code and implementation developed throughout the project, ensuring that they described how the application currently works rather than simply reproducing the original design plans.
+- Created `docs/DECISIONS.md`, documenting 14 major technical decisions, including why each decision was made and the trade-offs considered.
+- Reviewed the relationship between important architectural components, including authentication, local browser storage, attendance synchronization, conflict resolution, database relationships, and privacy protections.
+- Traced the HMAC-based pseudonymization process used in donor exports to understand how learner identifiers are transformed and how the export process protects learner identities.
+- Reviewed the five diagrams and technical decisions to improve my understanding of how the different parts of the application work together.
+- Practised explaining the architecture diagrams in plain language so that I could understand and communicate the system without relying entirely on the technical descriptions.
+- Committed and pushed the architecture documentation and technical decision log to GitHub.
+
+### What went wrong
+
+- The main challenge was ensuring that the diagrams accurately represented the application's actual implementation. The architecture had grown through several development phases, so it was important not to document features or system behaviour based only on the original plans.
+- Mermaid diagrams did not always render reliably in Cursor's preview. The documentation therefore needed to be checked in GitHub or another Markdown preview to inspect the rendered diagrams properly.
+- Another challenge was understanding how to represent different parts of the system without making the diagrams unnecessarily complicated. The diagrams needed to explain important relationships and processes while remaining understandable to someone reviewing the repository.
+- The technical decision log also required more than simply listing technologies. Each decision needed to explain the reason behind the choice and the trade-offs involved.
+
+### What I learned
+
+- I learned how to use Mermaid, a text-based diagramming tool that allows architecture diagrams and flowcharts to be maintained directly in Markdown and rendered on GitHub.
+- I learned that architecture documentation should describe the actual implementation, not just the intended design. As an application develops, its documentation must evolve alongside its code.
+- I learned that a technical Decision Log is important for future developers and for myself. It records why a particular approach was chosen, what alternatives were considered, and what trade-offs were accepted.
+- I developed a better understanding of how local browser storage, offline synchronization, server communication, and conflict resolution work together to support the application's offline-first features.
+- I gained a clearer understanding of the database structure and how information moves between different parts of the system.
+- Tracing the HMAC pseudonymization pipeline helped me understand how donor reporting can reduce direct exposure of learner identities while still producing sensitive data that must be protected.
+- I learned that explaining architecture in plain language is a useful way to test whether I genuinely understand a system rather than simply recognizing technical terms or reading AI-generated explanations.
+
+### Verification
+
+- Reviewed the five architecture diagrams and checked their relationship to the implemented application.
+- Reviewed the 14 documented technical decisions and their reasoning.
+- Used the architecture walkthrough to practise explaining the system in plain language.
+- Committed and pushed the documentation changes to GitHub.
