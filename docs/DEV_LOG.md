@@ -899,3 +899,49 @@ The three decisions above shaped the project around accuracy, privacy, and relia
 - Reviewed the 14 documented technical decisions and their reasoning.
 - Used the architecture walkthrough to practise explaining the system in plain language.
 - Committed and pushed the documentation changes to GitHub.
+
+## Day 19 of 20 · 2026-11-20 to 2026-11-21
+
+### What I built
+
+- Wrote the core project narrative for the README, including why Open LMS Refuge exists and how my real outreach experience and understanding of refugee education shaped its design.
+- Used AI under my direction to format the README, create a CHANGELOG based on Git history, and add an honest project status table explaining what is implemented, what is incomplete, and what has not yet been deployed.
+- Created `CONTRIBUTING.md` to explain how others can contribute to the project.
+- Created and refined `docs/PRIVACY.md` to explain the information the application stores, where it is kept, what information may be sent to external services, and the privacy limitations of the current implementation.
+- Created `docs/USER_FEEDBACK.md` with sections for actual interviews and pilot feedback. I kept these sections empty rather than inventing feedback that I had not received.
+- Built the `docs/pilot/` documentation kit, including a plain-English teacher quick guide, an information and consent template for participating centres to adapt, and a five-question feedback form.
+- Expanded the pilot consent template to explain learner account creation, local browser storage, the information used by the risk-scoring service, hosting arrangements, optional services, participant withdrawal, access responsibilities, and data retention. I left placeholders for centres to complete rather than inventing arrangements that have not been agreed.
+- Reviewed and corrected existing project documentation, including the PRD, database documentation, risk model documentation, development log, and risk engine README, so they better reflect the application's actual behaviour instead of making unsupported claims.
+- Manually reviewed the teacher quick guide against the application and corrected its instructions about absence reasons, sensitive information, offline attendance, shared phones, and practice records.
+
+### What went wrong
+
+- During the teacher guide verification, I discovered that Chrome refused the browser's persistent storage request. The application incorrectly treated this as meaning that IndexedDB could not save attendance, even though sufficient storage space was available.
+- Investigated the problem with Cursor and corrected the attendance storage logic. Attendance can now be saved when the browser refuses the persistence request, provided there is sufficient measured storage space and the IndexedDB transaction and separate read-back verification both succeed. The application also displays a different message to explain that the browser has not promised to protect the records from automatic removal.
+- The first offline attendance investigation became confusing because the browser redirected me to sign-in after opening the kiosk shell. I initially inspected a different teacher's class and account in IndexedDB. Comparing the account, section, and class session IDs helped me identify the mismatch, and I repeated the tests using Teacher One and the correct Morning Group class.
+- During synchronization testing, the Attendance sync panel remained stuck on "Checking the server and sending attendance." The health check succeeded, but no attendance upload request appeared in the browser's Network panel.
+- Further investigation revealed that Chrome was not completing the `CompressionStream` writer operation. Because the upload depended on compression finishing first, the application never reached the attendance submission request.
+- Corrected the compression implementation to use a Blob stream, added a five-second timeout, and included a plain JSON fallback when compression fails or takes too long. This allowed synchronization to proceed without weakening attendance validation or acknowledgement checks.
+- The first attempt to start another development server also revealed that the original Next.js server was already running on port 3000. I continued using the existing server instead of creating unnecessary additional instances.
+- Updated the teacher quick guide to distinguish between attendance successfully saved locally but not guaranteed to be retained by the browser, and attendance that genuinely failed to save.
+
+### What I learned
+
+- I learned that writing project documentation is just as important as writing code. A functioning application is not enough if teachers, participating centres, and potential contributors cannot understand how to use it.
+- I learned that documentation must describe the actual implementation. A privacy or consent document should not promise protections, hosting arrangements, or features that the application does not yet provide.
+- I learned that privacy documentation for this project needs to explain the limitations of local browser storage, shared devices, external services, pseudonymized exports, and data retention. A pseudonymized report is still sensitive and must not be described as anonymous.
+- I learned the difference between browser storage persistence and the ability to write to IndexedDB. A browser can refuse to promise that it will retain local data while still allowing the application to save and retrieve records successfully.
+- I learned that a successful local attendance save and a successful server synchronization are two separate operations. The application must preserve pending records until the server confirms them.
+- I learned that testing in an actual browser environment can reveal problems that automated tests alone may not catch. The Chrome compression issue was not obvious until the synchronization process was observed through the Network panel.
+- I learned the importance of checking account IDs, section IDs, and class session IDs when investigating offline records. Without matching them, it is easy to mistake data belonging to another account or class for missing data.
+- I also learned that AI assistance is most useful when I review its work, question inaccurate explanations, test the actual application, and make sure the final documentation reflects what has really been built.
+
+### Verification
+
+- Ran the complete Vitest suite: **434 tests passed across 43 test files**.
+- Ran `npx tsc --noEmit` successfully.
+- ESLint checks on the changed files passed.
+- Manually verified attendance saving in Chrome while online and offline.
+- Confirmed that locally saved attendance survived a page reload.
+- Confirmed that pending attendance records were successfully synchronized with the server and that the waiting count returned to zero.
+- Committed and pushed all 11 changed files to GitHub on November 21, 2026.
