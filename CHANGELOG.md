@@ -116,3 +116,9 @@ This milestone is the documentation commit. `docs/DEV_LOG.md` does not yet conta
 - Documented the implemented architecture and the technical decisions, including what is not built: quizzes, lesson-completion sync, a funder-requirement screen, a live R2 bucket, and encryption of phone storage.
 
 Planned work that is not in this changelog as a finished feature includes in-app learner registration, learner erasure, quizzes, a teacher AI assistant, exam proctoring, and a hosted production deployment.
+
+## 23 November 2026 · Teacher handoff recipient
+
+- A director or administrator names the incoming teacher when switching a teacher off or ending a section assignment.
+- If a director names nobody, that director receives the report. An administrator's blank choice works only when the centre has exactly one active director.
+- The named teacher is added to the current classes so they can open the report. The departing teacher's class rows are kept and closed immediately, including one that started today, so switching the account back on does not reopen them. Giving that teacher the same section again the same UTC day is refused with a clear message. An ordinary section reassignment that started today still lasts until the end of that UTC day.

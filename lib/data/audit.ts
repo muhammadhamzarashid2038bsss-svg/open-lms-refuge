@@ -26,6 +26,7 @@ const SAFE_KEYS = new Set([
   "learnerCount",
   "reason",
   "reportCount",
+  "incomingNamed",
   "status",
   "format",
   "mode",

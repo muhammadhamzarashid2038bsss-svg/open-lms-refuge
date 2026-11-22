@@ -22,7 +22,7 @@ export async function loadActor(userId: string, now = new Date(), db: Database =
           enrollments: { where: { status: "ACTIVE" }, select: { sectionId: true } },
         },
       },
-      sectionAssignments: { select: { sectionId: true, startsOn: true, endsOn: true } },
+      sectionAssignments: { select: { sectionId: true, startsOn: true, endsOn: true, accessClosed: true } },
     },
   });
   if (!user || !user.active) return null;
@@ -30,7 +30,7 @@ export async function loadActor(userId: string, now = new Date(), db: Database =
   const assignedSectionIds =
     user.role === "TEACHER"
       ? user.sectionAssignments
-          .filter((row) => isCurrentAssignment(row.startsOn, row.endsOn, now))
+          .filter((row) => isCurrentAssignment(row.startsOn, row.endsOn, now, row.accessClosed))
           .map((row) => row.sectionId)
       : [];
 

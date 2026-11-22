@@ -154,7 +154,7 @@ The link between a learner and a section, with a start date and a status: active
 
 ### SectionTeacher
 
-Which teacher is responsible for a section, and between which dates. An empty end date means they are still assigned. The demo leaves Teacher One and Teacher Three on the morning group. Teacher Three’s afternoon assignment ends on 5 October 2026, and Teacher Two starts the next day. The database allows only one open assignment for the same teacher and section.
+Which teacher is responsible for a section, and between which dates. An empty end date means they are still assigned. `accessClosed` is set only when that teacher's account is switched off. Access stops at once, even when the end date is still today, and switching the account back on does not clear the flag. An ordinary section reassignment leaves the flag false, so an assignment that started today still includes the rest of that UTC day. The demo leaves Teacher One and Teacher Three on the morning group. Teacher Three’s afternoon assignment ends on 5 October 2026, and Teacher Two starts the next day. The database allows only one open assignment for the same teacher and section, and only one row for the same teacher, section, and start date. If that teacher was switched off from the section today, giving them the section again is refused with a clear message. They can be assigned to it on the next UTC day.
 
 ### Resource
 
@@ -237,7 +237,7 @@ Append-only history for notes. Same sync fields as `GradeEntryVersion`, plus the
 
 ### HandoffReport
 
-The section pack created when a teacher is deactivated or a section is reassigned. It points at the outgoing teacher, the recipient, and a named next teacher only when one was explicitly chosen. On deactivation, the recipient is the only other teacher already teaching that section, or the centre director when there is not exactly one. A newly arriving volunteer is not identified automatically.
+The section pack created when a teacher is deactivated or a section is reassigned. It points at the outgoing teacher, the recipient, and a named next teacher only when a director or administrator explicitly chose one. If a centre director names nobody, that director receives the pack. An administrator's blank choice uses the centre's only active director, and is refused when the centre has none or more than one. A co-teacher is not chosen automatically, and a newly arriving volunteer is not guessed. When a teacher is named during deactivation, they are added to each current section so they can open the pack. The previous teacher's assignment row is not deleted. Its end date is set, and `accessClosed` is set, so switching the account back on does not make that row current again, including later the same UTC day. An ordinary section reassignment does not set `accessClosed`. An assignment that started on the same UTC day then ends on that day and stays current until the day is over.
 
 The demo includes one report for the afternoon group, dated the day Teacher Two takes over from Teacher Three. Switching a teacher off, or ending their section assignment, now builds a report in the same database transaction. `sourceKey` makes a repeated request return the existing pack instead of a second one. The seed report uses the key `seed:afternoon-teacher-three`.
 

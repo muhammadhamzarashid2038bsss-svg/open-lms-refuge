@@ -118,41 +118,64 @@ describe("handoff profile calculations", () => {
     expect(latestNoteVersion([older, newer])?.id).toBe("newer");
   });
 
-  it("does not choose one teacher when several are eligible", () => {
+  it("assigns a named teacher, the acting director, or the only director for an administrator", () => {
+    const admin = { id: "admin", active: true, role: "ADMIN", centerId: "center" };
+    const acting = { id: "second", active: true, role: "CENTER_DIRECTOR", centerId: "center" };
     expect(chooseHandoffRecipient({
       outgoingTeacherId: "out",
       sectionCenterId: "center",
       explicitIncoming: null,
-      otherCurrentTeacherIds: ["a", "b"],
+      actingUser: acting,
+      directorIds: ["first", "second"],
+    })).toEqual({ ok: true, incomingTeacherId: null, assignedToId: "second", assignedToRole: "CENTER_DIRECTOR" });
+    expect(chooseHandoffRecipient({
+      outgoingTeacherId: "out",
+      sectionCenterId: "center",
+      explicitIncoming: null,
+      actingUser: admin,
       directorIds: ["director"],
     })).toEqual({ ok: true, incomingTeacherId: null, assignedToId: "director", assignedToRole: "CENTER_DIRECTOR" });
     expect(chooseHandoffRecipient({
       outgoingTeacherId: "out",
       sectionCenterId: "center",
       explicitIncoming: null,
-      otherCurrentTeacherIds: ["solo"],
-      directorIds: [],
-    })).toEqual({ ok: true, incomingTeacherId: "solo", assignedToId: "solo", assignedToRole: "TEACHER" });
+      actingUser: admin,
+      directorIds: ["one", "two"],
+    }).ok).toBe(false);
     expect(chooseHandoffRecipient({
       outgoingTeacherId: "out",
       sectionCenterId: "center",
       explicitIncoming: null,
-      otherCurrentTeacherIds: [],
+      actingUser: admin,
+      directorIds: [],
+    }).ok).toBe(false);
+    expect(chooseHandoffRecipient({
+      outgoingTeacherId: "out",
+      sectionCenterId: "center",
+      explicitIncoming: null,
+      actingUser: { id: "other-director", active: true, role: "CENTER_DIRECTOR", centerId: "other-centre" },
       directorIds: ["one", "two"],
     }).ok).toBe(false);
     expect(chooseHandoffRecipient({
       outgoingTeacherId: "out",
       sectionCenterId: "center",
       explicitIncoming: { id: "picked", active: true, role: "TEACHER", centerId: "center" },
-      otherCurrentTeacherIds: ["a", "b"],
+      actingUser: null,
       directorIds: [],
     })).toMatchObject({ ok: true, incomingTeacherId: "picked", assignedToId: "picked" });
     expect(chooseHandoffRecipient({
       outgoingTeacherId: "out",
       sectionCenterId: "center",
+      explicitIncoming: { id: "elsewhere", active: true, role: "TEACHER", centerId: "other-centre" },
+      actingUser: acting,
+      directorIds: ["second"],
+    }).ok).toBe(false);
+    expect(chooseHandoffRecipient({
+      outgoingTeacherId: "out",
+      sectionCenterId: "center",
       explicitIncoming: { id: "out", active: false, role: "TEACHER", centerId: "center" },
-      otherCurrentTeacherIds: [],
-      directorIds: ["director"],
+      actingUser: acting,
+      directorIds: ["second"],
     }).ok).toBe(false);
   });
 
@@ -160,13 +183,14 @@ describe("handoff profile calculations", () => {
     const safe = auditMetadata({
       source: "handoff",
       profileCount: 2,
+      incomingNamed: true,
       body: "Day13 private note",
       password: "demo-password",
       token: "session-token",
       content: "full file bytes",
       learnerCode: "LNR-0001",
     });
-    expect(safe).toEqual({ source: "handoff", profileCount: 2 });
+    expect(safe).toEqual({ source: "handoff", profileCount: 2, incomingNamed: true });
     expect(JSON.stringify(safe)).not.toContain("private note");
     expect(JSON.stringify(safe)).not.toContain("demo-password");
     expect(JSON.stringify(safe)).not.toContain("session-token");

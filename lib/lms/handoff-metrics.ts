@@ -26,16 +26,20 @@ export type RecipientChoice =
     }
   | { ok: false; message: string };
 
-const NO_DIRECTOR = "This center needs one active director before a handoff can be assigned.";
-const BAD_INCOMING = "The selected teacher cannot take this section.";
+const NO_DIRECTOR =
+  "This centre does not have exactly one active director. Name a teacher, or ask a director of this centre to send the report.";
+const BAD_INCOMING = "Choose an active teacher from this centre. The teacher who is leaving cannot be chosen.";
 
-/// Picks the incoming teacher only when the choice is explicit or there is exactly one.
-/// Several remaining teachers go to the director. A deactivated teacher is never chosen.
+/// A centre director names the next teacher. The app does not guess.
+/// Volunteer turnover is high, and the next person may not already teach the
+/// section. With no name, the director who is doing this keeps the pack.
+/// An administrator does not choose among directors. That fallback works only
+/// when the centre has exactly one active director.
 export function chooseHandoffRecipient(input: {
   outgoingTeacherId: string;
   sectionCenterId: string;
   explicitIncoming: RecipientPerson | null;
-  otherCurrentTeacherIds: readonly string[];
+  actingUser: RecipientPerson | null;
   directorIds: readonly string[];
 }): RecipientChoice {
   if (input.explicitIncoming) {
@@ -54,12 +58,16 @@ export function chooseHandoffRecipient(input: {
     };
   }
 
-  const others = [...new Set(input.otherCurrentTeacherIds)].filter((id) => id !== input.outgoingTeacherId);
-  if (others.length === 1) {
-    const id = others[0];
-    if (!id) return { ok: false, message: NO_DIRECTOR };
-    return { ok: true, incomingTeacherId: id, assignedToId: id, assignedToRole: "TEACHER" };
+  const actor = input.actingUser;
+  if (actor && actor.active && actor.role === "CENTER_DIRECTOR" && actor.centerId === input.sectionCenterId) {
+    return {
+      ok: true,
+      incomingTeacherId: null,
+      assignedToId: actor.id,
+      assignedToRole: "CENTER_DIRECTOR",
+    };
   }
+
   if (input.directorIds.length !== 1) return { ok: false, message: NO_DIRECTOR };
   const directorId = input.directorIds[0];
   if (!directorId) return { ok: false, message: NO_DIRECTOR };

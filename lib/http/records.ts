@@ -1,5 +1,5 @@
 import type { Actor } from "../auth/permissions";
-import { resetLearnerPin, resetStaffPassword, setAccountActive } from "../auth/accounts";
+import { handoffSwitchOffMessage, resetLearnerPin, resetStaffPassword, setAccountActive } from "../auth/accounts";
 import {
   listAccounts,
   readLearnerContact,
@@ -92,10 +92,16 @@ export function passwordResponse(actor: Actor | null, userId: string, password: 
   );
 }
 
-export function activeResponse(actor: Actor | null, userId: string, active: boolean) {
-  return accountChange(
-    actor,
-    () => setAccountActive(actor as Actor, userId, active),
-    active ? "The account is switched on." : "The account is switched off. Their records stay.",
-  );
+export async function activeResponse(
+  actor: Actor | null,
+  userId: string,
+  active: boolean,
+  incomingTeacherId: string | null = null,
+): Promise<HttpResult> {
+  if (!actor) return { status: 401, body: { error: "Sign in required." } };
+  const result = await setAccountActive(actor, userId, active, incomingTeacherId);
+  if (result.status === "hidden") return hidden();
+  if (result.status === "invalid") return { status: 400, body: { error: result.message } };
+  if (!active) return { status: 200, body: { message: handoffSwitchOffMessage(result.handoff) } };
+  return { status: 200, body: { message: "The account is switched on." } };
 }

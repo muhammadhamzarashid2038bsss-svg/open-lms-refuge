@@ -92,10 +92,25 @@ async function DirectorHome({ searchParams }: { searchParams: Promise<{ notice?:
           {sections.length === 0 ? <li>No sections yet.</li> : null}
         </ul>
       </section>
-      {staffing ? <ReassignSectionForm sections={staffing.sections} teachers={staffing.teachers} /> : null}
+      {staffing ? (
+        <ReassignSectionForm
+          sections={staffing.sections}
+          teachers={staffing.teachers}
+          blankHint="Choose the teacher who is taking over. If you leave that blank, you receive the report. The app does not guess a teacher."
+          blankOptionLabel="No incoming teacher — send the report to me"
+        />
+      ) : null}
       <PinResetForm showCenterCode={false} />
       <PasswordResetForm />
-      {accounts ? <AccountList accounts={accounts} /> : null}
+      {accounts ? (
+        <AccountList
+          accounts={accounts}
+          incomingTeachers={staffing?.teachers ?? []}
+          blankIncomingLabel="No incoming teacher — send the reports to me"
+          fallbackText="If you do not choose anyone, you receive the reports. The app does not guess."
+          emptyTeacherText="No other active teacher is at this centre yet. Leave the choice blank and you will receive the reports."
+        />
+      ) : null}
       {actor ? <PhoneTools userId={actor.id} centerId={actor.centerId} /> : null}
     </Shell>
   );

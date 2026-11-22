@@ -36,7 +36,7 @@ const actorSelect = {
       enrollments: { where: { status: "ACTIVE" as const }, select: { sectionId: true } },
     },
   },
-  sectionAssignments: { select: { sectionId: true, startsOn: true, endsOn: true } },
+  sectionAssignments: { select: { sectionId: true, startsOn: true, endsOn: true, accessClosed: true } },
 };
 
 const holder = vi.hoisted(() => ({ userId: null as string | null }));
@@ -144,7 +144,7 @@ type ActorRow = {
     displayName: string;
     enrollments: { sectionId: string }[];
   } | null;
-  sectionAssignments: { sectionId: string; startsOn: Date; endsOn: Date | null }[];
+  sectionAssignments: { sectionId: string; startsOn: Date; endsOn: Date | null; accessClosed: boolean }[];
 };
 
 // A Prisma code such as P2028, or a plain error name. Never the message:
@@ -183,7 +183,7 @@ function toActor(user: ActorRow, label: string): Actor {
   const assignedSectionIds =
     user.role === "TEACHER"
       ? user.sectionAssignments
-          .filter((row) => isCurrentAssignment(row.startsOn, row.endsOn, now))
+          .filter((row) => isCurrentAssignment(row.startsOn, row.endsOn, now, row.accessClosed))
           .map((row) => row.sectionId)
       : [];
   return {
