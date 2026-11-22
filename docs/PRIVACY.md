@@ -81,9 +81,23 @@ The request contains:
 
 It does not contain learner names, phone numbers, progress-note text, grade comments, or the database ids of the learner, the class, or the assignment. The Python service rejects any extra field.
 
-The learner code is the same code printed on the learner's profile. The centre can match it back to that person. Do not describe it as anonymous. Dates plus an attendance pattern can also be distinctive in a small class.
+The learner code is the same code printed on the learner's profile.
+The centre can match it back to that person.
+It is pseudonymous, not anonymous.
+Dates plus an attendance pattern can also be distinctive in a small class.
 
-The service is used only for that director-started run. There is no daily automatic job in this version.
+The service is used only for that director-started run.
+There is no daily automatic job in this version.
+
+A public host is allowed only for a synthetic demo.
+That demo must send synthetic learner codes and records, never a real learner's code or attendance.
+The Next.js server must call it over HTTPS with its own shared key.
+Interactive API pages are turned off.
+This repository has not deployed that demo.
+
+A future pilot that uses real learner data is not approved by this document.
+It needs a separate risk-service deployment and a separate API key, or a private arrangement that is not this public demo.
+No such deployment has been created, and no legal approval is claimed here.
 
 ### Cloudflare R2
 
@@ -133,6 +147,7 @@ There is no general retention period in the software. A centre that needs one mu
 - Phone storage is not encrypted. Sign-out hides records in the app and leaves them in the browser.
 - Free-text fields and uploaded files can hold information the profile form never asks for.
 - The risk service receives a learner code the centre can link back to a person.
+  A public synthetic demo is not an approval to send real learner data.
 - Pseudonyms are not anonymous. Small-group suppression does not survive every overlapping report or every outside fact.
 - There is no learner-erasure workflow and no in-app registration form.
 - This document does not claim legal compliance, guaranteed anonymity, or complete security.

@@ -205,7 +205,12 @@ The requirements document names Vercel for the website, Render for the risk serv
 
 Homework files are meant to go to a private Cloudflare R2 bucket. [docs/STORAGE.md](docs/STORAGE.md) says no bucket has been created. Until the four `R2_` values are set, the app tells the learner that file storage is unavailable and keeps the file on the phone.
 
-The risk service is written to run on the centre's own server, or on localhost during development. It should not be exposed to the public internet. See [services/risk_engine/README.md](services/risk_engine/README.md).
+The risk service runs on this computer at `127.0.0.1` during development.
+A later synthetic demo may use a public HTTPS address.
+That demo must not receive real learner data.
+A real-data pilot needs a separate deployment and a separate key, or a private arrangement.
+See [services/risk_engine/README.md](services/risk_engine/README.md).
+No Render service has been created.
 
 If a demo server is added later, it may take a little time to wake up, so the application may respond slowly when first opened. No such server is linked from this repository today.
 

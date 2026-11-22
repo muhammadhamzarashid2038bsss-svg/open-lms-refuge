@@ -5,12 +5,16 @@ from datetime import timedelta
 from tests.builders import AS_OF, body, flat_grades, grade, load_example, repeated
 
 
-def test_health_and_docs_are_available(client):
+def test_health_is_minimal_and_api_docs_are_disabled(client):
     health = client.get("/health")
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
-    assert client.get("/docs").status_code == 200
-    assert client.get("/openapi.json").status_code == 200
+    assert "test-risk-key" not in health.text
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        hidden = client.get(path)
+        assert hidden.status_code == 404
+        assert "test-risk-key" not in hidden.text
+        assert "LNR-" not in hidden.text
 
 
 def test_example_five_unexcused_absences(client):
