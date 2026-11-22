@@ -120,7 +120,7 @@ One row per sign-in. `revokedAt` is set on sign-out, when the session goes idle,
 
 ### LoginThrottle
 
-A counter for failed sign-ins. The key is a hash of the attempted email, learner code, or network address, not the raw value. Five failures set `lockedUntil` 15 minutes ahead.
+A counter for failed sign-ins. The key is a hash of the attempted email, learner code, or network address, not the raw value. Five failures set `lockedUntil` 15 minutes ahead. The row has no centre column. The demo seed removes only the known DEMO account keys. A network-address lockout, an unknown-account lockout, and every other centre’s lockout stay in place.
 
 ### DeviceHandover
 
@@ -301,7 +301,7 @@ Emails use `.invalid`, which is a reserved ending that does not deliver mail.
 
 Re-running the seed deletes and rebuilds the `DEMO` center only. The seed does that in fifteen transactions, one after another. Reset is first. It turns on `app.allow_demo_reset` for that transaction only, so the append-only tables can be cleared. The switch ends when Reset commits. The later transactions insert the replacement rows and do not set the switch. Application code must not set that switch.
 
-Never run `npm run db:seed` against a database that holds a real centre. The seed is synthetic demo data. If a centre coded `DEMO` is present, the reset also clears every sign-in lockout row in that database, not only the demo centre’s rows.
+Never run `npm run db:seed` against a database that holds a real centre. The seed is synthetic demo data, and it still replaces the entire `DEMO` centre. If a centre coded `DEMO` is present, the reset removes sign-in lockout rows only for the known DEMO accounts: the five demo staff emails and learner codes `LNR-0001` through `LNR-0030`. A lockout for a network address stays, because phones on that address may belong to another centre. A lockout for an unknown email or learner code stays, because that hash cannot be tied to `DEMO`. Lockouts for every other centre stay as well.
 
 ## How to look at it
 
