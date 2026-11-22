@@ -199,7 +199,7 @@ The offline kiosk was checked with a production build, not with `npm run dev`. T
 
 There is no production deployment in this repository. No demo URL, host name, or production database is configured here.
 
-Development has used Prisma's local Postgres. A hosted Postgres database is the intended next step for a real centre: point `DATABASE_URL` at that database and run the same migrations. That step has not been completed or tested as a deployment.
+Development has used Prisma's local Postgres. A hosted Postgres database is the intended next step. The website on Vercel should use that host's pooled address. Table updates are a separate manual command, `npm run db:migrate:deploy`, using the direct address. Do not run `npm run db:migrate` or `npm run db:seed` against a hosted database. The steps are in [docs/DATABASE.md](docs/DATABASE.md). That deployment has not been completed or tested.
 
 The requirements document names Vercel for the website, Render for the risk service, and a hosted Postgres database as a possible free-tier demo. Day 7 of the development log records that an optional Vercel deployment was skipped. Do not treat those names as a live setup.
 

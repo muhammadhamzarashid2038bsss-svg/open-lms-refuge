@@ -301,16 +301,41 @@ Emails use `.invalid`, which is a reserved ending that does not deliver mail.
 
 Re-running the seed deletes and rebuilds the `DEMO` center only. The seed does that in fifteen transactions, one after another. Reset is first. It turns on `app.allow_demo_reset` for that transaction only, so the append-only tables can be cleared. The switch ends when Reset commits. The later transactions insert the replacement rows and do not set the switch. Application code must not set that switch.
 
+Never run `npm run db:seed` against a database that holds a real centre. The seed is synthetic demo data. If a centre coded `DEMO` is present, the reset also clears every sign-in lockout row in that database, not only the demo centre’s rows.
+
 ## How to look at it
 
-This computer did not have PostgreSQL installed. Local development uses Prisma’s own Postgres server, started with `npx prisma dev`. It speaks the normal Postgres protocol. A hosted database for a real center is the same migrations with a different `DATABASE_URL`. Prisma’s local server currently names the database `template1`. That name is only a local quirk. A hosted database should use a normal name such as `open_lms_refuge`.
+This computer did not have PostgreSQL installed. Local development uses Prisma’s own Postgres server, started with `npx prisma dev`. It speaks the normal Postgres protocol. Prisma’s local server currently names the database `template1`. That name is only a local quirk. A hosted database should use a normal name such as `open_lms_refuge`.
+
+Prisma 7 reads `DATABASE_URL` in `prisma7.config.ts`, not in `prisma/schema.prisma`. That file loads `.env` and passes `process.env.DATABASE_URL` to Prisma. A `DATABASE_URL` already set in the shell wins over `.env`. `npm run db:migrate` is `prisma migrate dev`. Prisma finds `prisma7.config.ts` on its own, so that local command uses the same URL. Do not point it at a hosted database. `migrate dev` can ask questions and can offer to reset the database. It also needs `SHADOW_DATABASE_URL` when the local Prisma server is in use.
 
 1. Start the local database: `npx prisma dev --detach --name open-lms-refuge`
 2. Run `npx prisma dev ls` and copy the TCP address into `.env` as `DATABASE_URL`. Copy the shadow address into `SHADOW_DATABASE_URL`. The shadow database is a scratch copy Prisma uses while checking migrations. A normal PostgreSQL install can leave `SHADOW_DATABASE_URL` unset.
-3. Create the tables: `npx prisma migrate dev`
-4. Load the fake data: `npx prisma db seed`
+3. Create the tables on this computer: `npm run db:migrate`
+4. Load the fake data: `npm run db:seed`
 5. Open the tables: `npx prisma studio`
 6. Run the checks: `npx vitest run tests/phase1-schema.test.ts`
+
+## Hosted migrations
+
+A hosted database, such as Neon for a synthetic demo, does not use `npm run db:migrate`. The production command is:
+
+```bash
+npm run db:migrate:deploy
+```
+
+That runs `prisma migrate deploy --config prisma7.config.ts`. `migrate deploy` applies the migration files already in `prisma/migrations`. It does not open a shadow database, it does not ask what to do if the schema and the files disagree, and it does not reset the database.
+
+Run it by hand from a trusted computer. Do not put it in a Vercel request, a page load, or the running web app. The website only reads and writes rows. It must not migrate.
+
+Use two different Neon addresses:
+
+- The command above needs Neon’s direct address, the one that is not the pooled host. Put that address in `DATABASE_URL` for this command only.
+- The Vercel app needs Neon’s pooled address in its own `DATABASE_URL`. Set `DATABASE_POOL_MAX=1` there so each running copy opens one database connection.
+
+Before you run the command, read the host name in the URL you are about to use. Do not read the password aloud or paste it into a note. Confirm three things: it is the intended Neon project, it is the direct host rather than the pooled host, and it is not the local Prisma address in `.env`. If the shell has no `DATABASE_URL`, the config file loads `.env`, and a production URL left in that file would make the next local `npm run db:migrate` hit the hosted database.
+
+`npm run db:seed` stays a local demo command. Do not run it on a database that contains real centre data.
 
 In Prisma Studio, open `attendance_records` and search for `demo-att-morning-2-4`. You should see two rows for the same learner and session. Then open `sync_conflicts`. You should see two open rows, each pointing at two different version ids.
 
