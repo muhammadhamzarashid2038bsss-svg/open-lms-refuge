@@ -3,7 +3,7 @@ import {
   IP_FAILED_ATTEMPTS_BEFORE_LOCK,
   type LoginError,
 } from "./constants";
-import { verifySecret } from "./password";
+import { isFourDigitPin, verifySecret } from "./password";
 import { hashBucket, isLockActive, recordFailure, type ThrottleStore } from "./throttle";
 import type { LearnerCredential, StaffCredential } from "./lookup";
 
@@ -130,16 +130,21 @@ export async function authenticateLearner(input: {
   }
 
   const learner = await input.findLearner(centerCode, learnerCode);
+  // A request can skip the form and send any text. Only four digits may
+  // succeed. Anything else still counts as a failed try, so it cannot walk
+  // around the account lock or the shared-network lock.
+  const pinAccepted = isFourDigitPin(input.pin);
   const verdict = await takeAttempt({
     now: input.now,
     ip: input.ip,
     store: input.store,
-    secret: input.pin,
+    secret: pinAccepted ? input.pin : "",
     bucketKey: learnerBucketId(centerCode, learnerCode),
     storedHash: learner?.pinHash ?? null,
     active: learner?.active ?? false,
     found: learner !== null,
   });
+  if (!pinAccepted) return { ok: false, error: verdict === "locked" ? "locked" : "mismatch" };
   if (verdict !== "ok" || !learner) {
     return { ok: false, error: verdict === "ok" ? "mismatch" : verdict };
   }

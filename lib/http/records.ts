@@ -80,7 +80,7 @@ export function pinResponse(actor: Actor | null, learnerId: string, pin: string)
   return accountChange(
     actor,
     () => resetLearnerPin(actor as Actor, learnerId, pin),
-    "The new PIN is saved. Tell the learner in person. It is not kept in a readable form.",
+    "The new PIN is saved. That learner is signed out of other devices. Tell them the new PIN in person. It is not kept in a readable form.",
   );
 }
 

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { clientIp } from "@/lib/auth/actor";
 import { LOGIN_MESSAGES } from "@/lib/auth/constants";
 import { authenticateLearner, authenticateStaff } from "@/lib/auth/login";
+import { isFourDigitPin } from "@/lib/auth/password";
 import { findLearnerByCode, findStaffByEmail } from "@/lib/auth/lookup";
 import { prismaThrottleStore } from "@/lib/auth/prisma-store";
 import { sessionConfigurationMessage } from "@/lib/auth/session-secret";
@@ -33,15 +34,22 @@ export async function signInStaff(_prev: SignInState, formData: FormData): Promi
 }
 
 export async function signInLearner(_prev: SignInState, formData: FormData): Promise<SignInState> {
+  const pin = String(formData.get("pin") ?? "");
   const result = await authenticateLearner({
     centerCode: String(formData.get("centerCode") ?? ""),
     learnerCode: String(formData.get("learnerCode") ?? ""),
-    pin: String(formData.get("pin") ?? ""),
+    pin,
     now: new Date(),
     ip: await clientIp(),
     store: prismaThrottleStore(),
     findLearner: findLearnerByCode,
   });
+  // The HTML form is not the check. A PIN that is not four digits never opens
+  // a session. The reply stays the same generic message unless the lock has
+  // already been reached, so the form cannot be used to discover a learner code.
+  if (!isFourDigitPin(pin)) {
+    return { error: !result.ok && result.error === "locked" ? LOGIN_MESSAGES.locked : LOGIN_MESSAGES.mismatch };
+  }
   if (!result.ok) return { error: LOGIN_MESSAGES[result.error] };
   try {
     await openSession(result.userId);

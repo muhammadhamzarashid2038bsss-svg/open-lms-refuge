@@ -28,7 +28,7 @@ export async function resetPinAction(_prev: FormState, formData: FormData): Prom
   }
   if (result.status === "invalid") return { error: result.message };
   return {
-    message: "The new PIN is saved. Tell the learner in person. Leave this page when you have done that.",
+    message: "The new PIN is saved. That learner is signed out of other devices. Tell them the new PIN in person. Leave this page when you have done that.",
   };
 }
 

@@ -13,8 +13,8 @@ export function PinResetForm({ showCenterCode }: { showCenterCode: boolean }) {
       <h2 className="text-xl font-semibold">Set a new learner PIN</h2>
       <p className="text-lg leading-7">
         A teacher can do this for a learner in their section. A director can do it for their center. An admin can do it
-        for any center. Tell the learner the new PIN in person. It is not sent in a message, and it is not saved in a
-        readable form.
+        for any center. Saving a new PIN signs that learner out of every other device. Tell the learner the new PIN in
+        person. It is not sent in a message, and it is not saved in a readable form.
       </p>
       {showCenterCode ? (
         <label className={labelClass}>

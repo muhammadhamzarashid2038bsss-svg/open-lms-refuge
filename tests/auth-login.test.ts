@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { hashSecret, isFourDigitPin, verifySecret } from "../lib/auth/password";
-import { authenticateLearner, authenticateStaff } from "../lib/auth/login";
-import { LOGIN_MESSAGES } from "../lib/auth/constants";
+import { authenticateLearner, authenticateStaff, ipBucketId, learnerBucketId } from "../lib/auth/login";
+import { IP_FAILED_ATTEMPTS_BEFORE_LOCK, LOGIN_MESSAGES } from "../lib/auth/constants";
 import type { ThrottleRow, ThrottleStore } from "../lib/auth/throttle";
 import type { LearnerCredential, StaffCredential } from "../lib/auth/lookup";
 
@@ -128,5 +128,128 @@ describe("failed sign-in limits", () => {
     });
     expect(locked).toEqual({ ok: false, error: "locked" });
     expect(learner.pinHash).not.toContain("1234");
+  });
+
+  it("keeps a learner locked when the next try comes from another network address", async () => {
+    const store = memoryStore();
+    const now = new Date("2026-11-05T00:00:00.000Z");
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const result = await authenticateLearner({
+        centerCode: "DEMO",
+        learnerCode: "LNR-0099",
+        pin: "9999",
+        now,
+        ip: "203.0.113.10",
+        store,
+        findLearner: async () => learner,
+      });
+      expect(result.ok).toBe(false);
+    }
+    const otherNetwork = await authenticateLearner({
+      centerCode: "DEMO",
+      learnerCode: "LNR-0099",
+      pin: "1234",
+      now,
+      ip: "198.51.100.40",
+      store,
+      findLearner: async () => learner,
+    });
+    expect(otherNetwork).toEqual({ ok: false, error: "locked" });
+  });
+
+  it("locks a shared network address after 100 failed tries", async () => {
+    const store = memoryStore();
+    const now = new Date("2026-11-05T00:00:00.000Z");
+    const ip = "203.0.113.50";
+    for (let attempt = 0; attempt < IP_FAILED_ATTEMPTS_BEFORE_LOCK; attempt += 1) {
+      const result = await authenticateLearner({
+        centerCode: "DEMO",
+        learnerCode: `C${String(attempt).padStart(4, "0")}`,
+        pin: "9999",
+        now,
+        ip,
+        store,
+        findLearner: async () => null,
+      });
+      expect(result).toEqual({
+        ok: false,
+        error: attempt === IP_FAILED_ATTEMPTS_BEFORE_LOCK - 1 ? "locked" : "mismatch",
+      });
+    }
+    const correctPin = await authenticateLearner({
+      centerCode: "DEMO",
+      learnerCode: "LNR-0099",
+      pin: "1234",
+      now,
+      ip,
+      store,
+      findLearner: async () => learner,
+    });
+    expect(correctPin).toEqual({ ok: false, error: "locked" });
+    const otherNetwork = await authenticateLearner({
+      centerCode: "DEMO",
+      learnerCode: "LNR-0099",
+      pin: "1234",
+      now,
+      ip: "198.51.100.50",
+      store,
+      findLearner: async () => learner,
+    });
+    expect(otherNetwork).toEqual({ ok: true, userId: learner.id, centerId: learner.centerId, role: "STUDENT" });
+  });
+
+  it("clears the learner throttle after a successful sign-in and leaves the network throttle", async () => {
+    const store = memoryStore();
+    const now = new Date("2026-11-05T00:00:00.000Z");
+    const ip = "203.0.113.60";
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await authenticateLearner({
+        centerCode: "DEMO",
+        learnerCode: "LNR-0099",
+        pin: "9999",
+        now,
+        ip,
+        store,
+        findLearner: async () => learner,
+      });
+    }
+    const signedIn = await authenticateLearner({
+      centerCode: "DEMO",
+      learnerCode: "LNR-0099",
+      pin: "1234",
+      now,
+      ip,
+      store,
+      findLearner: async () => learner,
+    });
+    expect(signedIn.ok).toBe(true);
+    expect(await store.get(learnerBucketId("DEMO", "LNR-0099"))).toBeNull();
+    expect(await store.get(ipBucketId(ip))).toEqual({ failedCount: 2, lockedUntil: null });
+  });
+
+  it("rejects a PIN that is not four digits and still counts it toward the lock", async () => {
+    const store = memoryStore();
+    const now = new Date("2026-11-05T00:00:00.000Z");
+    const rejected = await authenticateLearner({
+      centerCode: "DEMO",
+      learnerCode: "LNR-0099",
+      pin: "12345",
+      now,
+      ip: "203.0.113.70",
+      store,
+      findLearner: async () => learner,
+    });
+    expect(rejected).toEqual({ ok: false, error: "mismatch" });
+    expect(await store.get(learnerBucketId("DEMO", "LNR-0099"))).toMatchObject({ failedCount: 1 });
+    const letters = await authenticateLearner({
+      centerCode: "DEMO",
+      learnerCode: "LNR-0099",
+      pin: "12ab",
+      now,
+      ip: "203.0.113.70",
+      store,
+      findLearner: async () => learner,
+    });
+    expect(letters).toEqual({ ok: false, error: "mismatch" });
   });
 });
