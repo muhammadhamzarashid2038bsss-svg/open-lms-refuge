@@ -110,7 +110,7 @@ Open `.env` and replace the placeholder secrets. Never commit `.env`. The import
 | --- | --- |
 | `DATABASE_URL` | The Postgres address Prisma uses. |
 | `SHADOW_DATABASE_URL` | Optional. Needed for `prisma dev`. A normal Postgres install can leave it empty. |
-| `DATABASE_POOL_MAX` | Optional. Use `1` with `prisma dev`, because that local server effectively allows one connection. |
+| `DATABASE_POOL_MAX` | How many database connections one running copy may open. Use `1` with `prisma dev`. On Vercel set `1` and use Neon’s pooled address. If it is unset in production, the app uses 1. |
 | `SESSION_SECRET` | Seals the sign-in cookie. At least 32 characters. The example in `.env.example` is rejected. |
 | `EXPORT_SECRET` | The HMAC key for export pseudonyms. It must be 64 lowercase hex characters. |
 | `RISK_SERVICE_URL` and `RISK_SERVICE_API_KEY` | Where the Next.js server calls the Python score service, and the shared key. The example key in `.env.example` is rejected. Leave the service unstarted if you are not using check-ins. |
@@ -199,7 +199,7 @@ The offline kiosk was checked with a production build, not with `npm run dev`. T
 
 There is no production deployment in this repository. No demo URL, host name, or production database is configured here.
 
-Development has used Prisma's local Postgres. A hosted Postgres database is the intended next step. The website on Vercel should use that host's pooled address. Table updates are a separate manual command, `npm run db:migrate:deploy`, using the direct address. Do not run `npm run db:migrate` or `npm run db:seed` against a hosted database. The steps are in [docs/DATABASE.md](docs/DATABASE.md). That deployment has not been completed or tested.
+Development has used Prisma's local Postgres. A hosted Postgres database is the intended next step. The website on Vercel should use Neon’s pooled address and `DATABASE_POOL_MAX=1`. If that setting is missing in production, the app uses 1 connection per running copy instead of the driver default of 10. Table updates are a separate manual command, `npm run db:migrate:deploy`, using Neon’s direct address. Do not run `npm run db:migrate` or `npm run db:seed` against a hosted database. The steps are in [docs/DATABASE.md](docs/DATABASE.md). That deployment has not been completed or tested.
 
 The requirements document names Vercel for the website, Render for the risk service, and a hosted Postgres database as a possible free-tier demo. Day 7 of the development log records that an optional Vercel deployment was skipped. Do not treat those names as a live setup.
 

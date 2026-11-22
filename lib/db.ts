@@ -4,6 +4,7 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/prisma/client";
+import { pgPoolConfig } from "./db-pool";
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -13,16 +14,8 @@ if (!connectionString) {
   );
 }
 
-function pgPoolConfig(url: string): string | { connectionString: string; max: number } {
-  const raw = process.env.DATABASE_POOL_MAX?.trim();
-  if (!raw) return url;
-  const max = Number.parseInt(raw, 10);
-  if (!Number.isFinite(max) || max < 1) {
-    throw new Error("DATABASE_POOL_MAX must be a positive integer when set.");
-  }
-  return { connectionString: url, max };
-}
-
+// Always an object with max, so the driver cannot fall back to 10 on its own.
+// PrismaPg stores this object and passes it to pg.Pool when a query connects.
 const adapter = new PrismaPg(pgPoolConfig(connectionString));
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };

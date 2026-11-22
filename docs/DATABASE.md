@@ -330,8 +330,8 @@ Run it by hand from a trusted computer. Do not put it in a Vercel request, a pag
 
 Use two different Neon addresses:
 
-- The command above needs Neon’s direct address, the one that is not the pooled host. Put that address in `DATABASE_URL` for this command only.
-- The Vercel app needs Neon’s pooled address in its own `DATABASE_URL`. Set `DATABASE_POOL_MAX=1` there so each running copy opens one database connection.
+- The command above needs Neon’s direct address, the one that is not the pooled host. Put that address in `DATABASE_URL` for this command only. Do not set the Vercel app to that direct address.
+- The Vercel app needs Neon’s pooled address in its own `DATABASE_URL`. Set `DATABASE_POOL_MAX=1` there. Each running copy then opens one connection. If `DATABASE_POOL_MAX` is left unset, production still uses 1. It does not use the PostgreSQL driver’s default of 10. A normal local database can still set a larger whole number. `npx prisma dev` on this computer should keep `DATABASE_POOL_MAX=1`.
 
 Before you run the command, read the host name in the URL you are about to use. Do not read the password aloud or paste it into a note. Confirm three things: it is the intended Neon project, it is the direct host rather than the pooled host, and it is not the local Prisma address in `.env`. If the shell has no `DATABASE_URL`, the config file loads `.env`, and a production URL left in that file would make the next local `npm run db:migrate` hit the hosted database.
 

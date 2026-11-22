@@ -164,15 +164,15 @@ This log describes the system on `main` at the start of Day 18, commit `0d2acd0`
 
 ## 14. Local Prisma pool size
 
-**Decision:** `lib/db.ts` reads `DATABASE_POOL_MAX` when it constructs the Prisma Postgres driver. When the variable is unset, the driver keeps its default pool size. Local development with `npx prisma dev` sets the pool to 1.
+**Decision:** `lib/db.ts` passes `max` to the Prisma Postgres driver. A set `DATABASE_POOL_MAX` must be a positive whole number, and that number is the pool size. Zero, negative numbers, and text that is not a whole number are rejected. When the variable is unset, production uses 1. Other environments keep the driver default of 10. Local development with `npx prisma dev` still sets the pool to 1.
 
-**Why:** Documented in this file since the export work, and in the code comment around the pool. `npx prisma dev` serves a local Postgres proxy that effectively allows one client connection at a time. A larger pool opens a second connection and fails with `P1017` during long seed transactions. Vitest runs test files one at a time for the same reason.
+**Why:** Documented in this file since the export work, and in the code comment around the pool. `npx prisma dev` serves a local Postgres proxy that effectively allows one client connection at a time. A larger pool opens a second connection and fails with `P1017` during long seed transactions. Vitest runs test files one at a time for the same reason. On Vercel, each running copy is a separate process. Leaving the driver default of 10 in every copy can exhaust a small Neon database. The website uses Neon’s pooled address and `DATABASE_POOL_MAX=1`. Manual migrations use Neon’s direct address and `npm run db:migrate:deploy`.
 
-**Alternatives considered:** Documented. Relying only on `connection_limit` in the URL was rejected because the driver pool uses `max`, not that query parameter.
+**Alternatives considered:** Documented. Relying only on `connection_limit` in the URL was rejected because the driver pool uses `max`, not that query parameter. Leaving production unset, so the driver silently used 10, was the behavior replaced on Day 20.
 
-**Trade-offs:** Local tests and seed runs stay inside the proxy's limit. A hosted database can raise `DATABASE_POOL_MAX`. Forgetting the local setting brings back the closed-connection errors. This choice is about the development database, not about learner privacy.
+**Trade-offs:** Local tests and seed runs stay inside the proxy's limit when `DATABASE_POOL_MAX=1`. A hosted database can still raise `DATABASE_POOL_MAX` on purpose. Forgetting the local setting brings back the closed-connection errors on `npx prisma dev`. Forgetting it on Vercel now opens 1 connection per copy, not 10. This choice is about connection limits, not about learner privacy.
 
-**Date:** Commit `b49a83a` on 2026-11-06, message `Support configurable Prisma connection pool`. The written note in this log was expanded with the export commit `9274935` on 2026-11-15. The 2026-11-06 commit is the earliest verifiable implementation.
+**Date:** Commit `b49a83a` on 2026-11-06, message `Support configurable Prisma connection pool`. The written note in this log was expanded with the export commit `9274935` on 2026-11-15. The 2026-11-06 commit is the earliest verifiable implementation. The production default of 1 was added on 2026-11-22.
 
 ## Related pages
 
