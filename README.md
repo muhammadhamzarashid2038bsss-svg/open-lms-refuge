@@ -82,7 +82,7 @@ These commands are the ones defined in this repository. Development so far has u
 
 ### What you need
 
-- Node.js and npm. The app uses Next.js 16.4.2, React 19, and Prisma 7, as listed in `package.json`. This repository does not pin a Node version in an `engines` field.
+- Node.js and npm. The app currently uses Next.js 16.4.6, React 19, and Prisma 7, as listed in `package.json`. This repository does not pin a Node version in an `engines` field. Older notes in `docs/DEV_LOG.md` describe the setup used on those days. They are not the current dependency list.
 - For the risk score only: Python. The risk-service folder was set up with Python 3.14.6. See [services/risk_engine/README.md](services/risk_engine/README.md).
 - For the full automated test suite: PostgreSQL 18 on port 5433, as described in [docs/TEST_DATABASE.md](docs/TEST_DATABASE.md). The app itself does not need that test database.
 
