@@ -53,6 +53,48 @@ describe("risk service client", () => {
     expect(resolveRiskServiceUrl("http://user:secret@127.0.0.1:8000")).toBeNull();
   });
 
+  it("rejects the published risk-service key before calling the service", async () => {
+    const published = "replace-with-a-long-random-secret";
+    let called = false;
+    await expect(
+      scoreLearner(request, {
+        env: { RISK_SERVICE_URL: "http://127.0.0.1:8000", RISK_SERVICE_API_KEY: published },
+        fetchImpl: async () => {
+          called = true;
+          return jsonResponse(200, responseBody());
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "unconfigured",
+      message: expect.stringContaining("RISK_SERVICE_API_KEY"),
+    });
+    expect(called).toBe(false);
+    await expect(
+      scoreLearner(request, {
+        env: { RISK_SERVICE_URL: "http://127.0.0.1:8000", RISK_SERVICE_API_KEY: `  ${published}  ` },
+      }),
+    ).rejects.toThrow(/RISK_SERVICE_API_KEY/);
+    await expect(
+      scoreLearner(request, {
+        env: { RISK_SERVICE_URL: "http://127.0.0.1:8000", RISK_SERVICE_API_KEY: published },
+      }),
+    ).rejects.not.toThrow(published);
+  });
+
+  it("accepts a configured risk-service key that is not the published example", async () => {
+    let seenKey = "";
+    const parsed = await scoreLearner(request, {
+      env: { RISK_SERVICE_URL: "http://127.0.0.1:8000", RISK_SERVICE_API_KEY: KEY },
+      fetchImpl: async (_url, init) => {
+        seenKey = new Headers(init?.headers).get("x-risk-service-key") ?? "";
+        return jsonResponse(200, responseBody());
+      },
+    });
+    expect(seenKey).toBe(KEY);
+    expect(seenKey).not.toBe("replace-with-a-long-random-secret");
+    expect(parsed.score).toBe(50);
+  });
+
   it("sends the service key and keeps it out of the parsed result", async () => {
     let seenKey = "";
     let seenUrl = "";

@@ -193,7 +193,7 @@ The browser never calls `POST /score`. A director uses the Check-in suggestions 
 Set these in the repository `.env`. Do not prefix them with `NEXT_PUBLIC_`.
 
 - `RISK_SERVICE_URL` is `http://127.0.0.1:8000` on this computer. A service on another computer must use `https`.
-- `RISK_SERVICE_API_KEY` is a long random string. The Python process needs the same value. It reads the environment variable, or the same name in the repository `.env` when the variable is not already set.
+- `RISK_SERVICE_API_KEY` is a long random string. The Python process needs the same value. It reads the environment variable, or the same name in the repository `.env` when the variable is not already set. The published example is rejected, and the process does not start while that value is the key.
 
 Start the service from `services/risk_engine` with:
 

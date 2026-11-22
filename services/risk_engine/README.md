@@ -6,7 +6,7 @@ It accepts the centre's learner code and numbers only. That code is not anonymou
 
 The weights are starting estimates. A person decides whether to check in. Do not put this service on the public internet.
 
-The Next.js server calls `POST /score`. A browser does not. Set `RISK_SERVICE_API_KEY` to the same long random string used in the repository `.env`. The scoring endpoint refuses a missing or wrong key. `GET /health` stays open and returns no learner data. Bind this process to `127.0.0.1`. There is no CORS permission.
+The Next.js server calls `POST /score`. A browser does not. Set `RISK_SERVICE_API_KEY` to the same long random string used in the repository `.env`. The example value in `.env.example` is rejected, and the process does not start while that value is the key. The scoring endpoint refuses a missing or wrong key. `GET /health` stays open and returns no learner data when the process did start. Bind this process to `127.0.0.1`. There is no CORS permission.
 
 A center may send `thresholds.watch` and `thresholds.high` on the request. The service checks those numbers. They change the Watch and High labels only. The weights stay in `config.toml`.
 

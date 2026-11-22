@@ -111,9 +111,9 @@ Open `.env` and replace the placeholder secrets. Never commit `.env`. The import
 | `DATABASE_URL` | The Postgres address Prisma uses. |
 | `SHADOW_DATABASE_URL` | Optional. Needed for `prisma dev`. A normal Postgres install can leave it empty. |
 | `DATABASE_POOL_MAX` | Optional. Use `1` with `prisma dev`, because that local server effectively allows one connection. |
-| `SESSION_SECRET` | Seals the sign-in cookie. At least 32 characters. |
+| `SESSION_SECRET` | Seals the sign-in cookie. At least 32 characters. The example in `.env.example` is rejected. |
 | `EXPORT_SECRET` | The HMAC key for export pseudonyms. It must be 64 lowercase hex characters. |
-| `RISK_SERVICE_URL` and `RISK_SERVICE_API_KEY` | Where the Next.js server calls the Python score service, and the shared key. Leave the service unstarted if you are not using check-ins. |
+| `RISK_SERVICE_URL` and `RISK_SERVICE_API_KEY` | Where the Next.js server calls the Python score service, and the shared key. The example key in `.env.example` is rejected. Leave the service unstarted if you are not using check-ins. |
 | `NEXT_PUBLIC_APP_URL` | The address of this website. Locally that is `http://localhost:3000`. |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` | Cloudflare R2 for homework files. Leave them empty until a private bucket exists. Empty values make file upload say storage is unavailable. |
 

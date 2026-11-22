@@ -18,16 +18,35 @@ from pathlib import Path
 
 HEADER_NAME = "X-Risk-Service-Key"
 ENV_NAME = "RISK_SERVICE_API_KEY"
+# Public example in .env.example. It must never be the key that accepts a score.
+PUBLISHED_PLACEHOLDER = "replace-with-a-long-random-secret"
+
+
+class PublishedServiceKeyError(ValueError):
+    """The published example cannot authenticate the learning app."""
 
 
 def read_api_key(explicit: str | None = None, env_file: Path | None = None) -> str:
-    """Return the configured key, or an empty string when it is not set."""
+    """Return the configured key, or an empty string when it is not set.
+
+    The published example raises before the caller can store or compare it.
+    An empty string still means the service is not configured.
+    """
     if explicit is not None:
-        return explicit.strip()
-    configured = os.environ.get(ENV_NAME, "").strip()
-    if configured:
-        return configured
-    return _key_from_file(env_file if env_file is not None else _default_env_file())
+        key = explicit.strip()
+    else:
+        configured = os.environ.get(ENV_NAME, "").strip()
+        if configured:
+            key = configured
+        else:
+            env_path = env_file if env_file is not None else _default_env_file()
+            key = _key_from_file(env_path)
+    if key == PUBLISHED_PLACEHOLDER:
+        raise PublishedServiceKeyError(
+            "RISK_SERVICE_API_KEY is still the published example. "
+            "Set a new value before starting the scoring service."
+        )
+    return key
 
 
 def keys_match(provided: str, expected: str) -> bool:

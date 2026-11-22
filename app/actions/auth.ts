@@ -6,6 +6,7 @@ import { LOGIN_MESSAGES } from "@/lib/auth/constants";
 import { authenticateLearner, authenticateStaff } from "@/lib/auth/login";
 import { findLearnerByCode, findStaffByEmail } from "@/lib/auth/lookup";
 import { prismaThrottleStore } from "@/lib/auth/prisma-store";
+import { sessionConfigurationMessage } from "@/lib/auth/session-secret";
 import { openSession, revokeCurrentSession } from "@/lib/auth/session";
 import { releaseSharedDevice } from "@/lib/auth/handover";
 
@@ -23,8 +24,10 @@ export async function signInStaff(_prev: SignInState, formData: FormData): Promi
   if (!result.ok) return { error: LOGIN_MESSAGES[result.error] };
   try {
     await openSession(result.userId);
-  } catch {
-    return { error: "Sign-in is not available right now. Try again." };
+  } catch (error) {
+    return {
+      error: sessionConfigurationMessage(error) ?? "Sign-in is not available right now. Try again.",
+    };
   }
   redirect("/opening");
 }
@@ -42,8 +45,10 @@ export async function signInLearner(_prev: SignInState, formData: FormData): Pro
   if (!result.ok) return { error: LOGIN_MESSAGES[result.error] };
   try {
     await openSession(result.userId);
-  } catch {
-    return { error: "Sign-in is not available right now. Try again." };
+  } catch (error) {
+    return {
+      error: sessionConfigurationMessage(error) ?? "Sign-in is not available right now. Try again.",
+    };
   }
   redirect("/opening");
 }
