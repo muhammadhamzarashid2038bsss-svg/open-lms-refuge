@@ -64,7 +64,7 @@ Homework files are uploaded to Cloudflare R2 only when the centre has configured
 
 A director or administrator can download a CSV or PDF. The usual report contains counts for the centre, not a list of names. Counts smaller than the centre's minimum, usually 5, are shown as `<5`.
 
-A second kind of report can list learners as codes called pseudonyms. That report is still sensitive. It is not anonymous. It is available only when a funder requirement is already stored. This version has no screen for creating that requirement, and it does not send reports to a funder by itself.
+A second kind of report can list learners as codes called pseudonyms. That report is still sensitive. It is not anonymous. It is available only when a funder requirement is already stored. A director records that requirement on the Export page. The report is not sent to a funder by itself.
 
 ## Known limits
 

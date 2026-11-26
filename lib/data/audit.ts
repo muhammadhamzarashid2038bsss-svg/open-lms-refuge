@@ -24,6 +24,7 @@ const SAFE_KEYS = new Set([
   "sectionId",
   "profileCount",
   "learnerCount",
+  "learnerLevelConfirmed",
   "reason",
   "reportCount",
   "incomingNamed",
@@ -166,6 +167,7 @@ export async function recordExportAudit(
     centerId?: string;
     requirementReference?: string;
     crossReportLinkage?: boolean;
+    learnerLevelConfirmed?: boolean;
   },
 ): Promise<void> {
   await writeAuditEvent(tx, {
@@ -185,6 +187,8 @@ export async function recordExportAudit(
       centerCode: detail?.centerCode ?? null,
       requirementReference: detail?.requirementReference ?? null,
       crossReportLinkage: detail?.crossReportLinkage ?? null,
+      // A yes/no flag only. The warning sentence and any funder reason stay off this row.
+      learnerLevelConfirmed: detail?.learnerLevelConfirmed ?? null,
     },
   });
 }

@@ -534,7 +534,16 @@ describe("database-backed donor export", () => {
 
   it("exposes only the protected operations", () => {
     expect(Object.keys(exportApi).sort()).toEqual(
-      ["EXPORT_DENIED", "EXPORT_LIMITATION", "approveFunderRequirement", "exportCenterCsv", "exportCenterReport"].sort(),
+      [
+        "EXPORT_DENIED",
+        "EXPORT_LIMITATION",
+        "approveFunderRequirement",
+        "deactivateFunderRequirement",
+        "exportCenterCsv",
+        "exportCenterReport",
+        "listFunderRequirements",
+        "recordLearnerLevelRequirement",
+      ].sort(),
     );
   });
 
@@ -885,12 +894,18 @@ describe("database-backed donor export", () => {
       periodEnd: main.periodEnd,
     };
     const before = await prisma.auditLog.count({ where: { centerId: main.centerId, action: "EXPORT" } });
-    const missing = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized" });
+    const unconfirmed = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized" });
+    expect(unconfirmed).toEqual({
+      ok: false,
+      message: "A learner-level export needs confirmation that the file is still sensitive and is not anonymous.",
+    });
+    expect(await prisma.auditLog.count({ where: { centerId: main.centerId, action: "EXPORT" } })).toBe(before);
+    const missing = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized", learnerLevelConfirmed: true });
     expect(missing).toEqual({
       ok: false,
       message: "A learner-level export needs an active funder requirement approved for this center.",
     });
-    const forged = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized", requirementId: randomUUID() });
+    const forged = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized", learnerLevelConfirmed: true, requirementId: randomUUID() });
     expect(forged.ok).toBe(false);
     const teacher = await exportApi.approveFunderRequirement({
       actor: actor(main.teacherId, "TEACHER", main.centerId),
@@ -930,7 +945,7 @@ describe("database-backed donor export", () => {
     });
     expect(other.ok).toBe(true);
     if (!other.ok) return;
-    const wrongCenter = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized", requirementId: other.id });
+    const wrongCenter = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized", learnerLevelConfirmed: true, requirementId: other.id });
     expect(wrongCenter.ok).toBe(false);
     const linked = await exportApi.approveFunderRequirement({
       actor: actor(main.directorId, "CENTER_DIRECTOR", main.centerId),
@@ -942,18 +957,18 @@ describe("database-backed donor export", () => {
     });
     expect(linked.ok).toBe(true);
     if (!linked.ok) return;
-    const first = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized", requirementId: approved.id });
-    const second = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized", requirementId: approved.id });
+    const first = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized", learnerLevelConfirmed: true, requirementId: approved.id });
+    const second = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized", learnerLevelConfirmed: true, requirementId: approved.id });
     expect(first.ok && second.ok).toBe(true);
     if (!first.ok || !second.ok) return;
     expect(first.reportId).not.toBe(second.reportId);
     expect(pseudonyms(first.csv)).not.toEqual(pseudonyms(second.csv));
     const reportScope = main.registeredCodes.map((code) => digest("report", first.reportId, code, SECRET)).sort();
     expect(pseudonyms(first.csv)).toEqual(reportScope);
-    const stableA = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized", requirementId: linked.id });
+    const stableA = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized", learnerLevelConfirmed: true, requirementId: linked.id });
     const stableB = await exportApi.exportCenterCsv({
       ...base,
-      mode: "pseudonymized",
+      mode: "pseudonymized", learnerLevelConfirmed: true,
       requirementId: linked.id,
       reportId: "11111111-1111-4111-8111-111111111111",
     } as never);
@@ -970,21 +985,25 @@ describe("database-backed donor export", () => {
       requirementReference: "FUND-2026-LINK",
       crossReportLinkage: true,
       pseudonymScope: "funder",
+      learnerLevelConfirmed: true,
     });
-    expect(JSON.stringify(audited.metadata)).not.toContain(main.registeredCodes[0]);
+    const auditedText = JSON.stringify(audited.metadata);
+    expect(auditedText).not.toContain(main.registeredCodes[0]);
+    expect(auditedText).not.toContain("Example Fund");
+    expect(auditedText).not.toContain("link reports");
     await prisma.funderRequirement.update({
       where: { id: approved.id },
       data: { active: false, deactivatedAt: new Date() },
     });
     const inactiveRequirement = await exportApi.exportCenterCsv({
       ...base,
-      mode: "pseudonymized",
+      mode: "pseudonymized", learnerLevelConfirmed: true,
       requirementId: approved.id,
     });
     expect(inactiveRequirement.ok).toBe(false);
     process.env.EXPORT_SECRET = SECRET_B;
     try {
-      const otherSecret = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized", requirementId: linked.id });
+      const otherSecret = await exportApi.exportCenterCsv({ ...base, mode: "pseudonymized", learnerLevelConfirmed: true, requirementId: linked.id });
       expect(otherSecret.ok).toBe(true);
       if (!otherSecret.ok) return;
       expect(pseudonyms(otherSecret.csv)).not.toEqual(stable);
@@ -1137,7 +1156,7 @@ describe("database-backed donor export", () => {
   });
 
   it("offers the learner-level warning only when an active requirement exists", async () => {
-    expect(learnerLevelOffer(0)).toEqual({ offered: false, warning: null });
+    expect(learnerLevelOffer(0)).toEqual({ offered: false, warning: null, confirmationLabel: null });
     const saved = await exportApi.approveFunderRequirement({
       actor: actor(main.directorId, "CENTER_DIRECTOR", main.centerId),
       centerId: main.centerId,
@@ -1152,6 +1171,9 @@ describe("database-backed donor export", () => {
     const offer = learnerLevelOffer(rows.length);
     expect(offer.offered).toBe(true);
     expect(offer.warning).toBe("Pseudonymized learner-level data is still sensitive and is not anonymous.");
+    expect(offer.confirmationLabel).toBe(
+      "I confirm that a funder requires learner-level reporting for this download, and that this file is still sensitive and is not anonymous.",
+    );
     expect(rows.some((row) => row.id === saved.id)).toBe(true);
     expect(rows.every((row) => !("learnerLevelReason" in row))).toBe(true);
     await prisma.funderRequirement.update({
@@ -1161,6 +1183,146 @@ describe("database-backed donor export", () => {
     const after = await listActiveExportRequirements(main.centerId);
     expect(after.some((row) => row.id === saved.id)).toBe(false);
     expect(learnerLevelOffer(after.filter((row) => row.id === saved.id).length).offered).toBe(false);
+  });
+
+  it("records, shows, and turns off a learner-level requirement without a funder name", async () => {
+    const director = actor(main.directorId, "CENTER_DIRECTOR", main.centerId);
+    const reason = "The agreement asks for learner rows in this test.";
+    let generatedId: string | null = null;
+    const recorded = await exportApi.recordLearnerLevelRequirement({
+      actor: director,
+      centerId: main.centerId,
+      learnerLevelReason: reason,
+      requirementReference: "grant-day26",
+      crossReportLinkage: false,
+    });
+    expect(recorded.ok).toBe(true);
+    if (!recorded.ok) return;
+    try {
+      const row = await prisma.funderRequirement.findUniqueOrThrow({ where: { id: recorded.id } });
+      expect(row.funderName).toBe("Not recorded");
+      expect(row.requirementReference).toBe("GRANT-DAY26");
+      expect(row.active).toBe(true);
+      const listed = await exportApi.listFunderRequirements(director, main.centerId);
+      const shown = listed?.find((item) => item.id === recorded.id);
+      expect(shown?.active).toBe(true);
+      expect(shown?.learnerLevelReason).toBe(reason);
+      expect(shown?.recordedLabel.length).toBeGreaterThan(0);
+      const activeRows = await listActiveExportRequirements(main.centerId);
+      expect(activeRows.some((item) => item.id === recorded.id)).toBe(true);
+      const createAudit = await prisma.auditLog.findFirstOrThrow({
+        where: { entityType: "FUNDER_REQUIREMENT", entityId: recorded.id, action: "CREATE" },
+      });
+      const createText = JSON.stringify(createAudit.metadata);
+      expect(createAudit.metadata).toMatchObject({
+        source: "funder-requirement",
+        status: "active",
+        requirementReference: "GRANT-DAY26",
+        crossReportLinkage: false,
+      });
+      expect(createText).not.toContain(reason);
+      expect(createText).not.toContain("Not recorded");
+      expect(createText).not.toContain(main.registeredCodes[0]);
+
+      const generated = await exportApi.recordLearnerLevelRequirement({
+        actor: director,
+        centerId: main.centerId,
+        learnerLevelReason: "A second agreement asks for rows too.",
+        crossReportLinkage: false,
+      });
+      expect(generated.ok).toBe(true);
+      if (!generated.ok) return;
+      generatedId = generated.id;
+      const generatedRow = await prisma.funderRequirement.findUniqueOrThrow({ where: { id: generated.id } });
+      expect(generatedRow.requirementReference).toMatch(/^REQ-[A-F0-9]{8}$/);
+
+      expect(await exportApi.recordLearnerLevelRequirement({
+        actor: actor(main.teacherId, "TEACHER", main.centerId),
+        centerId: main.centerId,
+        learnerLevelReason: reason,
+        crossReportLinkage: false,
+      })).toEqual({ ok: false, message: exportApi.EXPORT_DENIED });
+      expect(await exportApi.recordLearnerLevelRequirement({
+        actor: actor(main.learnerUserId, "STUDENT", main.centerId),
+        centerId: main.centerId,
+        learnerLevelReason: reason,
+        crossReportLinkage: false,
+      })).toEqual({ ok: false, message: exportApi.EXPORT_DENIED });
+      expect(await exportApi.deactivateFunderRequirement({
+        actor: actor(side.directorB, "CENTER_DIRECTOR", side.b),
+        centerId: main.centerId,
+        requirementId: recorded.id,
+      })).toEqual({ ok: false, message: exportApi.EXPORT_DENIED });
+      expect(await exportApi.listFunderRequirements(actor(side.directorB, "CENTER_DIRECTOR", side.b), main.centerId)).toBeNull();
+
+      const unconfirmed = await exportApi.exportCenterCsv({
+        actor: director,
+        centerId: main.centerId,
+        periodStart: main.periodStart,
+        periodEnd: main.periodEnd,
+        mode: "pseudonymized",
+        requirementId: recorded.id,
+      });
+      expect(unconfirmed.ok).toBe(false);
+      const learnerFile = await exportApi.exportCenterCsv({
+        actor: director,
+        centerId: main.centerId,
+        periodStart: main.periodStart,
+        periodEnd: main.periodEnd,
+        mode: "pseudonymized",
+        learnerLevelConfirmed: true,
+        requirementId: recorded.id,
+      });
+      expect(learnerFile.ok).toBe(true);
+
+      const turnedOff = await exportApi.deactivateFunderRequirement({
+        actor: director,
+        centerId: main.centerId,
+        requirementId: recorded.id,
+      });
+      expect(turnedOff.ok).toBe(true);
+      const history = await exportApi.listFunderRequirements(director, main.centerId);
+      const closed = history?.find((item) => item.id === recorded.id);
+      expect(closed?.active).toBe(false);
+      expect(closed?.deactivatedLabel).toBeTruthy();
+      expect((await listActiveExportRequirements(main.centerId)).some((item) => item.id === recorded.id)).toBe(false);
+      const afterClose = await exportApi.exportCenterCsv({
+        actor: director,
+        centerId: main.centerId,
+        periodStart: main.periodStart,
+        periodEnd: main.periodEnd,
+        mode: "pseudonymized",
+        learnerLevelConfirmed: true,
+        requirementId: recorded.id,
+      });
+      expect(afterClose.ok).toBe(false);
+      const aggregate = await exportApi.exportCenterCsv({
+        actor: director,
+        centerId: main.centerId,
+        periodStart: main.periodStart,
+        periodEnd: main.periodEnd,
+      });
+      expect(aggregate.ok).toBe(true);
+      if (!aggregate.ok) return;
+      expect(field(aggregate.csv, "report", "mode")).toBe("aggregate");
+      const offAudit = await prisma.auditLog.findFirstOrThrow({
+        where: { entityType: "FUNDER_REQUIREMENT", entityId: recorded.id, action: "UPDATE" },
+      });
+      const offText = JSON.stringify(offAudit.metadata);
+      expect(offAudit.metadata).toMatchObject({
+        source: "funder-requirement",
+        status: "inactive",
+        requirementReference: "GRANT-DAY26",
+      });
+      expect(offText).not.toContain(reason);
+      expect(offText).not.toContain(main.registeredCodes[0]);
+    } finally {
+      const ids = [recorded.id, generatedId].filter((id): id is string => id !== null);
+      await prisma.funderRequirement.updateMany({
+        where: { id: { in: ids }, active: true },
+        data: { active: false, deactivatedAt: new Date() },
+      });
+    }
   });
 
   it("writes the same privacy-safe figures to csv and pdf", async () => {
@@ -1249,13 +1411,89 @@ describe("database-backed donor export", () => {
       400,
     );
     await expectNoFile(
-      await postExport(exportRequest({ ...fields, mode: "pseudonymized", requirementId: "not-an-id" })),
+      await postExport(exportRequest({ ...fields, mode: "pseudonymized", learnerLevelConfirmed: "yes", requirementId: "not-an-id" })),
       400,
     );
     await expectNoFile(
-      await postExport(exportRequest({ ...fields, mode: "pseudonymized", requirementId: randomUUID() })),
+      await postExport(exportRequest({ ...fields, mode: "pseudonymized", learnerLevelConfirmed: "yes", requirementId: randomUUID() })),
       400,
     );
+    const savedRequirement = await exportApi.approveFunderRequirement({
+      actor: actor(main.directorId, "CENTER_DIRECTOR", main.centerId),
+      centerId: main.centerId,
+      funderName: "Example Fund",
+      requirementReference: "FUND-ROUTE-YES",
+      learnerLevelReason: "Rows are required for this route test only.",
+      crossReportLinkage: false,
+    });
+    expect(savedRequirement.ok).toBe(true);
+    if (!savedRequirement.ok) return;
+    await expectNoFile(
+      await postExport(exportRequest({ ...fields, mode: "pseudonymized", requirementId: savedRequirement.id })),
+      400,
+    );
+    await expectNoFile(
+      await postExport(exportRequest({
+        ...fields,
+        mode: "pseudonymized",
+        requirementId: savedRequirement.id,
+        learnerLevelConfirmed: "true",
+      })),
+      400,
+    );
+    sessionActor.actor = actor(main.teacherId, "TEACHER", main.centerId);
+    await expectNoFile(
+      await postExport(exportRequest({
+        ...fields,
+        mode: "pseudonymized",
+        requirementId: savedRequirement.id,
+        learnerLevelConfirmed: "yes",
+      })),
+      403,
+    );
+    sessionActor.actor = actor(main.directorId, "CENTER_DIRECTOR", main.centerId);
+    const confirmedDownload = await postExport(exportRequest({
+      ...fields,
+      mode: "pseudonymized",
+      requirementId: savedRequirement.id,
+      learnerLevelConfirmed: "yes",
+    }));
+    expect(confirmedDownload.status).toBe(200);
+    const confirmedCsv = await confirmedDownload.text();
+    expect(field(confirmedCsv, "report", "mode")).toBe("pseudonymized");
+    expect(confirmedCsv).not.toContain(NICK);
+    const pageRefusal = await postExport(exportRequest({
+      ...fields,
+      format: "pdf",
+      mode: "pseudonymized",
+      requirementId: savedRequirement.id,
+      returnTo: "page",
+    }));
+    expect(pageRefusal.status).toBe(303);
+    expect(pageRefusal.headers.get("content-disposition")).toBeNull();
+    const location = pageRefusal.headers.get("location") ?? "";
+    expect(location).toContain("/export?");
+    expect(location).toContain("error=confirmation");
+    expect(location).toContain(`from=${main.periodStart}`);
+    expect(location).toContain(`to=${main.periodEnd}`);
+    expect(location).toContain("format=pdf");
+    expect(location).toContain("mode=pseudonymized");
+    const refusalBody = await pageRefusal.text();
+    expect(refusalBody.includes("record_type")).toBe(false);
+    expect(refusalBody.startsWith("%PDF")).toBe(false);
+    expect(refusalBody.startsWith("{")).toBe(false);
+    const pageDownload = await postExport(exportRequest({
+      ...fields,
+      mode: "pseudonymized",
+      requirementId: savedRequirement.id,
+      learnerLevelConfirmed: "yes",
+      returnTo: "page",
+    }));
+    expect(pageDownload.status).toBe(200);
+    expect(pageDownload.headers.get("content-disposition")).toContain("grant-export");
+    const plain = await postExport(exportRequest(fields));
+    expect(plain.status).toBe(200);
+    expect(field(await plain.text(), "report", "mode")).toBe("aggregate");
     const directed = await postExport(exportRequest({ ...fields, centerId: side.b }));
     expect(directed.status).toBe(200);
     expect(field(await directed.text(), "report", "center_name")).toBe("Day 16 Center");

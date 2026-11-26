@@ -114,7 +114,7 @@ Real-world problem: centers need attendance and engagement data to win donor fun
 •Cryptographic PII scrubbing pipeline: learner identifiers are converted with salted SHA-256 hashing, implemented as HMAC-SHA-256 with a secret key kept outside the code, before data leaves the database layer. This keeps one learner’s records linkable within a report without revealing who they are.
 •Small-group suppression: any figure based on fewer than 5 learners is shown as “<5”, so a small class cannot be re-identified from the statistics. The threshold is adjustable.
 •Aggregates physical classroom activity into statistics such as “85% retention across 50 registered learners in Q3”, with optional breakdowns by the demographic fields a center chooses to collect (default: age band and gender only).
-•Two modes: Aggregate report (default) and Pseudonymized learner-level file (only when a funder requires it).
+•Two modes: Aggregate report (default) and Pseudonymized learner-level file. A director or administrator records the learner-level requirement on the Export page, without a funder name. The file is offered only while that requirement is active, and only after a separate confirmation that the file is still sensitive and is not anonymous.
 •Output formats: CSV and PDF. Exports are limited to Center Director and Admin and are recorded in the audit trail.
 4.3 Cross-cutting requirements
 SYS-1 Accounts, roles, and permissions · Phase 1 · Must

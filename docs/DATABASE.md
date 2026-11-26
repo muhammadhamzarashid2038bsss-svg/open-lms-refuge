@@ -98,9 +98,9 @@ One row per optional fact, per center, with an on/off switch. The demo center al
 
 ### FunderRequirement
 
-A saved demand from one funder for learner-level export rows. The row stores the funder name, a short reference, the reason, whether the same pseudonym may be reused across reports, who approved it, and whether it is still active. The demo seed does not contain one. A learner-level export looks for an active row. It does not trust an id typed into the request. The reason text stays on this row and is not copied into the audit log.
+A saved decision that learner-level export rows are required. The row stores a short reference, the explanation, whether the same pseudonym may be reused across reports, who recorded it, when, and whether it is still active. The older `funderName` column is still required by the table. The Export page does not ask for a name and stores "Not recorded" there. The demo seed does not contain one. A learner-level export looks for an active row. It does not trust an id typed into the request. The explanation stays on this row and is not copied into the audit log.
 
-The table and the server function `approveFunderRequirement` exist. A management screen does not. The Export page can list an active row that is already stored and can offer the learner-level download. It cannot create, edit, or turn off a requirement. That screen is future work, recorded in `docs/future-improvements.md`.
+The Export page lists the history, records a new requirement, and turns one off. Turning it off blocks the next learner-level download. The download itself still needs a separate confirmation. The explanation cannot be edited after it is saved.
 
 ### User
 

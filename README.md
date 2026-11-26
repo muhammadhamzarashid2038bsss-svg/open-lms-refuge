@@ -48,7 +48,7 @@ Course items that point to a video are stored as links. The app does not embed v
 
 Learner profiles store a learner code, a nickname, and an age band. The app has no dedicated field or form for legal status, a home address, or an exact date of birth. Sensitive details can still be typed into a progress note or a grade comment, or shown inside a homework photo. The app does not scan notes or files for that information.
 
-Donor exports use HMAC-SHA-256 pseudonyms and small-group suppression. A count based on fewer learners than the centre's minimum, 5 by default, is shown as `<5`. These steps reduce what a report reveals. They do not make a report anonymous. A pseudonymized learner-level file must still be treated as sensitive. The risk-scoring service does not receive learner names or note text. It does receive the centre's real learner code, which the centre can match back to the learner.
+Donor exports use HMAC-SHA-256 pseudonyms and small-group suppression. A count based on fewer learners than the centre's minimum, 5 by default, is shown as `<5`. These steps reduce what a report reveals. They do not make a report anonymous. A pseudonymized learner-level file must still be treated as sensitive. The Export page asks for that confirmation before a learner-level download, and the server refuses the file if the confirmation is missing. A missing confirmation stays on the Export page with an error. It does not download a file. The risk-scoring service does not receive learner names or note text. It does receive the centre's real learner code, which the centre can match back to the learner.
 
 ### Classroom organisation that currently lives in WhatsApp
 
@@ -71,7 +71,7 @@ The product requirements in [docs/PRD.md](docs/PRD.md) sort the work into three 
 | Teacher handoff reports | FEAT-2 | Phase 1 | A report is created when a teacher is switched off or a section is reassigned. A director names the incoming teacher, or receives the report if nobody is named. An administrator's blank choice needs exactly one director at that centre. A section with no current teacher can be given a teacher later, without a new report. |
 | Performance dashboard | LMS-7 | Phase 1 | Works for assigned teachers and the director of that centre. |
 | Risk score and check-in suggestions | FEAT-3 | Phase 1 | Works when the Python service is configured and a director starts a run. There is no daily automatic run. |
-| Donor CSV and PDF exports | FEAT-4 | Phase 1 | Aggregate export works for a director or admin. Learner-level export needs a funder requirement that is already stored. There is no screen to create that requirement. |
+| Donor CSV and PDF exports | FEAT-4 | Phase 1 | Aggregate export is the default for a director or admin. The Export page can record and turn off a learner-level requirement without a funder name. A learner-level file also needs that requirement to be active and an explicit confirmation that the file is still sensitive. |
 | Quizzes | LMS-5 | Phase 2 | Not built. |
 | Low-bandwidth AI help for teachers | LMS-8 | Phase 2 | Not built. |
 | Exam Integrity Suite (exam browser and photo proctoring) | LMS-6 | Phase 3 | Not built. The requirements say this needs a separate privacy review before any work starts. |

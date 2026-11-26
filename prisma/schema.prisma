@@ -313,6 +313,8 @@ model FunderRequirement {
   id                   String    @id @default(uuid()) @db.Uuid
   centerId             String    @db.Uuid
   center               Center    @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  /// The original table requires this column. The Export page does not ask for
+  /// a funder name. New rows store "Not recorded" so a real name is not collected.
   funderName           String    @db.VarChar(80)
   /// Short token such as UNHCR-2026-Q3. This is what the audit row stores.
   requirementReference String    @db.VarChar(80)

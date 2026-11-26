@@ -8,5 +8,12 @@ import { assertExportServer } from "./guard";
 assertExportServer();
 
 export { exportCenterCsv, exportCenterReport, type CenterExportFile, type CenterExportResult } from "./run";
-export { approveFunderRequirement, type FunderRequirementResult } from "./requirements";
+export {
+  approveFunderRequirement,
+  deactivateFunderRequirement,
+  listFunderRequirements,
+  recordLearnerLevelRequirement,
+  type FunderRequirementResult,
+  type FunderRequirementView,
+} from "./requirements";
 export { EXPORT_DENIED, EXPORT_LIMITATION } from "./types";

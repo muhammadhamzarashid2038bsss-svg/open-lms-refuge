@@ -124,3 +124,12 @@ Planned work that is not in this changelog as a finished feature includes in-app
 - The named teacher is added to the current classes so they can open the report. The departing teacher's class rows are kept and closed immediately, including one that started today, so switching the account back on does not reopen them. Giving that teacher the same section again the same UTC day is refused with a clear message. An ordinary section reassignment that started today still lasts until the end of that UTC day.
 - A director or administrator can assign an active teacher to a section that has no current teacher. That assignment starts today, does not create another handoff report, and leaves older assignment rows and reports unchanged.
 - Staffed and unstaffed sections are managed in one place, Manage section assignments. A shared display name is shown with the teacher's email so accounts such as the synthetic Lock Test teachers can be told apart.
+
+## 26 November 2026 · Learner-level export confirmation
+
+- Aggregate CSV and PDF remain the usual grant export.
+- A pseudonymized learner-level file is still offered only when an active funder requirement is already stored. The Export page does not collect a funder name.
+- Before that file can be downloaded, the director or administrator must confirm that it is still sensitive and is not anonymous. The server refuses the download without that confirmation.
+- The audit row records that the confirmation was given. It does not store the warning text, the funder reason, or a learner code.
+- A director can record and turn off a learner-level requirement for their own centre. An administrator can do that for any centre. The form asks for an explanation and an optional short reference. It does not ask for a funder name. Turning the requirement off blocks the next learner-level download.
+- The Export page puts the aggregate download first. Recording a requirement stays in a closed section underneath. A learner-level download without the confirmation returns to this page with an error and does not start a file.
