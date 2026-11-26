@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { getActor } from "@/lib/auth/actor";
-import { reassignSectionTeacher } from "@/lib/data/handoff";
+import { assignTeacherToUnstaffedSection, reassignSectionTeacher } from "@/lib/data/handoff";
 
 export async function reassignSectionAction(formData: FormData): Promise<void> {
   const actor = await getActor();
@@ -24,6 +24,25 @@ export async function reassignSectionAction(formData: FormData): Promise<void> {
   }
   if (result.status === "unchanged") {
     redirect(`${home}?notice=${encodeURIComponent("No handoff was created because that assignment did not change.")}`);
+  }
+  if (result.status === "invalid") redirect(`${home}?notice=${encodeURIComponent(result.message)}`);
+  redirect(home);
+}
+
+export async function assignUnstaffedSectionAction(formData: FormData): Promise<void> {
+  const actor = await getActor();
+  if (!actor) redirect("/");
+  const home = actor.role === "ADMIN" ? "/admin" : "/director";
+  const raw = String(formData.get("assignment") ?? "");
+  const [sectionId, teacherId] = raw.split("|");
+  const result = await assignTeacherToUnstaffedSection(actor, {
+    sectionId: sectionId ?? "",
+    teacherId: teacherId ?? "",
+  });
+  if (result.status === "saved") {
+    redirect(`${home}?notice=${encodeURIComponent(
+      "The teacher is assigned to that section from today. No new handoff report was created.",
+    )}`);
   }
   if (result.status === "invalid") redirect(`${home}?notice=${encodeURIComponent(result.message)}`);
   redirect(home);

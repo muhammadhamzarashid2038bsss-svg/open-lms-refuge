@@ -26,7 +26,7 @@ export function AccountList({
         handoff report for each class and is added to those classes so they can open it. Their old class assignments
         are closed and are not opened again if the account is switched back on. A teacher who was switched
         off from a class today cannot be given that same class again until the next UTC day. {fallbackText} To give different
-        classes to different teachers, use Reassign a section first.
+        classes to different teachers, use Manage section assignments first.
       </p>
       <ul className="flex flex-col gap-3">
         {accounts.map((account) => {
