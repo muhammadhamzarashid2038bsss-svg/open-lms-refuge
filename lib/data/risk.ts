@@ -174,6 +174,7 @@ export async function runCenterRiskScoring(
     let unscored = 0;
     let serviceFailures = 0;
     let attempted = 0;
+    let configurationMessage: string | undefined;
     for (const profile of profiles) {
       const existing = await prisma.riskFlag.findFirst({
         where: { scoringRunId: run.id, learnerId: profile.learnerId },
@@ -199,8 +200,16 @@ export async function runCenterRiskScoring(
         parsed = await scorer(built.request);
       } catch (error) {
         unscored += 1;
-        if (error instanceof RiskServiceError || !(error instanceof Error)) serviceFailures += 1;
-        else serviceFailures += 1;
+        serviceFailures += 1;
+        // The director should see which setting is unsafe. Other failures stay
+        // on the generic unavailable sentence and do not include a key.
+        if (
+          !configurationMessage &&
+          error instanceof RiskServiceError &&
+          error.message.startsWith("RISK_SERVICE_API_KEY")
+        ) {
+          configurationMessage = error.message;
+        }
         continue;
       }
       if (parsed.learnerCode !== built.request.learner_code || !scoreAgreesWithThresholds(parsed, thresholds)) {
@@ -239,7 +248,7 @@ export async function runCenterRiskScoring(
     });
 
     if (savedCount === 0 && attempted > 0 && serviceFailures === attempted) {
-      return { ok: false, message: RISK_UNAVAILABLE, complete: false };
+      return { ok: false, message: configurationMessage ?? RISK_UNAVAILABLE, complete: false };
     }
     const insufficient = await prisma.riskFlag.count({
       where: { scoringRunId: run.id, level: "INSUFFICIENT_DATA" },

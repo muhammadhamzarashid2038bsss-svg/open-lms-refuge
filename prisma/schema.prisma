@@ -313,6 +313,8 @@ model FunderRequirement {
   id                   String    @id @default(uuid()) @db.Uuid
   centerId             String    @db.Uuid
   center               Center    @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  /// The original table requires this column. The Export page does not ask for
+  /// a funder name. New rows store "Not recorded" so a real name is not collected.
   funderName           String    @db.VarChar(80)
   /// Short token such as UNHCR-2026-Q3. This is what the audit row stores.
   requirementReference String    @db.VarChar(80)
@@ -565,9 +567,16 @@ model SectionTeacher {
   teacherId String    @db.Uuid
   teacher   User      @relation(fields: [teacherId], references: [id], onDelete: Restrict)
   startsOn  DateTime  @db.Date
+  /// Last day included. Empty while the assignment is still open.
   endsOn    DateTime? @db.Date
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  /// Set only when the teacher account is switched off. Access stops at once,
+  /// even if endsOn is still today. A normal section reassignment leaves this
+  /// false, so a same-day end date still includes the rest of that UTC day.
+  /// Switching the account back on does not clear this flag. Existing rows
+  /// default to false so older assignments keep the date-only rule.
+  accessClosed Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([sectionId, teacherId, startsOn])
   @@index([teacherId, endsOn])
@@ -916,7 +925,7 @@ model HandoffReport {
   outgoingTeacher    User          @relation("HandoffOutgoing", fields: [outgoingTeacherId], references: [id], onDelete: Restrict)
   incomingTeacherId  String?       @db.Uuid
   incomingTeacher    User?         @relation("HandoffIncoming", fields: [incomingTeacherId], references: [id], onDelete: Restrict)
-  /// Incoming teacher, or the director when nobody is assigned yet.
+  /// The teacher a director named, or the centre director when nobody was named.
   assignedToId       String        @db.Uuid
   assignedTo         User          @relation("HandoffAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
   reason             HandoffReason

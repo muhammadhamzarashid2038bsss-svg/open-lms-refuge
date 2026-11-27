@@ -20,7 +20,7 @@ import {
   type ObjectVerdictCode,
 } from "../storage/file-policy";
 import { isServerObjectKey, submissionObjectKey } from "../storage/object-key";
-import { storageFromEnv } from "../storage/r2";
+import { storageFromEnv } from "../storage/s3";
 import { type StorageAdapter } from "../storage/types";
 import { registerOfflinePhone } from "./sync-attendance";
 import {

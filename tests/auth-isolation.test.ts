@@ -1,17 +1,26 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { hashSecret, verifySecret } from "../lib/auth/password";
-import { authenticateStaff } from "../lib/auth/login";
+import { authenticateStaff, ipBucketId, learnerBucketId, staffBucketId } from "../lib/auth/login";
+import { signInLearner } from "../app/actions/auth";
+import { LOGIN_MESSAGES } from "../lib/auth/constants";
 import { findStaffByEmail } from "../lib/auth/lookup";
 import { loadActor } from "../lib/auth/load-actor";
 import { resetPinByCode } from "../lib/auth/accounts";
 import { releaseSharedDevice } from "../lib/auth/handover";
 import { prismaThrottleStore } from "../lib/auth/prisma-store";
-import { ipBucketId, staffBucketId } from "../lib/auth/login";
 import { fileResponse, learnerResponse, sectionResponse } from "../lib/http/records";
 import { readLearnerContact, readLearnerRecord, readResourceRecord } from "../lib/data/records";
 import { prisma } from "../lib/db";
 import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 import type { PrismaClient } from "../generated/prisma/client";
+
+vi.mock("next/headers", () => ({
+  headers: async () => ({
+    get(name: string) {
+      return name === "x-real-ip" ? "203.0.113.77" : null;
+    },
+  }),
+}));
 
 const now = new Date("2026-11-05T12:00:00.000Z");
 
@@ -288,6 +297,81 @@ describe("account changes on throwaway users", () => {
       expect(verifySecret("1111", updated.pinHash)).toBe(false);
     } finally {
       await removeUser(created.userId);
+    }
+  });
+
+  it("lets an assigned teacher reset a PIN, sign the learner out, and audit only the field name", async () => {
+    const center = await prisma.center.findUniqueOrThrow({ where: { code: "DEMO" } });
+    const morning = await prisma.section.findFirstOrThrow({
+      where: { name: "Morning Group", course: { center: { code: "DEMO" } } },
+      select: { id: true },
+    });
+    const teacherOne = await actorByEmail("teacher.one@demo.invalid");
+    const created = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: { centerId: center.id, role: "STUDENT", active: true },
+      });
+      const profile = await tx.learnerProfile.create({
+        data: {
+          userId: user.id,
+          centerId: center.id,
+          learnerCode: `P${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+          displayName: "Pin Section Test",
+          ageBand: "AGE_12_14",
+          pinHash: hashSecret("1111"),
+        },
+      });
+      await tx.enrollment.create({
+        data: {
+          sectionId: morning.id,
+          learnerId: profile.id,
+          status: "ACTIVE",
+          enrolledOn: new Date("2026-09-01T00:00:00.000Z"),
+        },
+      });
+      const session = await tx.authSession.create({
+        data: {
+          userId: user.id,
+          lastSeenAt: now,
+          expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
+        },
+      });
+      return { profile, sessionId: session.id };
+    });
+    const nextPin = "2468";
+    try {
+      const saved = await resetPinByCode(teacherOne, "DEMO", created.profile.learnerCode, nextPin);
+      expect(saved.status).toBe("saved");
+      const session = await prisma.authSession.findUniqueOrThrow({ where: { id: created.sessionId } });
+      expect(session.revokedAt).not.toBeNull();
+      const audit = await prisma.auditLog.findFirstOrThrow({
+        where: { entityId: created.profile.userId, actorId: teacherOne.id, action: "UPDATE", entityType: "USER" },
+      });
+      expect(audit.metadata).toEqual({ field: "pinHash" });
+      const printed = JSON.stringify(audit);
+      expect(printed).not.toContain(nextPin);
+      expect(printed).not.toContain("1111");
+    } finally {
+      await prisma.enrollment.deleteMany({ where: { learnerId: created.profile.id } });
+      await removeUser(created.profile.userId);
+    }
+  });
+
+  it("rejects a PIN that is not four digits when it is sent straight to the sign-in action", async () => {
+    const form = new FormData();
+    form.set("centerCode", "DEMO");
+    form.set("learnerCode", "ZZ-PIN-FORM");
+    form.set("pin", "12345");
+    try {
+      const result = await signInLearner({}, form);
+      expect(result).toEqual({ error: LOGIN_MESSAGES.mismatch });
+    } finally {
+      await assertConnectedTestDatabase();
+      await prisma.loginThrottle.deleteMany({
+        where: {
+          bucketKey: { in: [learnerBucketId("DEMO", "ZZ-PIN-FORM"), ipBucketId("203.0.113.77")] },
+        },
+      });
     }
   });
 

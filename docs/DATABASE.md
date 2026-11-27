@@ -98,9 +98,9 @@ One row per optional fact, per center, with an on/off switch. The demo center al
 
 ### FunderRequirement
 
-A saved demand from one funder for learner-level export rows. The row stores the funder name, a short reference, the reason, whether the same pseudonym may be reused across reports, who approved it, and whether it is still active. The demo seed does not contain one. A learner-level export looks for an active row. It does not trust an id typed into the request. The reason text stays on this row and is not copied into the audit log.
+A saved decision that learner-level export rows are required. The row stores a short reference, the explanation, whether the same pseudonym may be reused across reports, who recorded it, when, and whether it is still active. The older `funderName` column is still required by the table. The Export page does not ask for a name and stores "Not recorded" there. The demo seed does not contain one. A learner-level export looks for an active row. It does not trust an id typed into the request. The explanation stays on this row and is not copied into the audit log.
 
-The table and the server function `approveFunderRequirement` exist. A management screen does not. The Export page can list an active row that is already stored and can offer the learner-level download. It cannot create, edit, or turn off a requirement. That screen is future work, recorded in `docs/future-improvements.md`.
+The Export page lists the history, records a new requirement, and turns one off. Turning it off blocks the next learner-level download. The download itself still needs a separate confirmation. The explanation cannot be edited after it is saved.
 
 ### User
 
@@ -120,7 +120,7 @@ One row per sign-in. `revokedAt` is set on sign-out, when the session goes idle,
 
 ### LoginThrottle
 
-A counter for failed sign-ins. The key is a hash of the attempted email, learner code, or network address, not the raw value. Five failures set `lockedUntil` 15 minutes ahead.
+A counter for failed sign-ins. The key is a hash of the attempted email, learner code, or network address, not the raw value. Five failures set `lockedUntil` 15 minutes ahead. The row has no centre column. The demo seed removes only the known DEMO account keys. A network-address lockout, an unknown-account lockout, and every other centre’s lockout stay in place.
 
 ### DeviceHandover
 
@@ -154,7 +154,7 @@ The link between a learner and a section, with a start date and a status: active
 
 ### SectionTeacher
 
-Which teacher is responsible for a section, and between which dates. An empty end date means they are still assigned. The demo leaves Teacher One and Teacher Three on the morning group. Teacher Three’s afternoon assignment ends on 5 October 2026, and Teacher Two starts the next day. The database allows only one open assignment for the same teacher and section.
+Which teacher is responsible for a section, and between which dates. An empty end date means they are still assigned. `accessClosed` is set only when that teacher's account is switched off. Access stops at once, even when the end date is still today, and switching the account back on does not clear the flag. An ordinary section reassignment leaves the flag false, so an assignment that started today still includes the rest of that UTC day. The demo leaves Teacher One and Teacher Three on the morning group. Teacher Three’s afternoon assignment ends on 5 October 2026, and Teacher Two starts the next day. The database allows only one open assignment for the same teacher and section, and only one row for the same teacher, section, and start date. If that teacher was switched off from the section today, giving them the section again is refused with a clear message. They can be assigned to it on the next UTC day.
 
 ### Resource
 
@@ -237,7 +237,7 @@ Append-only history for notes. Same sync fields as `GradeEntryVersion`, plus the
 
 ### HandoffReport
 
-The section pack created when a teacher is deactivated or a section is reassigned. It points at the outgoing teacher, the recipient, and a named next teacher only when one was explicitly chosen. On deactivation, the recipient is the only other teacher already teaching that section, or the centre director when there is not exactly one. A newly arriving volunteer is not identified automatically.
+The section pack created when a teacher is deactivated or a section is reassigned. It points at the outgoing teacher, the recipient, and a named next teacher only when a director or administrator explicitly chose one. If a centre director names nobody, that director receives the pack. An administrator's blank choice uses the centre's only active director, and is refused when the centre has none or more than one. A co-teacher is not chosen automatically, and a newly arriving volunteer is not guessed. When a teacher is named during deactivation, they are added to each current section so they can open the pack. The previous teacher's assignment row is not deleted. Its end date is set, and `accessClosed` is set, so switching the account back on does not make that row current again, including later the same UTC day. An ordinary section reassignment does not set `accessClosed`. An assignment that started on the same UTC day then ends on that day and stays current until the day is over. A section with no current teacher can receive a new assignment row. That row starts today. The old rows and the existing handoff report are left as they are, and no second report is created.
 
 The demo includes one report for the afternoon group, dated the day Teacher Two takes over from Teacher Three. Switching a teacher off, or ending their section assignment, now builds a report in the same database transaction. `sourceKey` makes a repeated request return the existing pack instead of a second one. The seed report uses the key `seed:afternoon-teacher-three`.
 
@@ -301,16 +301,41 @@ Emails use `.invalid`, which is a reserved ending that does not deliver mail.
 
 Re-running the seed deletes and rebuilds the `DEMO` center only. The seed does that in fifteen transactions, one after another. Reset is first. It turns on `app.allow_demo_reset` for that transaction only, so the append-only tables can be cleared. The switch ends when Reset commits. The later transactions insert the replacement rows and do not set the switch. Application code must not set that switch.
 
+Never run `npm run db:seed` against a database that holds a real centre. The seed is synthetic demo data, and it still replaces the entire `DEMO` centre. If a centre coded `DEMO` is present, the reset removes sign-in lockout rows only for the known DEMO accounts: the five demo staff emails and learner codes `LNR-0001` through `LNR-0030`. A lockout for a network address stays, because phones on that address may belong to another centre. A lockout for an unknown email or learner code stays, because that hash cannot be tied to `DEMO`. Lockouts for every other centre stay as well.
+
 ## How to look at it
 
-This computer did not have PostgreSQL installed. Local development uses Prisma’s own Postgres server, started with `npx prisma dev`. It speaks the normal Postgres protocol. A hosted database for a real center is the same migrations with a different `DATABASE_URL`. Prisma’s local server currently names the database `template1`. That name is only a local quirk. A hosted database should use a normal name such as `open_lms_refuge`.
+This computer did not have PostgreSQL installed. Local development uses Prisma’s own Postgres server, started with `npx prisma dev`. It speaks the normal Postgres protocol. Prisma’s local server currently names the database `template1`. That name is only a local quirk. A hosted database should use a normal name such as `open_lms_refuge`.
+
+Prisma 7 reads `DATABASE_URL` in `prisma7.config.ts`, not in `prisma/schema.prisma`. That file loads `.env` and passes `process.env.DATABASE_URL` to Prisma. A `DATABASE_URL` already set in the shell wins over `.env`. `npm run db:migrate` is `prisma migrate dev`. Prisma finds `prisma7.config.ts` on its own, so that local command uses the same URL. Do not point it at a hosted database. `migrate dev` can ask questions and can offer to reset the database. It also needs `SHADOW_DATABASE_URL` when the local Prisma server is in use.
 
 1. Start the local database: `npx prisma dev --detach --name open-lms-refuge`
 2. Run `npx prisma dev ls` and copy the TCP address into `.env` as `DATABASE_URL`. Copy the shadow address into `SHADOW_DATABASE_URL`. The shadow database is a scratch copy Prisma uses while checking migrations. A normal PostgreSQL install can leave `SHADOW_DATABASE_URL` unset.
-3. Create the tables: `npx prisma migrate dev`
-4. Load the fake data: `npx prisma db seed`
+3. Create the tables on this computer: `npm run db:migrate`
+4. Load the fake data: `npm run db:seed`
 5. Open the tables: `npx prisma studio`
 6. Run the checks: `npx vitest run tests/phase1-schema.test.ts`
+
+## Hosted migrations
+
+A hosted database, such as Neon for a synthetic demo, does not use `npm run db:migrate`. The production command is:
+
+```bash
+npm run db:migrate:deploy
+```
+
+That runs `prisma migrate deploy --config prisma7.config.ts`. `migrate deploy` applies the migration files already in `prisma/migrations`. It does not open a shadow database, it does not ask what to do if the schema and the files disagree, and it does not reset the database.
+
+Run it by hand from a trusted computer. Do not put it in a Vercel request, a page load, or the running web app. The website only reads and writes rows. It must not migrate.
+
+Use two different Neon addresses:
+
+- The command above needs Neon’s direct address, the one that is not the pooled host. Put that address in `DATABASE_URL` for this command only. Do not set the Vercel app to that direct address.
+- The Vercel app needs Neon’s pooled address in its own `DATABASE_URL`. Set `DATABASE_POOL_MAX=1` there. Each running copy then opens one connection. If `DATABASE_POOL_MAX` is left unset, production still uses 1. It does not use the PostgreSQL driver’s default of 10. A normal local database can still set a larger whole number. `npx prisma dev` on this computer should keep `DATABASE_POOL_MAX=1`.
+
+Before you run the command, read the host name in the URL you are about to use. Do not read the password aloud or paste it into a note. Confirm three things: it is the intended Neon project, it is the direct host rather than the pooled host, and it is not the local Prisma address in `.env`. If the shell has no `DATABASE_URL`, the config file loads `.env`, and a production URL left in that file would make the next local `npm run db:migrate` hit the hosted database.
+
+`npm run db:seed` stays a local demo command. Do not run it on a database that contains real centre data.
 
 In Prisma Studio, open `attendance_records` and search for `demo-att-morning-2-4`. You should see two rows for the same learner and session. Then open `sync_conflicts`. You should see two open rows, each pointing at two different version ids.
 

@@ -299,6 +299,22 @@ describe("director risk scoring", () => {
     if (!failed.ok) expect(failed.message).not.toContain("ECONNREFUSED");
     expect(await prisma.riskFlag.count({ where: { centerId: ids.center } })).toBe(0);
 
+    const publishedKey = await runCenterRiskScoring(director, {
+      idempotencyKey: "day15-published-key",
+      now: NOW,
+      scorer: async () => {
+        throw new RiskServiceError(
+          "unconfigured",
+          "RISK_SERVICE_API_KEY is still the published example. Set a new value before scoring.",
+        );
+      },
+    });
+    expect(publishedKey.ok).toBe(false);
+    if (!publishedKey.ok) {
+      expect(publishedKey.message).toContain("RISK_SERVICE_API_KEY");
+      expect(publishedKey.message).not.toContain("replace-with-a-long-random-secret");
+    }
+
     calls.length = 0;
     const first = await runCenterRiskScoring(director, {
       idempotencyKey: "day15-run-1",

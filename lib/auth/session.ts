@@ -11,6 +11,7 @@ import { getIronSession, type SessionOptions } from "iron-session";
 import { cookies } from "next/headers";
 import { connection } from "next/server";
 import { SESSION_ABSOLUTE_MS, SESSION_COOKIE } from "./constants";
+import { assertSessionSecret } from "./session-secret";
 import { createSessionRow, findSessionRow, revokeSessionRow, touchSessionRow } from "./session-db";
 import { sessionVerdict, shouldDropSessionCookie, shouldTouchSession } from "./session-policy";
 
@@ -19,10 +20,9 @@ type CookieData = {
 };
 
 function sessionOptions(): SessionOptions {
-  const password = process.env.SESSION_SECRET;
-  if (!password || password.length < 32) {
-    throw new Error("SESSION_SECRET must be at least 32 characters. Set it in .env.");
-  }
+  // After connection() in cookieSession, so this does not run during static
+  // generation of a page that never opens a session.
+  const password = assertSessionSecret(process.env.SESSION_SECRET);
   return {
     cookieName: SESSION_COOKIE,
     password,

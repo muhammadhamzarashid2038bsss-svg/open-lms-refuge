@@ -76,23 +76,7 @@ export function validateResourcePayload(input: ResourcePayloadInput): { ok: true
     return { ok: true };
   }
   if (FILE_TYPES.has(resourceType)) {
-    const key = (input.storageKey ?? "").trim();
-    if (!key.startsWith("private/") || key.includes("://")) {
-      return {
-        ok: false,
-        message: "File resources need a private storage key from the office upload step.",
-      };
-    }
-    if (!(input.mimeType ?? "").trim()) {
-      return { ok: false, message: "File resources need a MIME type (for example application/pdf)." };
-    }
-    if (!input.byteSize || input.byteSize < 1) {
-      return { ok: false, message: "File resources need a byte size." };
-    }
-    if (!(input.checksumSha256 ?? "").trim()) {
-      return { ok: false, message: "File resources need a checksum from the upload step." };
-    }
-    return { ok: true };
+    return { ok: false, message: "Add a PDF or MP3 with the file control. A storage key cannot be typed in." };
   }
   return { ok: false, message: "Unknown resource type." };
 }

@@ -62,7 +62,7 @@ This log describes the system on `main` at the start of Day 18, commit `0d2acd0`
 
 **Alternatives considered:** Documented. Putting the file bytes inside the compressed JSON batch is the alternative those sources reject. `JsonSyncEntityType` has no file value.
 
-**Trade-offs:** Attendance can sync while a photo is still waiting. The phone must have room for the bytes, and logout will not remove them. A real Cloudflare R2 bucket is not configured in this repository. When the storage settings are empty, the app says file storage is unavailable. `docs/STORAGE.md` and the Day 10 log record that real-bucket testing is still pending.
+**Trade-offs:** Attendance can sync while a photo is still waiting. The phone must have room for the bytes, and logout will not remove them. Homework bytes go to a private Backblaze B2 bucket when the five `OBJECT_STORAGE_` settings are valid. Course PDFs and MP3s use the same bucket under `course-resources/`. When the settings are missing, the app says file storage is unavailable. `docs/STORAGE.md` records that a course PDF upload and a learner download were checked by hand, and that not every storage case has been tested on the live bucket.
 
 **Date:** Schema comment and table: commit `b7ca0f5` on 2026-11-04. Design note: Day 2 log, 2026-11-03. Phone queue: commit `cc998df` on 2026-11-10, which raised IndexedDB from version 2 to version 3. Documented rationale for the phone queue: Week 2 review, 2026-11-10.
 
@@ -86,7 +86,7 @@ This log describes the system on `main` at the start of Day 18, commit `0d2acd0`
 
 **Alternatives considered:** Documented in the export notes that shipped on 2026-11-15. One lifetime pseudonym for every learner was rejected there. Letting the caller supply a report id was rejected there. The code matches that note: `exportCenterReport` generates the report id with `randomUUID()`, and the HTTP route does not read a report id from the form.
 
-**Trade-offs:** A single file still contains the same aggregate figures as an aggregate download: retention, attendance, coverage, assignment completion, and separate age and gender counts. The learner row itself contains only the pseudonym. Linkage across reports is possible only after a director or admin has saved a requirement that asks for it. There is no screen for that save. `approveFunderRequirement` is a server function, and the Export page can only select a row that already exists. A pseudonymized file remains re-identifiable by someone who has the secret and a learner code.
+**Trade-offs:** A single file still contains the same aggregate figures as an aggregate download: retention, attendance, coverage, assignment completion, and separate age and gender counts. The learner row itself contains only the pseudonym. Linkage across reports is possible only after a director or admin has saved a requirement that asks for it. The Export page records and turns off that requirement. It does not collect a funder name. A pseudonymized file remains re-identifiable by someone who has the secret and a learner code.
 
 **Date:** Implementation and the written export note: commit `9274935` on 2026-11-15. Funder-requirement table: migration `20261113160000_funder_requirements`. Day 17 log, which covers the approval gate: 2026-11-15.
 
@@ -164,15 +164,15 @@ This log describes the system on `main` at the start of Day 18, commit `0d2acd0`
 
 ## 14. Local Prisma pool size
 
-**Decision:** `lib/db.ts` reads `DATABASE_POOL_MAX` when it constructs the Prisma Postgres driver. When the variable is unset, the driver keeps its default pool size. Local development with `npx prisma dev` sets the pool to 1.
+**Decision:** `lib/db.ts` passes `max` to the Prisma Postgres driver. A set `DATABASE_POOL_MAX` must be a positive whole number, and that number is the pool size. Zero, negative numbers, and text that is not a whole number are rejected. When the variable is unset, production uses 1. Other environments keep the driver default of 10. Local development with `npx prisma dev` still sets the pool to 1.
 
-**Why:** Documented in this file since the export work, and in the code comment around the pool. `npx prisma dev` serves a local Postgres proxy that effectively allows one client connection at a time. A larger pool opens a second connection and fails with `P1017` during long seed transactions. Vitest runs test files one at a time for the same reason.
+**Why:** Documented in this file since the export work, and in the code comment around the pool. `npx prisma dev` serves a local Postgres proxy that effectively allows one client connection at a time. A larger pool opens a second connection and fails with `P1017` during long seed transactions. Vitest runs test files one at a time for the same reason. On Vercel, each running copy is a separate process. Leaving the driver default of 10 in every copy can exhaust a small Neon database. The website uses Neon’s pooled address and `DATABASE_POOL_MAX=1`. Manual migrations use Neon’s direct address and `npm run db:migrate:deploy`.
 
-**Alternatives considered:** Documented. Relying only on `connection_limit` in the URL was rejected because the driver pool uses `max`, not that query parameter.
+**Alternatives considered:** Documented. Relying only on `connection_limit` in the URL was rejected because the driver pool uses `max`, not that query parameter. Leaving production unset, so the driver silently used 10, was the behavior replaced on Day 20.
 
-**Trade-offs:** Local tests and seed runs stay inside the proxy's limit. A hosted database can raise `DATABASE_POOL_MAX`. Forgetting the local setting brings back the closed-connection errors. This choice is about the development database, not about learner privacy.
+**Trade-offs:** Local tests and seed runs stay inside the proxy's limit when `DATABASE_POOL_MAX=1`. A hosted database can still raise `DATABASE_POOL_MAX` on purpose. Forgetting the local setting brings back the closed-connection errors on `npx prisma dev`. Forgetting it on Vercel now opens 1 connection per copy, not 10. This choice is about connection limits, not about learner privacy.
 
-**Date:** Commit `b49a83a` on 2026-11-06, message `Support configurable Prisma connection pool`. The written note in this log was expanded with the export commit `9274935` on 2026-11-15. The 2026-11-06 commit is the earliest verifiable implementation.
+**Date:** Commit `b49a83a` on 2026-11-06, message `Support configurable Prisma connection pool`. The written note in this log was expanded with the export commit `9274935` on 2026-11-15. The 2026-11-06 commit is the earliest verifiable implementation. The production default of 1 was added on 2026-11-22.
 
 ## Related pages
 

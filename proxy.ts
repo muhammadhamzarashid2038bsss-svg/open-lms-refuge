@@ -1,7 +1,22 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE } from "./lib/auth/constants";
 
-const PROTECTED = ["/opening", "/student", "/teacher", "/director", "/admin", "/courses", "/sections"];
+// Export, audit, and handoff show donor files, the change log, and class
+// handover reports. A shared phone or a school proxy must not keep a copy.
+// The same list also sends a signed-out visitor to the sign-in page. The
+// pages still check the real session and the person's role.
+const PROTECTED = [
+  "/opening",
+  "/student",
+  "/teacher",
+  "/director",
+  "/admin",
+  "/courses",
+  "/sections",
+  "/export",
+  "/audit",
+  "/handoff",
+];
 
 // The cookie check only sends people to the right screen. It is not the
 // permission check. Pages, API routes, and database queries check the session

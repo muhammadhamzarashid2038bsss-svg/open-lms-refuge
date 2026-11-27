@@ -116,3 +116,30 @@ This milestone is the documentation commit. `docs/DEV_LOG.md` does not yet conta
 - Documented the implemented architecture and the technical decisions, including what is not built: quizzes, lesson-completion sync, a funder-requirement screen, a live R2 bucket, and encryption of phone storage.
 
 Planned work that is not in this changelog as a finished feature includes in-app learner registration, learner erasure, quizzes, a teacher AI assistant, exam proctoring, and a hosted production deployment.
+
+## 23 November 2026 · Teacher handoff recipient
+
+- A director or administrator names the incoming teacher when switching a teacher off or ending a section assignment.
+- If a director names nobody, that director receives the report. An administrator's blank choice works only when the centre has exactly one active director.
+- The named teacher is added to the current classes so they can open the report. The departing teacher's class rows are kept and closed immediately, including one that started today, so switching the account back on does not reopen them. Giving that teacher the same section again the same UTC day is refused with a clear message. An ordinary section reassignment that started today still lasts until the end of that UTC day.
+- A director or administrator can assign an active teacher to a section that has no current teacher. That assignment starts today, does not create another handoff report, and leaves older assignment rows and reports unchanged.
+- Staffed and unstaffed sections are managed in one place, Manage section assignments. A shared display name is shown with the teacher's email so accounts such as the synthetic Lock Test teachers can be told apart.
+
+## 27 November 2026 · Course PDF and MP3 files
+
+- A teacher can upload a PDF of up to 25 MB or an MP3 of up to 20 MB to the same private bucket. The object name starts with `course-resources/`. Homework files stay under `submissions/` at 1 MB.
+- The course file is listed only after the server has checked its size, type, and checksum. The upload link lasts 60 minutes. The download link lasts 2 minutes.
+
+## 27 November 2026 · Private homework storage on Backblaze B2
+
+- Homework files now use a private Backblaze B2 bucket through its S3-compatible API. The upload steps are unchanged: a 10-minute upload link, a 2-minute download link, and a server check of file type, size, and SHA-256.
+- The five settings are `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_REGION`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY_ID`, and `OBJECT_STORAGE_SECRET_ACCESS_KEY`. The application key is not in this repository. The bucket is configured. A course PDF upload and a learner download, recorded in the note above, were later checked by hand. This note does not mean every homework file type was uploaded to the live bucket.
+
+## 26 November 2026 · Learner-level export confirmation
+
+- Aggregate CSV and PDF remain the usual grant export.
+- A pseudonymized learner-level file is still offered only when an active funder requirement is already stored. The Export page does not collect a funder name.
+- Before that file can be downloaded, the director or administrator must confirm that it is still sensitive and is not anonymous. The server refuses the download without that confirmation.
+- The audit row records that the confirmation was given. It does not store the warning text, the funder reason, or a learner code.
+- A director can record and turn off a learner-level requirement for their own centre. An administrator can do that for any centre. The form asks for an explanation and an optional short reference. It does not ask for a funder name. Turning the requirement off blocks the next learner-level download.
+- The Export page puts the aggregate download first. Recording a requirement stays in a closed section underneath. A learner-level download without the confirmation returns to this page with an error and does not start a file.

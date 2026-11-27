@@ -9,8 +9,8 @@ import { prisma } from "../lib/db";
 import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 import { fingerprintStream } from "../lib/storage/checksum";
 import { assessSubmissionClaim, MAX_SUBMISSION_BYTES, sniffSubmissionMime } from "../lib/storage/file-policy";
-import { readR2Config } from "../lib/storage/r2-config";
-import { submissionPutCommand } from "../lib/storage/r2";
+import { readObjectStorageConfig } from "../lib/storage/s3-config";
+import { submissionPutCommand } from "../lib/storage/s3";
 import { isUuid } from "../lib/lms/timetable";
 import { registerOfflinePhone } from "../lib/data/sync-attendance";
 import {
@@ -58,27 +58,27 @@ describe("submission file rules", () => {
     expect(huge.byteSize).toBe(4);
   });
 
-  it("keeps R2 turned off until every setting is present and does not sign an unsupported checksum", () => {
-    expect(readR2Config({ R2_ACCOUNT_ID: "account", R2_ACCESS_KEY_ID: "key", R2_SECRET_ACCESS_KEY: "", R2_BUCKET_NAME: "bucket" })).toBeNull();
-    const config = readR2Config({
-      R2_ACCOUNT_ID: "account",
-      R2_ACCESS_KEY_ID: "key",
-      R2_SECRET_ACCESS_KEY: "secret",
-      R2_BUCKET_NAME: "bucket",
-    });
-    expect(config).toMatchObject({
-      region: "auto",
-      endpoint: "https://account.r2.cloudflarestorage.com",
-      bucket: "bucket",
-    });
-    const command = submissionPutCommand("bucket", {
+  it("keeps storage turned off until every setting is valid and does not sign an unsupported checksum", () => {
+    expect(
+      readObjectStorageConfig({
+        OBJECT_STORAGE_ENDPOINT: "https://s3.eu-central-003.backblazeb2.com",
+        OBJECT_STORAGE_REGION: "eu-central-003",
+        OBJECT_STORAGE_BUCKET: "open-lms-refuge-private",
+        OBJECT_STORAGE_ACCESS_KEY_ID: "test-key-id",
+        OBJECT_STORAGE_SECRET_ACCESS_KEY: "",
+      }),
+    ).toBeNull();
+    const command = submissionPutCommand("open-lms-refuge-private", {
       key: "submissions/00000000-0000-4000-8000-000000000011",
       contentType: "image/jpeg",
       byteSize: 4,
     });
+    expect(command.input.Bucket).toBe("open-lms-refuge-private");
+    expect(command.input.Key).toBe("submissions/00000000-0000-4000-8000-000000000011");
     expect(command.input.ChecksumSHA256).toBeUndefined();
     expect(command.input.ChecksumAlgorithm).toBeUndefined();
     expect(command.input.ContentMD5).toBeUndefined();
+    expect(command.input.ACL).toBeUndefined();
     expect(command.input.ContentType).toBe("image/jpeg");
   });
 

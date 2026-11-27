@@ -184,7 +184,11 @@ The "at least 3 usable records" rule is fixed in the program. It is not in the e
 - It does not adjust for assessment difficulty.
 - It does not see names, notes, or family stories.
 - It does not read the learning-center database. The Next.js server does, and it sends only the fields above.
-- It has no learner login. The Next.js server proves itself with a shared key. Do not put this service on the public internet.
+- It has no learner login. The Next.js server proves itself with a shared key.
+  A public HTTPS host is only for a synthetic demo.
+  Real learner codes and records must not be sent there.
+  A real-data pilot needs a separate deployment and a separate key, or a private arrangement.
+  Neither has been deployed, and this page is not a legal approval.
 
 ## How the learning app calls this service
 
@@ -193,7 +197,7 @@ The browser never calls `POST /score`. A director uses the Check-in suggestions 
 Set these in the repository `.env`. Do not prefix them with `NEXT_PUBLIC_`.
 
 - `RISK_SERVICE_URL` is `http://127.0.0.1:8000` on this computer. A service on another computer must use `https`.
-- `RISK_SERVICE_API_KEY` is a long random string. The Python process needs the same value. It reads the environment variable, or the same name in the repository `.env` when the variable is not already set.
+- `RISK_SERVICE_API_KEY` is a long random string. The Python process needs the same value. It reads the environment variable, or the same name in the repository `.env` when the variable is not already set. The published example is rejected, and the process does not start while that value is the key.
 
 Start the service from `services/risk_engine` with:
 
@@ -202,7 +206,13 @@ $env:RISK_SERVICE_API_KEY = "the-same-value-as-in-dotenv"
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-`POST /score` refuses a missing or wrong key. `GET /health` stays open so a local check can see that the process is up. It returns no learner data. There is no CORS permission, because a phone must not call this service.
+`POST /score` refuses a missing or wrong key.
+`GET /health` stays open so a local check can see that the process is up.
+It returns only `{"status": "ok"}`.
+`/docs`, `/redoc`, and `/openapi.json` are turned off.
+There is no CORS permission, because a phone must not call this service.
+A synthetic demo on Render is described in `services/risk_engine/README.md`.
+It is not deployed from this repository.
 
 The request may also include `thresholds.watch` and `thresholds.high`. The service checks that both are from 0 to 100 and that Watch is lower than High. Those numbers change only the Watch and High labels. They do not change the weights or the indicator math. If the request omits them, the file `config.toml` is used. The response includes `applied`, which repeats the version `day14-v1`, the weights, and the levels that were used.
 

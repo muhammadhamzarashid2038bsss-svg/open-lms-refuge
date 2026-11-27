@@ -5,11 +5,12 @@ import { AccountList } from "@/components/account-list";
 import { PasswordResetForm } from "@/components/password-reset-form";
 import { PhoneTools } from "@/components/phone-tools";
 import { PinResetForm } from "@/components/pin-reset-form";
-import { ReassignSectionForm } from "@/components/reassign-section-form";
+import { ManageSectionAssignments } from "@/components/manage-section-assignments";
 import { Shell } from "@/components/ui";
 import { getActor } from "@/lib/auth/actor";
 import { pageGuard } from "@/lib/auth/permissions";
-import { listReassignmentChoices } from "@/lib/data/handoff";
+import { listReassignmentChoices, listUnstaffedSections } from "@/lib/data/handoff";
+import { managedSections } from "@/lib/lms/section-management";
 import { listAccounts } from "@/lib/data/records";
 
 export const instant = false;
@@ -29,6 +30,7 @@ async function AdminHome({ searchParams }: { searchParams: Promise<{ notice?: st
   if (!guard.ok) redirect(guard.redirectTo);
   const accounts = actor ? await listAccounts(actor) : null;
   const staffing = actor ? await listReassignmentChoices(actor) : null;
+  const unstaffed = actor ? await listUnstaffedSections(actor) : null;
   return (
     <Shell
       title="Account management"
@@ -44,10 +46,25 @@ async function AdminHome({ searchParams }: { searchParams: Promise<{ notice?: st
           Grant export
         </Link>
       </p>
-      {staffing ? <ReassignSectionForm sections={staffing.sections} teachers={staffing.teachers} /> : null}
+      {staffing && unstaffed ? (
+        <ManageSectionAssignments
+          sections={managedSections(staffing.sections, unstaffed.sections, true)}
+          teachers={staffing.teachers}
+          blankHint="Choose the teacher who is taking over. If you leave that blank, the report goes to the centre director only when that centre has exactly one active director. If it has none, or more than one, this change is refused. The app does not guess a teacher."
+          blankOptionLabel="No incoming teacher — only when this centre has one director"
+        />
+      ) : null}
       <PinResetForm showCenterCode />
       <PasswordResetForm />
-      {accounts ? <AccountList accounts={accounts} /> : null}
+      {accounts ? (
+        <AccountList
+          accounts={accounts}
+          incomingTeachers={staffing?.teachers ?? []}
+          blankIncomingLabel="No incoming teacher — only when this centre has one director"
+          fallbackText="If you do not choose anyone, the reports go to the centre director only when that centre has exactly one active director. If it has none, or more than one, name a teacher or ask a director of that centre to switch the account off. The app does not guess."
+          emptyTeacherText="No other active teacher is at this centre yet. Leave the choice blank only when the centre has exactly one active director."
+        />
+      ) : null}
       {actor ? <PhoneTools userId={actor.id} centerId={actor.centerId} /> : null}
     </Shell>
   );

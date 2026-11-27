@@ -56,6 +56,7 @@ export type AccountView = {
   displayName: string;
   learnerCode: string | null;
   active: boolean;
+  centerId: string;
 };
 
 export type PrivateFileView = {
@@ -330,6 +331,7 @@ export async function listAccounts(actor: Actor, db: Db = prisma): Promise<Accou
       email: true,
       displayName: true,
       active: true,
+      centerId: true,
       learnerProfile: { select: { learnerCode: true, displayName: true } },
     },
     orderBy: [{ role: "asc" }, { email: "asc" }],
@@ -341,6 +343,7 @@ export async function listAccounts(actor: Actor, db: Db = prisma): Promise<Accou
     displayName: row.learnerProfile?.displayName ?? row.displayName ?? "Account",
     learnerCode: row.learnerProfile?.learnerCode ?? null,
     active: row.active,
+    centerId: row.centerId,
   }));
 }
 

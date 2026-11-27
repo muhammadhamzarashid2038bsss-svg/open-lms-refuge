@@ -87,6 +87,10 @@ export async function createResourceResponse(actor: Actor | null, body: unknown)
 export async function deleteResourceResponse(actor: Actor | null, resourceId: string): Promise<HttpResult> {
   if (!actor) return unauthorized();
   const result = await deleteResource(actor, resourceId);
-  if (!result.ok) return hidden();
+  if (!result.ok) {
+    if (result.reason === "linked") return { status: 409, body: { error: result.message } };
+    if (result.reason === "storage") return { status: 503, body: { error: result.message } };
+    return hidden();
+  }
   return { status: 200, body: { message: "Removed." } };
 }

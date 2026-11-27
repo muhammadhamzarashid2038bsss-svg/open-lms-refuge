@@ -6,8 +6,10 @@ log files. Validation errors also leave out the rejected value, so a name sent
 by mistake is not copied into the error text.
 
 The learning app calls POST /score from its own server. Browsers do not.
-There is no CORS permission for that reason. Bind local runs to 127.0.0.1.
-A separate deployment should be reached over HTTPS by the Next.js server only.
+There is no CORS permission for that reason. Bind a local run to 127.0.0.1.
+A synthetic demo on Render listens on 0.0.0.0 and Render's port, and the
+Next.js server must call it over HTTPS. Interactive API pages stay off in
+both places so a public host does not publish the request shape.
 """
 
 from __future__ import annotations
@@ -35,9 +37,14 @@ def create_app(config_path: Path | None = None, api_key: str | None = None) -> F
             "Calculates a transparent score from attendance, missing assignments, "
             "and grade trend. A person decides what to do. The score is not a "
             "prediction, and this service does not label a learner as leaving the center. "
-            "Send an anonymous learner code and numbers only."
+            "Send a learner code and numbers only. The code is not anonymous."
         ),
         version="0.1.0",
+        # Off by default. A public synthetic demo must not offer /docs, /redoc,
+        # or /openapi.json. An environment variable would be easy to forget.
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
     app.state.settings = settings
     app.state.api_key = configured_key
@@ -70,7 +77,7 @@ def create_app(config_path: Path | None = None, api_key: str | None = None) -> F
             status_code=422,
             content={
                 "detail": (
-                    "The request was rejected. Send only an anonymous learner code "
+                    "The request was rejected. Send only a learner code "
                     "and the numeric scoring fields."
                 ),
                 "errors": errors,

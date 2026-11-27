@@ -33,11 +33,26 @@ export type RiskClientFailure = "unconfigured" | "unavailable" | "timeout" | "re
 export class RiskServiceError extends Error {
   readonly code: RiskClientFailure;
 
-  constructor(code: RiskClientFailure) {
-    super(RISK_UNAVAILABLE);
+  constructor(code: RiskClientFailure, message = RISK_UNAVAILABLE) {
+    super(message);
     this.name = "RiskServiceError";
     this.code = code;
   }
+}
+
+// The example in .env.example is public. Sending it would let anyone who read
+// the repository call the scoring service.
+const PUBLISHED_RISK_SERVICE_API_KEY = "replace-with-a-long-random-secret";
+
+function riskServiceKey(raw: string | undefined): string {
+  const key = raw?.trim() ?? "";
+  if (key === PUBLISHED_RISK_SERVICE_API_KEY) {
+    throw new RiskServiceError(
+      "unconfigured",
+      "RISK_SERVICE_API_KEY is still the published example. Set a new value before scoring.",
+    );
+  }
+  return key;
 }
 
 export function resolveRiskServiceUrl(raw: string | undefined): URL | null {
@@ -67,7 +82,10 @@ export async function scoreLearner(
   } = {},
 ): Promise<ParsedScore> {
   const env = options.env ?? process.env;
-  const key = env.RISK_SERVICE_API_KEY?.trim() ?? "";
+  // Reject the published example before fetch. A missing key still uses the
+  // same unconfigured result. This does not run at import or during static
+  // generation; it runs only when a check asks for a score.
+  const key = riskServiceKey(env.RISK_SERVICE_API_KEY);
   const base = resolveRiskServiceUrl(env.RISK_SERVICE_URL);
   if (!key || !base) throw new RiskServiceError("unconfigured");
   const endpoint = new URL("/score", base.origin);

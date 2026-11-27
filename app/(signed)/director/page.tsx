@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { AccountList } from "@/components/account-list";
-import { ReassignSectionForm } from "@/components/reassign-section-form";
+import { ManageSectionAssignments } from "@/components/manage-section-assignments";
 import { PasswordResetForm } from "@/components/password-reset-form";
 import { PhoneTools } from "@/components/phone-tools";
 import { PinResetForm } from "@/components/pin-reset-form";
@@ -10,7 +10,8 @@ import { Shell } from "@/components/ui";
 import { getActor } from "@/lib/auth/actor";
 import { pageGuard } from "@/lib/auth/permissions";
 import { listTimetableSections } from "@/lib/data/timetable";
-import { listReassignmentChoices } from "@/lib/data/handoff";
+import { listReassignmentChoices, listUnstaffedSections } from "@/lib/data/handoff";
+import { managedSections } from "@/lib/lms/section-management";
 import { listAccounts, readCenterSummary } from "@/lib/data/records";
 
 export const instant = false;
@@ -31,6 +32,7 @@ async function DirectorHome({ searchParams }: { searchParams: Promise<{ notice?:
   const summary = actor ? await readCenterSummary(actor) : null;
   const accounts = actor ? await listAccounts(actor) : null;
   const staffing = actor ? await listReassignmentChoices(actor) : null;
+  const unstaffed = actor ? await listUnstaffedSections(actor) : null;
   const sections = actor ? await listTimetableSections(actor) : [];
   return (
     <Shell title={summary?.name ?? "Center home"} lede="You see this center only.">
@@ -92,10 +94,25 @@ async function DirectorHome({ searchParams }: { searchParams: Promise<{ notice?:
           {sections.length === 0 ? <li>No sections yet.</li> : null}
         </ul>
       </section>
-      {staffing ? <ReassignSectionForm sections={staffing.sections} teachers={staffing.teachers} /> : null}
+      {staffing && unstaffed ? (
+        <ManageSectionAssignments
+          sections={managedSections(staffing.sections, unstaffed.sections, false)}
+          teachers={staffing.teachers}
+          blankHint="Choose the teacher who is taking over. If you leave that blank, you receive the report. The app does not guess a teacher."
+          blankOptionLabel="No incoming teacher — send the report to me"
+        />
+      ) : null}
       <PinResetForm showCenterCode={false} />
       <PasswordResetForm />
-      {accounts ? <AccountList accounts={accounts} /> : null}
+      {accounts ? (
+        <AccountList
+          accounts={accounts}
+          incomingTeachers={staffing?.teachers ?? []}
+          blankIncomingLabel="No incoming teacher — send the reports to me"
+          fallbackText="If you do not choose anyone, you receive the reports. The app does not guess."
+          emptyTeacherText="No other active teacher is at this centre yet. Leave the choice blank and you will receive the reports."
+        />
+      ) : null}
       {actor ? <PhoneTools userId={actor.id} centerId={actor.centerId} /> : null}
     </Shell>
   );

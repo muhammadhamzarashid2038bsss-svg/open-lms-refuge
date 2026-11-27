@@ -15,6 +15,18 @@ describe("resource helpers", () => {
   it("requires https links and reading-list text", () => {
     expect(validateResourcePayload({ resourceType: "WEB_LINK", externalUrl: "http://bad" }).ok).toBe(false);
     expect(validateResourcePayload({ resourceType: "WEB_LINK", externalUrl: "https://example.com" }).ok).toBe(true);
+    expect(validateResourcePayload({ resourceType: "TEXTBOOK_LINK", externalUrl: "https://example.com/book" }).ok).toBe(true);
+    expect(validateResourcePayload({ resourceType: "VIDEO_LINK", externalUrl: "https://example.com/video" }).ok).toBe(true);
+    expect(
+      validateResourcePayload({
+        resourceType: "PDF",
+        storageKey: "private/demo/resources/alphabet.pdf",
+        mimeType: "application/pdf",
+        byteSize: 10,
+        checksumSha256: "ab".repeat(32),
+      }).ok,
+    ).toBe(false);
+    expect(validateResourcePayload({ resourceType: "AUDIO", mimeType: "audio/wav", byteSize: 10 }).ok).toBe(false);
     expect(validateResourcePayload({ resourceType: "TEXT", bodyText: "short" }).ok).toBe(false);
     expect(
       validateResourcePayload({ resourceType: "TEXT", bodyText: "Week 1: letters A to C and numbers 1 to 5." }).ok,

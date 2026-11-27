@@ -2,7 +2,19 @@
 // The end date is their last day, included. The next day they no longer
 // see that section. Dates are compared as calendar days in UTC because the
 // stored value is a date, not a clock time, and phone timezones vary.
-export function isCurrentAssignment(startsOn: Date, endsOn: Date | null, now: Date): boolean {
+//
+// accessClosed is a separate fact, set only when the account is switched off.
+// That assignment stops at once, even when the end date is still today.
+// An ordinary section reassignment leaves the flag false, so a same-day end
+// date still includes the rest of that UTC day. Switching the account back
+// on does not clear the flag.
+export function isCurrentAssignment(
+  startsOn: Date,
+  endsOn: Date | null,
+  now: Date,
+  accessClosed = false,
+): boolean {
+  if (accessClosed) return false;
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   const start = Date.UTC(startsOn.getUTCFullYear(), startsOn.getUTCMonth(), startsOn.getUTCDate());
   if (start > today) return false;

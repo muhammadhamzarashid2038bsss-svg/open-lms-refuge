@@ -5,7 +5,7 @@ import { AddResourceForm, AddSectionForm } from "@/components/course-forms";
 import { ResourceList } from "@/components/resource-list";
 import { Shell } from "@/components/ui";
 import { getActor } from "@/lib/auth/actor";
-import { homeForRole } from "@/lib/auth/permissions";
+import { canManageResource, homeForRole, sectionsForMaterialUpload } from "@/lib/auth/permissions";
 import { readCourse } from "@/lib/data/courses";
 import { semesterLabel } from "@/lib/lms/resources";
 
@@ -56,7 +56,16 @@ async function CourseDetail({ params }: { params: Promise<{ courseId: string }> 
       </section>
       <ResourceList resources={course.resources} downloadableCount={course.downloadableCount} manage courseId={course.id} />
       <AddSectionForm courseId={course.id} />
-      <AddResourceForm courseId={course.id} sections={course.sections} />
+      <AddResourceForm
+        courseId={course.id}
+        sections={sectionsForMaterialUpload(actor, course.sections)}
+        allowWholeCourse={canManageResource(actor, {
+          id: course.id,
+          centerId: actor.centerId,
+          sectionId: null,
+          courseSectionIds: course.sections.map((section) => section.id),
+        })}
+      />
     </Shell>
   );
 }

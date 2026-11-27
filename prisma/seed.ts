@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { Prisma } from "../generated/prisma/client";
 import { hashSecret } from "../lib/auth/password";
 import { prisma } from "../lib/db";
+import { deleteDemoLoginThrottles } from "./demo-throttle";
 
 const DEMO_PASSWORD = "demo-password";
 const DEMO_PIN = "1234";
@@ -174,11 +175,11 @@ async function wipeDemo(tx: Prisma.TransactionClient): Promise<void> {
   if (!center) return;
 
   // Sign-in rows point at users. Remove them before the demo accounts.
-  // Throttle keys are hashes, so they cannot be filtered by center. This wipe
-  // is the local demo reset, and it clears those counters too.
+  // Throttle rows have no centre column. Delete only the known DEMO account
+  // keys. A shared network address and every other centre keep their lockouts.
   await tx.authSession.deleteMany({ where: { user: { centerId: center.id } } });
   await tx.deviceHandover.deleteMany({ where: { centerId: center.id } });
-  await tx.loginThrottle.deleteMany();
+  await deleteDemoLoginThrottles((args) => tx.loginThrottle.deleteMany(args));
 
   const learners = await tx.learnerProfile.findMany({
     where: { centerId: center.id },

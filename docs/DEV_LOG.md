@@ -25,12 +25,7 @@
 
 ### Outreach
 
-- Sent introductory messages to 5 organizations/educators to learn about their needs:
-  1. Children's Training Centre (CTC) – School For Refugees (via WhatsApp)
-  2. CEAM Learning Centers (via WhatsApp)
-  3. Zotung Refugee Learning Centre (ZRLC) (via WhatsApp)
-  4. Myanmar Refugee Learning Centre (MRLC) (via WhatsApp)
-  5. ElShaddai Centre Berhad (via website form)
+- Sent introductory messages to 5 organizations and educators to learn about their needs. Four messages went by WhatsApp, and one went through a website form. I am not naming the organisations in this public log.
 - Will follow up in 3 to 5 days if I don't hear back.
 
 ## Day 2 of 20 · 2026-11-03
@@ -192,18 +187,8 @@ The core timetable functionality is now implemented, and both the timetable feat
 
 ### Outreach & Parallel Track
 
-- **Follow-up Success:** Myanmar Refugee Learning Centre (MRLC), one of the 5 centers I contacted on Day 1, replied and is interested in my application! They want to schedule a conversation next week. 
-- **New Outreach:** I contacted 10 additional learning centers globally to expand my network and gather feedback:
-  1. Refugee Learning Center (RLC) - Cisarua, Indonesia
-  2. Hope Learning Center (HLC) - Cisarua, West Java, Indonesia
-  3. Generation Aid Learning & Tech Hub - Kakuma Refugee Camp, Kenya
-  4. Apostoli Educational Center for Refugees & Migrants - Athens, Greece
-  5. Cahaya Surya Bakti (CSB) Learning Centers - Johor, Malaysia
-  6. The Peace Education Centre (TPEC) - Imbi, Kuala Lumpur, Malaysia
-  7. Zaatari Camp Connected Learning Hubs - Zaatari Refugee Camp, Jordan
-  8. Edu-Syria Academic Program Center - Amman / Mafraq, Jordan
-  9. Roshan Learning Center - Jakarta, Indonesia
-  10. METAdrasi Non-Formal Education Centers - Athens & Lesvos, Greece
+- **Follow-up:** One of the 5 centers I contacted on Day 1 replied and is interested in my application! They want to schedule a conversation next week. That reply was interest in a conversation. It was not a partnership, an endorsement, or an agreement to try the app.
+- **New Outreach:** I contacted 10 additional learning centers in several countries to expand my network and gather feedback. I am not naming those centers or the places I wrote to.
 
 ### Testing and completion
 
@@ -321,6 +306,8 @@ Day 7 was completed with one documented browser limitation. The offline kiosk sh
 
 Day 8 is technically complete. The sync client, authenticated server endpoint, foreground runner, status panel, retry handling, and safety checks were implemented. All 72 relevant tests passed, ESLint passed, and the work was committed and pushed to GitHub. But the full manual browser-to-database acceptance test remains pending because of the persistent-storage limitation carried over from Day 7. This is documented rather than being reported as a successful browser test. I can move on to Day 9 while keeping that acceptance check on the outstanding verification list.
 
+Later review, November 2026: that pending check describes the end of Day 8. It is not the current save rule. Day 19 records the later change: a refused persistence promise does not by itself stop a local attendance write when there is enough space.
+
 ## Day 9 of 20 · 2026-11-10
 
 ### What I built
@@ -341,6 +328,8 @@ Day 8 is technically complete. The sync client, authenticated server endpoint, f
 ### What went wrong
 
 - The first major challenge was browser storage. Both Chrome and Edge refused to grant persistent storage, which initially prevented me from saving grade and progress note edits offline. We changed the saving behavior to allow these records to be stored when sufficient browser space is available, while keeping a clear warning that the browser has not promised to retain them. Attendance still uses the stronger persistent-storage requirement.
+
+  Later review, November 2026: the last sentence was true on Day 9 and is not the current behavior. Day 19 changed attendance as well. A refused persistence promise does not by itself prevent a local attendance write when there is enough space. The write still has to succeed in IndexedDB and pass the read-back check.
 - My first attempt to test GradeEntry and ProgressNote conflict handling was affected by the storage restriction. After fixing the local saving behavior, I was able to save different versions in Chrome and Edge and synchronize them separately.
 - During the ProgressNote test, the saved note disappeared from the records page after refreshing, even though the sync system had acknowledged it. A database investigation confirmed that the note was successfully stored, including its skill gaps and version history. The actual problem was in the editor: it loaded the saved note into the existing-note menu but did not populate the text box and skill-gap selections when the note was selected.
 - The first editor fix appeared to work in development, but my browser was still using an older production build on port 3100. After rebuilding the production app, I tested the corrected behavior in both Chrome and Edge. I also added a test that renders the actual form and checks the dropdown interaction, rather than only testing the helper function.
@@ -585,7 +574,7 @@ The implementation was committed and pushed to GitHub. Real Cloudflare R2 accept
 - Added clear handling for incomplete historical data. For example, older handoff reports created before the new snapshot fields were introduced display a notice when detailed historical information is unavailable.
 - Added recipient assignment. Reports go to the incoming teacher or to the Director when a single incoming teacher cannot be determined.
 
-  Later review, November 2026: 'incoming teacher' here means the only other current teacher, or a teacher named during reassignment, not a newly arriving volunteer. 'Anonymous learner code' was too strong. The service receives the centre's real learner code, which the centre can match to the learner.
+  Later review, November 2026: 'incoming teacher' here means the only other current teacher, or a teacher named during reassignment, not a newly arriving volunteer.
 - Added the ability to print or save handoff reports as PDFs using the browser's print function.
 - Built an Audit Log screen for Directors and Admins. It records important actions, including viewing grades, opening progress notes, opening handoff reports, and requesting a handoff report printout.
 - Protected the audit trail by recording action details and limited metadata without copying private progress note text, passwords, tokens, or unnecessary personal information.
@@ -593,7 +582,7 @@ The implementation was committed and pushed to GitHub. Real Cloudflare R2 accept
 - Added safeguards against duplicate handoff generation. Deactivating an already inactive account or ending an already ended assignment does not generate another handoff.
 - Added role-based access controls so that incoming teachers can view their assigned handoff reports, outgoing teachers cannot access reports intended for their replacements, and Directors can access reports and audit records for their center.
 
-  Later review, November 2026: 'incoming teacher' here means the only other current teacher, or a teacher named during reassignment, not a newly arriving volunteer. 'Anonymous learner code' was too strong. The service receives the centre's real learner code, which the centre can match to the learner.
+  Later review, November 2026: 'incoming teacher' here means the only other current teacher, or a teacher named during reassignment, not a newly arriving volunteer.
 
 ### What went wrong
 
@@ -629,9 +618,9 @@ The implementation was committed and pushed to GitHub. Real Cloudflare R2 accept
 
 - Built a standalone Python FastAPI risk-scoring service under `services/risk_engine/`, completely separate from the Next.js application and Prisma database.
 - Installed Python 3.14.6 and created an isolated Python virtual environment with the required dependencies, including FastAPI, Pydantic, Uvicorn, pytest, and Ruff.
-- Established strict privacy rules. The service accepts only an anonymous learner code and the minimum numeric information needed for scoring. It does not accept learner names, nicknames, contact details, progress-note text, or raw family narratives.
+- Established strict privacy rules. At the time I described the identifier as an anonymous learner code, plus the minimum numeric information needed for scoring. It does not accept learner names, nicknames, contact details, progress-note text, or raw family narratives.
 
-  Later review, November 2026: 'incoming teacher' here means the only other current teacher, or a teacher named during reassignment, not a newly arriving volunteer. 'Anonymous learner code' was too strong. The service receives the centre's real learner code, which the centre can match to the learner.
+  Later review, November 2026: calling that code anonymous was too strong, and it is not the current description. The service receives the centre's real learner code, which the centre can match to the learner. See `docs/PRIVACY.md`.
 - Implemented the three weighted risk indicators:
   - Absence pattern: five consecutive unexcused absences produce an indicator of 1.0. Ordinary excused absences contribute at 25% of the unexcused weight. Cancelled sessions are excluded, while blank sessions end an absence run without being counted as absences.
   - Missing assignments: calculated as missing assignments divided by expected assignments, with explicit handling for zero expected assignments.
@@ -689,9 +678,9 @@ The implementation was committed and pushed to GitHub. Real Cloudflare R2 accept
 
 - Connected the Next.js application to the standalone Python FastAPI risk-scoring service through a protected server-to-server request. The browser never communicates directly with the scoring service.
 - Implemented shared-key authentication between the two services. The key is stored in the local `.env` file and is not exposed through frontend environment variables or committed to Git. The Python service rejects scoring requests with a missing or incorrect key.
-- Enforced privacy by sending only anonymous learner codes and approved numerical indicators to the risk service. Names, nicknames, database identifiers, contact details, progress notes, and private family narratives remain inside the main LMS.
+- Enforced privacy by sending what I then called anonymous learner codes, plus approved numerical indicators, to the risk service. Names, nicknames, database identifiers, contact details, progress notes, and private family narratives remain inside the main LMS.
 
-  Later review, November 2026: 'incoming teacher' here means the only other current teacher, or a teacher named during reassignment, not a newly arriving volunteer. 'Anonymous learner code' was too strong. The service receives the centre's real learner code, which the centre can match to the learner.
+  Later review, November 2026: calling that code anonymous was too strong, and it is not the current description. The service receives the centre's real learner code, which the centre can match to the learner. See `docs/PRIVACY.md`.
 - Added a scoring-run system using `RiskScoringRun` records. Each run stores its calculation version, weights, thresholds, and scoring metadata. Results are saved against the existing `RiskFlag` records.
 - Implemented safeguards against duplicate scoring results. A run cannot create multiple flags for the same learner, retries do not overwrite completed human decisions, and later scoring runs preserve older results.
 - Built the Director's Check-in Suggestions page at `/director/check-ins`. It displays learners who may benefit from additional support, their risk level, score, and plain-language reasons.
@@ -757,9 +746,9 @@ This approach means that the application can report insufficient data instead of
 
 2. **Decision:** Make privacy and learner dignity part of the system architecture, not just the interface.
 **Why:** The LMS handles information about vulnerable learners, so privacy cannot depend only on hiding sensitive details from the screen. During the development of Progress Notes, Handoff Reports, audit logging, and the risk-scoring service, I consistently limited what information each feature could access and store.
-For example, the risk service receives anonymous learner codes and approved numerical indicators rather than names, private notes, or family narratives. Audit logs record that an action happened without copying the contents of private notes. Risk suggestions also remain supportive recommendations for human review rather than automatic decisions about a learner.
+For example, I wrote here that the risk service receives anonymous learner codes and approved numerical indicators rather than names, private notes, or family narratives. Audit logs record that an action happened without copying the contents of private notes. Risk suggestions also remain supportive recommendations for human review rather than automatic decisions about a learner.
 
-Later review, November 2026: 'incoming teacher' here means the only other current teacher, or a teacher named during reassignment, not a newly arriving volunteer. 'Anonymous learner code' was too strong. The service receives the centre's real learner code, which the centre can match to the learner.
+Later review, November 2026: calling that code anonymous was too strong, and it is not the current description. The service receives the centre's real learner code, which the centre can match to the learner. See `docs/PRIVACY.md`.
 This decision shaped how I designed the database, APIs, permissions, and user interfaces. I learned that protecting learners requires privacy safeguards throughout the application, not only at the point where information is displayed.
 
 3. **Decision:** Design for reliability, shared devices, and imperfect connectivity rather than assuming everything will always work.

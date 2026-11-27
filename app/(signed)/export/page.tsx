@@ -1,15 +1,29 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
+import { ExportDownloadForm } from "@/components/export-download-form";
+import { FunderRequirements } from "@/components/funder-requirements";
 import { Shell, buttonClass, inputClass, labelClass } from "@/components/ui";
 import { getActor } from "@/lib/auth/actor";
 import { homeForRole } from "@/lib/auth/permissions";
 import { resolveExportCenter } from "@/lib/export/center";
-import { learnerLevelOffer, listActiveExportRequirements, listExportCenters } from "@/lib/export/offer";
+import { CONFIRMATION_MISSING, learnerLevelOffer, listActiveExportRequirements, listExportCenters } from "@/lib/export/offer";
+import { listFunderRequirements } from "@/lib/export/requirements";
 
 export const instant = false;
 
-export default function ExportPage({ searchParams }: { searchParams: Promise<{ center?: string }> }) {
+type ExportQuery = {
+  center?: string;
+  notice?: string;
+  error?: string;
+  from?: string;
+  to?: string;
+  format?: string;
+  mode?: string;
+  requirement?: string;
+};
+
+export default function ExportPage({ searchParams }: { searchParams: Promise<ExportQuery> }) {
   return (
     <Suspense fallback={<p className="p-4 text-lg">Loading the export page…</p>}>
       <ExportScreen searchParams={searchParams} />
@@ -17,10 +31,12 @@ export default function ExportPage({ searchParams }: { searchParams: Promise<{ c
   );
 }
 
-async function ExportScreen({ searchParams }: { searchParams: Promise<{ center?: string }> }) {
+async function ExportScreen({ searchParams }: { searchParams: Promise<ExportQuery> }) {
   const actor = await getActor();
   if (!actor) redirect("/");
-  const requested = (await searchParams).center ?? null;
+  const params = await searchParams;
+  const notice = params.notice;
+  const requested = params.center ?? null;
   const decision = await resolveExportCenter({ userId: actor.id, postedCenterId: requested });
   if (!decision.ok) {
     if (decision.role !== "ADMIN") redirect(homeForRole(actor.role));
@@ -38,79 +54,67 @@ async function ExportScreen({ searchParams }: { searchParams: Promise<{ center?:
   }
 
   const requirements = await listActiveExportRequirements(decision.centerId);
+  const history = await listFunderRequirements(actor, decision.centerId);
   const offer = learnerLevelOffer(requirements.length);
   const centers = decision.role === "ADMIN" ? await listExportCenters() : [];
   const center = centers.find((item) => item.id === decision.centerId) ?? null;
+  const format = params.format === "pdf" ? "pdf" : "csv";
+  const mode = params.mode === "pseudonymized" && offer.offered ? "pseudonymized" : "aggregate";
+  const pageError = exportPageError(params.error);
+  const confirmationError = mode === "pseudonymized" ? pageError.confirmation : null;
+  const formError = pageError.form ?? (pageError.confirmation && !confirmationError ? pageError.confirmation : null);
+  const requirementId = requirements.some((item) => item.id === params.requirement)
+    ? (params.requirement ?? "")
+    : (requirements[0]?.id ?? "");
   return (
-    <Shell title="Grant export" lede="Aggregate totals are the usual report. A learner-level file is offered only when this center already has an active funder requirement.">
+    <Shell title="Grant export" lede="Download an aggregate report. Learner-level reporting is a separate choice, and only when a funder requires it.">
       <p className="text-lg">
         <Link className="underline" href={homeForRole(actor.role)}>
           Back
         </Link>
       </p>
+      {notice ? <p className="text-lg" role="status">{notice}</p> : null}
       {decision.role === "ADMIN" ? <CenterPicker centers={centers} selectedId={decision.centerId} /> : null}
-      <p className="text-lg">
-        Adding or changing a funder requirement is not available on this page.
-      </p>
-      <form className="flex flex-col gap-4" method="post" action="/api/export">
-        {decision.role === "ADMIN" ? <input type="hidden" name="centerId" value={decision.centerId} /> : null}
-        {center ? <p className="text-lg">{center.name}</p> : null}
-        <label className={labelClass}>
-          From
-          <input className={inputClass} type="date" name="periodStart" required />
-        </label>
-        <label className={labelClass}>
-          To
-          <input className={inputClass} type="date" name="periodEnd" required />
-        </label>
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-base font-medium">Format</legend>
-          <label className="flex min-h-12 items-center gap-3 text-lg">
-            <input type="radio" name="format" value="csv" defaultChecked />
-            CSV
-          </label>
-          <label className="flex min-h-12 items-center gap-3 text-lg">
-            <input type="radio" name="format" value="pdf" />
-            PDF
-          </label>
-        </fieldset>
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-base font-medium">Report</legend>
-          <label className="flex min-h-12 items-center gap-3 text-lg">
-            <input type="radio" name="mode" value="aggregate" defaultChecked />
-            Aggregate report
-          </label>
-          {offer.offered ? (
-            <label className="flex min-h-12 items-center gap-3 text-lg">
-              <input type="radio" name="mode" value="pseudonymized" />
-              Pseudonymized learner-level file
-            </label>
-          ) : null}
-        </fieldset>
-        {offer.warning ? (
-          <p className="text-lg" role="note">
-            {offer.warning}
-          </p>
-        ) : null}
-        {offer.offered ? (
-          <label className={labelClass}>
-            Funder requirement
-            <select className={inputClass} name="requirementId" defaultValue={requirements[0]?.id ?? ""}>
-              {requirements.map((requirement) => (
-                <option key={requirement.id} value={requirement.id}>
-                  {requirement.funderName} · {requirement.requirementReference}
-                  {requirement.crossReportLinkage ? " · same pseudonym across reports" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        <button className={buttonClass} type="submit">
-          Download report
-        </button>
-      </form>
+      <ExportDownloadForm
+        centerId={decision.role === "ADMIN" ? decision.centerId : null}
+        centerName={center?.name ?? null}
+        from={dayQuery(params.from)}
+        to={dayQuery(params.to)}
+        format={format}
+        mode={mode}
+        formError={formError}
+        offered={offer.offered}
+        warning={offer.warning}
+        confirmationLabel={offer.confirmationLabel}
+        confirmationError={confirmationError}
+        requirements={requirements.map((item) => ({
+          id: item.id,
+          requirementReference: item.requirementReference,
+          crossReportLinkage: item.crossReportLinkage,
+        }))}
+        initialRequirementId={requirementId}
+      />
+      {history ? (
+        <FunderRequirements centerId={decision.centerId} showCenterField={decision.role === "ADMIN"} requirements={history} />
+      ) : null}
     </Shell>
   );
+}
+
+function dayQuery(value: string | undefined): string {
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+}
+
+function exportPageError(code: string | undefined): { confirmation: string | null; form: string | null } {
+  if (code === "confirmation") return { confirmation: CONFIRMATION_MISSING, form: null };
+  if (code === "requirement") {
+    return { confirmation: null, form: "A learner-level export needs an active funder requirement approved for this center." };
+  }
+  if (code === "dates") return { confirmation: null, form: "The export dates could not be read." };
+  if (code === "format") return { confirmation: null, form: "The export format could not be read." };
+  if (code === "denied") return { confirmation: null, form: "You cannot export this center's report." };
+  if (code === "failed") return { confirmation: null, form: "The export could not be created. Nothing was downloaded." };
+  return { confirmation: null, form: null };
 }
 
 function CenterPicker({

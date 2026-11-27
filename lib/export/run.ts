@@ -20,13 +20,16 @@ import { assertExportServer } from "./guard";
 import { loadExportFacts } from "./load";
 import { grantExportPdf } from "./pdf";
 import { canonicalReportId } from "./pseudonym";
+import { CONFIRMATION_MISSING } from "./offer";
 import { readExportSecret } from "./secret";
 import { EXPORT_DENIED, type BreakdownDimension, type ExportMode } from "./types";
 
 const RANGE_INVALID = "The export dates could not be read.";
 const CLOCK_INVALID = "The center clock could not be read.";
 const MIN_INVALID = "This center's small-group minimum cannot be used for an export.";
-const REQUIREMENT_MISSING = "A learner-level export needs an active funder requirement approved for this center.";
+export const REQUIREMENT_MISSING = "A learner-level export needs an active funder requirement approved for this center.";
+// A checkbox on the page can be removed in the browser. This check is what
+// stops a learner-level file. Aggregate remains available without it.
 
 export type ExportFormat = "csv" | "pdf";
 
@@ -51,6 +54,7 @@ export async function exportCenterCsv(input: {
   periodEnd: string;
   mode?: ExportMode;
   requirementId?: string;
+  learnerLevelConfirmed?: boolean;
 }): Promise<CenterExportResult> {
   const result = await exportCenterReport({ ...input, format: "csv" });
   if (!result.ok) return result;
@@ -69,6 +73,7 @@ export async function exportCenterReport(input: {
   periodEnd: string;
   mode?: ExportMode;
   requirementId?: string;
+  learnerLevelConfirmed?: boolean;
   format?: ExportFormat;
 }): Promise<CenterExportFile> {
   assertExportServer();
@@ -107,6 +112,9 @@ export async function exportCenterReport(input: {
         select: { enabled: true },
       });
       const genderEnabled = genderField?.enabled === true;
+      if (mode === "pseudonymized" && input.learnerLevelConfirmed !== true) {
+        return { ok: false, message: CONFIRMATION_MISSING };
+      }
       const requirement = mode === "pseudonymized" ? await activeRequirement(tx, centerId, input.requirementId) : null;
       if (mode === "pseudonymized" && !requirement) return { ok: false, message: REQUIREMENT_MISSING };
       const loaded = await loadExportFacts(tx, { centerId, timeZone: center.timezone, genderEnabled, now });
@@ -143,6 +151,7 @@ export async function exportCenterReport(input: {
         centerId,
         requirementReference: requirement?.requirementReference,
         crossReportLinkage: requirement ? requirement.crossReportLinkage : undefined,
+        learnerLevelConfirmed: mode === "pseudonymized" ? true : undefined,
       });
       return {
         ok: true,

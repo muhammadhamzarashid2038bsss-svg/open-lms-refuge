@@ -5,6 +5,7 @@
 
 import { Prisma } from "../../generated/prisma/client";
 import { isCurrentAssignment, reassignmentEndDate, utcDay } from "../auth/assignments";
+import { teacherChoiceLabel, type TeacherLabelSource } from "../lms/teacher-label";
 import { canReassignSection, canViewAuditLog, canViewHandoff, type Actor } from "../auth/permissions";
 import { prisma } from "../db";
 import { visibleAuditMetadata, writeAuditEvent, writeRecordViews } from "./audit";
@@ -26,7 +27,11 @@ type SkillName = "READING" | "WRITING" | "SPEAKING" | "NUMBER_SENSE" | "CUSTOM";
 
 export class HandoffError extends Error {}
 
-const BAD_INCOMING = "The selected teacher cannot take this section.";
+const BAD_INCOMING = "Choose an active teacher from this centre. The teacher who is leaving cannot be chosen.";
+const SAME_DAY_ASSIGNMENT =
+  "This teacher already has an assignment for that section today. They can be assigned to it again on the next UTC day.";
+const ALREADY_STAFFED = "This section already has a teacher. Use Manage section assignments to change who teaches it.";
+const BAD_SECTION_TEACHER = "Choose an active teacher from this section's centre.";
 const CLOCK = "The center clock could not be read, so the handoff was not created.";
 
 const SKILL_LABEL: Record<string, string> = {
@@ -95,6 +100,33 @@ function reasonLabel(reason: string): string {
 
 function personName(name: string | null | undefined): string {
   return name && name.trim().length > 0 ? name : "Account";
+}
+
+type ChoiceTeacher = {
+  id: string;
+  displayName: string | null;
+  email: string | null;
+  centerId: string;
+  center: { code: string };
+};
+
+function choiceTeachers(rows: ChoiceTeacher[], showCentre: boolean) {
+  const sources: TeacherLabelSource[] = rows.map((teacher) => ({
+    id: teacher.id,
+    displayName: teacher.displayName,
+    email: teacher.email,
+    centerCode: teacher.center.code,
+  }));
+  return rows.map((teacher) => ({
+    id: teacher.id,
+    centerId: teacher.centerId,
+    name: teacherChoiceLabel({
+      id: teacher.id,
+      displayName: teacher.displayName,
+      email: teacher.email,
+      centerCode: teacher.center.code,
+    }, sources, showCentre),
+  }));
 }
 
 function formatWhen(value: Date, timeZone: string): string {
@@ -333,18 +365,6 @@ async function writeReport(
       })
     : null;
   if (input.explicitIncomingId && !explicit) throw new HandoffError(BAD_INCOMING);
-  const staffing = await tx.sectionTeacher.findMany({
-    where: { sectionId: section.id },
-    select: {
-      teacherId: true,
-      startsOn: true,
-      endsOn: true,
-      teacher: { select: { active: true, role: true } },
-    },
-  });
-  const others = staffing
-    .filter((row) => row.teacherId !== input.outgoingTeacherId && row.teacher.active && row.teacher.role === "TEACHER" && isCurrentAssignment(row.startsOn, row.endsOn, input.now))
-    .map((row) => row.teacherId);
   const directors = await tx.user.findMany({
     where: { centerId, role: "CENTER_DIRECTOR", active: true },
     select: { id: true },
@@ -354,7 +374,12 @@ async function writeReport(
     outgoingTeacherId: input.outgoingTeacherId,
     sectionCenterId: centerId,
     explicitIncoming: explicit,
-    otherCurrentTeacherIds: others,
+    actingUser: {
+      id: actor.id,
+      active: actor.active,
+      role: actor.role,
+      centerId: actor.centerId,
+    },
     directorIds: directors.map((director) => director.id),
   });
   if (!choice.ok) throw new HandoffError(choice.message);
@@ -390,39 +415,118 @@ async function writeReport(
   return { id: report.id, profileCount };
 }
 
+/// Adds the named teacher only when they are not already teaching the section today.
+/// A switch-off marks the old row closed. That row is not current, but the
+/// database allows only one row for the same teacher, section, and start date.
+/// Trying again the same UTC day is refused here, before the database constraint
+/// can fail with an unexplained error. The next UTC day can start a new row.
+async function ensureOpenAssignment(tx: Tx, sectionId: string, teacherId: string, now: Date): Promise<void> {
+  const today = utcDay(now);
+  const existing = await tx.sectionTeacher.findMany({
+    where: { sectionId, teacherId },
+    select: { startsOn: true, endsOn: true, accessClosed: true },
+  });
+  const stillCurrent = existing.some((row) =>
+    isCurrentAssignment(row.startsOn, row.endsOn, now, row.accessClosed),
+  );
+  if (stillCurrent) return;
+  const startsToday = existing.some((row) => utcDay(row.startsOn).getTime() === today.getTime());
+  if (startsToday) throw new HandoffError(SAME_DAY_ASSIGNMENT);
+  await tx.sectionTeacher.create({
+    data: { sectionId, teacherId, startsOn: today, endsOn: null },
+  });
+}
+
+function sameDayAssignmentConflict(error: Prisma.PrismaClientKnownRequestError): boolean {
+  const target = error.meta?.target;
+  const text = Array.isArray(target) ? target.join(" ") : String(target ?? "");
+  return text.includes("startsOn");
+}
+
+export function handoffFailureMessage(error: unknown, fallback: string): string {
+  if (error instanceof HandoffError) return error.message;
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" && sameDayAssignmentConflict(error)) {
+    return SAME_DAY_ASSIGNMENT;
+  }
+  return fallback;
+}
+
 export async function createDeactivationHandoffs(
   tx: Tx,
   actor: Actor,
   teacherId: string,
   now: Date,
+  explicitIncomingId: string | null,
 ): Promise<number> {
   const teacher = await tx.user.findUnique({
     where: { id: teacherId },
     select: { id: true, centerId: true },
   });
   if (!teacher) throw new HandoffError("That teacher could not be prepared.");
+  // Check the named person before any report is written. A teacher from another
+  // centre, or a learner, must not receive the pack. An empty choice is allowed
+  // and is resolved when the report is written.
+  if (explicitIncomingId) {
+    if (!isUuid(explicitIncomingId)) throw new HandoffError(BAD_INCOMING);
+    const incoming = await tx.user.findUnique({
+      where: { id: explicitIncomingId },
+      select: { id: true, active: true, role: true, centerId: true },
+    });
+    const choice = chooseHandoffRecipient({
+      outgoingTeacherId: teacher.id,
+      sectionCenterId: teacher.centerId,
+      explicitIncoming: incoming,
+      actingUser: null,
+      directorIds: [],
+    });
+    if (!choice.ok) throw new HandoffError(choice.message);
+  }
   const rows = await tx.sectionTeacher.findMany({
     where: { teacherId: teacher.id },
     select: {
+      id: true,
       sectionId: true,
       startsOn: true,
       endsOn: true,
+      accessClosed: true,
       section: { select: { course: { select: { centerId: true } } } },
     },
   });
-  const sectionIds = [...new Set(
-    rows
-      .filter((row) => row.section.course.centerId === teacher.centerId && isCurrentAssignment(row.startsOn, row.endsOn, now))
-      .map((row) => row.sectionId),
-  )];
+  const currentRows = rows.filter(
+    (row) =>
+      row.section.course.centerId === teacher.centerId &&
+      isCurrentAssignment(row.startsOn, row.endsOn, now, row.accessClosed),
+  );
+  const sectionIds = [...new Set(currentRows.map((row) => row.sectionId))];
+  // Close every current row in this same transaction. The row stays, with its
+  // original start date, so the history of who taught the class is kept.
+  // accessClosed drops access immediately. A date alone cannot do that when
+  // the assignment started today: the end date cannot be earlier than the
+  // start, and an inclusive end date would stay current until UTC midnight.
+  // An ordinary section reassignment does not set this flag.
+  // Switching the account back on does not clear the flag or the end date.
+  const today = utcDay(now);
+  for (const row of currentRows) {
+    const endsOn = reassignmentEndDate(row.startsOn, now);
+    const ended = await tx.sectionTeacher.updateMany({
+      where: {
+        id: row.id,
+        OR: [{ endsOn: null }, { endsOn: { gte: today } }],
+      },
+      data: { endsOn, accessClosed: true },
+    });
+    if (ended.count !== 1) throw new HandoffError("That teacher's class assignment could not be ended. Nothing was changed.");
+  }
   const sourceKey = `deactivate:${teacher.id}:${now.toISOString()}`;
   for (const sectionId of sectionIds) {
+    // The named teacher can open the pack only while they teach the section.
+    if (explicitIncomingId) await ensureOpenAssignment(tx, sectionId, explicitIncomingId, now);
     await writeReport(tx, actor, {
       sectionId,
       outgoingTeacherId: teacher.id,
       reason: "TEACHER_DEACTIVATED",
       sourceKey,
-      explicitIncomingId: null,
+      explicitIncomingId,
       now,
     });
   }
@@ -448,9 +552,11 @@ export async function reassignSectionTeacher(
       }
       const openRows = await tx.sectionTeacher.findMany({
         where: { sectionId: section.id, teacherId: input.outgoingTeacherId },
-        select: { id: true, startsOn: true, endsOn: true },
+        select: { id: true, startsOn: true, endsOn: true, accessClosed: true },
       });
-      const current = openRows.filter((row) => isCurrentAssignment(row.startsOn, row.endsOn, now));
+      const current = openRows.filter((row) =>
+        isCurrentAssignment(row.startsOn, row.endsOn, now, row.accessClosed),
+      );
       if (current.length === 0) return { status: "unchanged" as const };
       if (current.length !== 1) {
         return { status: "invalid" as const, message: "This teacher has more than one open assignment on that section." };
@@ -461,6 +567,7 @@ export async function reassignSectionTeacher(
       const sourceKey = `assignment:${assignment.id}`;
       // A same-day end stays current until that UTC day is over, so a second
       // request still sees the assignment. The source key is what stops a second pack.
+      // This path must not set accessClosed. That flag is only for a switch-off.
       const packed = await tx.handoffReport.findFirst({
         where: { sectionId: section.id, reason: "SECTION_REASSIGNED", sourceKey },
         select: { id: true },
@@ -476,7 +583,7 @@ export async function reassignSectionTeacher(
           outgoingTeacherId: input.outgoingTeacherId,
           sectionCenterId: section.course.centerId,
           explicitIncoming: incoming,
-          otherCurrentTeacherIds: [],
+          actingUser: null,
           directorIds: [],
         });
         if (!choice.ok) return { status: "invalid" as const, message: choice.message };
@@ -489,24 +596,7 @@ export async function reassignSectionTeacher(
         data: { endsOn },
       });
       if (ended.count !== 1) return { status: "unchanged" as const };
-      if (input.incomingTeacherId) {
-        const existing = await tx.sectionTeacher.findMany({
-          where: { sectionId: section.id, teacherId: input.incomingTeacherId },
-          select: { startsOn: true, endsOn: true },
-        });
-        const stillCurrent = existing.some((row) => isCurrentAssignment(row.startsOn, row.endsOn, now));
-        const startsToday = existing.some((row) => utcDay(row.startsOn).getTime() === today.getTime());
-        if (!stillCurrent && !startsToday) {
-          await tx.sectionTeacher.create({
-            data: {
-              sectionId: section.id,
-              teacherId: input.incomingTeacherId,
-              startsOn: today,
-              endsOn: null,
-            },
-          });
-        }
-      }
+      if (input.incomingTeacherId) await ensureOpenAssignment(tx, section.id, input.incomingTeacherId, now);
       const report = await writeReport(tx, actor, {
         sectionId: section.id,
         outgoingTeacherId: input.outgoingTeacherId,
@@ -522,14 +612,19 @@ export async function reassignSectionTeacher(
       };
     }, { timeout: 20000 });
   } catch (error) {
-    if (error instanceof HandoffError) return { status: "invalid", message: error.message };
-    return { status: "invalid", message: "The section assignment could not be changed. Nothing was changed." };
+    return {
+      status: "invalid",
+      message: handoffFailureMessage(error, "The section assignment could not be changed. Nothing was changed."),
+    };
   }
 }
 
-export async function listReassignmentChoices(actor: Actor): Promise<{
-  sections: { id: string; label: string; teachers: { id: string; name: string }[] }[];
-  teachers: { id: string; name: string }[];
+/// A section with no current active teacher can receive a new one. This does not
+/// reopen a closed row and does not build another handoff. A class left empty
+/// when a volunteer is switched off still needs someone who can take attendance.
+export async function listUnstaffedSections(actor: Actor): Promise<{
+  sections: { id: string; label: string; courseTitle: string; sectionName: string; centerId: string; centerCode: string }[];
+  teachers: { id: string; name: string; centerId: string }[];
 } | null> {
   if (!actor.active || (actor.role !== "ADMIN" && actor.role !== "CENTER_DIRECTOR")) return null;
   const now = new Date();
@@ -538,24 +633,33 @@ export async function listReassignmentChoices(actor: Actor): Promise<{
     select: {
       id: true,
       name: true,
-      course: { select: { title: true } },
+      course: { select: { title: true, centerId: true, center: { select: { code: true } } } },
       teachers: {
         select: {
-          teacherId: true,
           startsOn: true,
           endsOn: true,
-          teacher: { select: { displayName: true, active: true, role: true } },
+          accessClosed: true,
+          teacher: { select: { active: true, role: true } },
         },
       },
     },
     orderBy: [{ course: { title: "asc" } }, { name: "asc" }],
   });
-  const choices = sections.flatMap((section) => {
-    const teachers = section.teachers
-      .filter((row) => row.teacher.active && row.teacher.role === "TEACHER" && isCurrentAssignment(row.startsOn, row.endsOn, now))
-      .map((row) => ({ id: row.teacherId, name: personName(row.teacher.displayName) }));
-    if (teachers.length === 0) return [];
-    return [{ id: section.id, label: `${section.course.title} · ${section.name}`, teachers }];
+  const unstaffed = sections.flatMap((section) => {
+    const staffed = section.teachers.some((row) =>
+      row.teacher.active &&
+      row.teacher.role === "TEACHER" &&
+      isCurrentAssignment(row.startsOn, row.endsOn, now, row.accessClosed),
+    );
+    if (staffed) return [];
+    return [{
+      id: section.id,
+      label: `${section.course.title} · ${section.name}`,
+      courseTitle: section.course.title,
+      sectionName: section.name,
+      centerId: section.course.centerId,
+      centerCode: section.course.center.code,
+    }];
   });
   const teachers = await prisma.user.findMany({
     where: {
@@ -563,13 +667,162 @@ export async function listReassignmentChoices(actor: Actor): Promise<{
       active: true,
       ...(actor.role === "CENTER_DIRECTOR" ? { centerId: actor.centerId } : {}),
     },
-    select: { id: true, displayName: true },
+    select: { id: true, displayName: true, email: true, centerId: true, center: { select: { code: true } } },
     orderBy: { displayName: "asc" },
   });
   return {
-    sections: choices,
-    teachers: teachers.map((teacher) => ({ id: teacher.id, name: personName(teacher.displayName) })),
+    sections: unstaffed,
+    teachers: choiceTeachers(teachers, actor.role === "ADMIN"),
   };
+}
+
+export async function assignTeacherToUnstaffedSection(
+  actor: Actor,
+  input: { sectionId: string; teacherId: string; now?: Date },
+): Promise<{ status: "saved" } | { status: "hidden" } | { status: "invalid"; message: string }> {
+  if (!actor.active || !isUuid(input.sectionId)) return { status: "hidden" };
+  if (!isUuid(input.teacherId)) return { status: "invalid", message: BAD_SECTION_TEACHER };
+  const now = input.now ?? new Date();
+  const today = utcDay(now);
+  try {
+    return await prisma.$transaction(async (tx) => {
+      // Two directors can submit at the same moment. Locking the section makes
+      // the second request see the teacher the first request just added.
+      await tx.$queryRaw`SELECT id FROM "sections" WHERE id = ${input.sectionId}::uuid FOR UPDATE`;
+      const section = await tx.section.findUnique({
+        where: { id: input.sectionId },
+        select: { id: true, course: { select: { centerId: true } } },
+      });
+      if (!section || !canReassignSection(actor, { id: section.id, centerId: section.course.centerId })) {
+        return { status: "hidden" as const };
+      }
+      const rows = await tx.sectionTeacher.findMany({
+        where: { sectionId: section.id },
+        select: {
+          teacherId: true,
+          startsOn: true,
+          endsOn: true,
+          accessClosed: true,
+          teacher: { select: { active: true, role: true } },
+        },
+      });
+      const staffed = rows.some((row) =>
+        row.teacher.active &&
+        row.teacher.role === "TEACHER" &&
+        isCurrentAssignment(row.startsOn, row.endsOn, now, row.accessClosed),
+      );
+      if (staffed) return { status: "invalid" as const, message: ALREADY_STAFFED };
+      const teacher = await tx.user.findUnique({
+        where: { id: input.teacherId },
+        select: { id: true, active: true, role: true, centerId: true },
+      });
+      if (!teacher || !teacher.active || teacher.role !== "TEACHER" || teacher.centerId !== section.course.centerId) {
+        return { status: "invalid" as const, message: BAD_SECTION_TEACHER };
+      }
+      // A closed row that already starts today occupies the unique start date.
+      // Leave that row alone. The same teacher can start again on the next UTC day.
+      const startsToday = rows.some((row) =>
+        row.teacherId === teacher.id && utcDay(row.startsOn).getTime() === today.getTime(),
+      );
+      if (startsToday) return { status: "invalid" as const, message: SAME_DAY_ASSIGNMENT };
+      await tx.sectionTeacher.create({
+        data: { sectionId: section.id, teacherId: teacher.id, startsOn: today, endsOn: null },
+      });
+      await writeAuditEvent(tx, {
+        actor,
+        action: "CREATE",
+        entityType: "USER",
+        entityId: teacher.id,
+        centerId: section.course.centerId,
+        metadata: { source: "section-assignment", sectionId: section.id },
+      });
+      return { status: "saved" as const };
+    }, { timeout: 20000 });
+  } catch (error) {
+    return {
+      status: "invalid",
+      message: handoffFailureMessage(error, "The teacher could not be assigned to that section. Nothing was changed."),
+    };
+  }
+}
+
+export async function listReassignmentChoices(actor: Actor): Promise<{
+  sections: {
+    id: string;
+    label: string;
+    courseTitle: string;
+    sectionName: string;
+    centerId: string;
+    centerCode: string;
+    teachers: { id: string; name: string }[];
+  }[];
+  teachers: { id: string; name: string; centerId: string }[];
+} | null> {
+  if (!actor.active || (actor.role !== "ADMIN" && actor.role !== "CENTER_DIRECTOR")) return null;
+  const now = new Date();
+  const sections = await prisma.section.findMany({
+    where: actor.role === "ADMIN" ? {} : { course: { centerId: actor.centerId } },
+    select: {
+      id: true,
+      name: true,
+      course: { select: { title: true, centerId: true, center: { select: { code: true } } } },
+      teachers: {
+        select: {
+          teacherId: true,
+          startsOn: true,
+          endsOn: true,
+          accessClosed: true,
+          teacher: { select: { displayName: true, email: true, active: true, role: true } },
+        },
+      },
+    },
+    orderBy: [{ course: { title: "asc" } }, { name: "asc" }],
+  });
+  const teachers = await prisma.user.findMany({
+    where: {
+      role: "TEACHER",
+      active: true,
+      ...(actor.role === "CENTER_DIRECTOR" ? { centerId: actor.centerId } : {}),
+    },
+    select: { id: true, displayName: true, email: true, centerId: true, center: { select: { code: true } } },
+    orderBy: { displayName: "asc" },
+  });
+  const showCentre = actor.role === "ADMIN";
+  const labeled = choiceTeachers(teachers, showCentre);
+  const nameById = new Map(labeled.map((teacher) => [teacher.id, teacher.name]));
+  const choices = sections.flatMap((section) => {
+    const current = section.teachers.filter((row) =>
+      row.teacher.active &&
+      row.teacher.role === "TEACHER" &&
+      isCurrentAssignment(row.startsOn, row.endsOn, now, row.accessClosed),
+    );
+    if (current.length === 0) return [];
+    return [{
+      id: section.id,
+      label: `${section.course.title} · ${section.name}`,
+      courseTitle: section.course.title,
+      sectionName: section.name,
+      centerId: section.course.centerId,
+      centerCode: section.course.center.code,
+      // The same label is used in the account list, so a shared display name
+      // stays recognisable when the director switches someone off.
+      teachers: current.map((row) => ({
+        id: row.teacherId,
+        name: nameById.get(row.teacherId) ?? teacherChoiceLabel({
+          id: row.teacherId,
+          displayName: row.teacher.displayName,
+          email: row.teacher.email,
+          centerCode: section.course.center.code,
+        }, [{
+          id: row.teacherId,
+          displayName: row.teacher.displayName,
+          email: row.teacher.email,
+          centerCode: section.course.center.code,
+        }], showCentre),
+      })),
+    }];
+  });
+  return { sections: choices, teachers: labeled };
 }
 
 export async function listHandoffReports(actor: Actor): Promise<HandoffListItem[] | null> {

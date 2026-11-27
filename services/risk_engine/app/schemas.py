@@ -19,7 +19,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # A code such as LNR-0014. The hyphen and the digit make a plain personal name
-# fail validation. This is an anonymous code, not a display name.
+# fail validation. This is the centre's learner code, not a display name.
+# The centre can match it to a person. It is pseudonymous, not anonymous.
 LEARNER_CODE = re.compile(r"^[A-Z]{2,12}-[A-Z0-9]{2,16}$")
 # Immutable ids used only to order rows that share a date. Not a person's name.
 OBJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
@@ -218,10 +219,10 @@ class ScoreRequest(BaseModel):
 
     @field_validator("learner_code")
     @classmethod
-    def anonymous_code(cls, value: str) -> str:
+    def learner_code_shape(cls, value: str) -> str:
         if not LEARNER_CODE.fullmatch(value) or not any(character.isdigit() for character in value):
             raise ValueError(
-                "Use an anonymous learner code such as LNR-0014. Do not send a name."
+                "Use a learner code such as LNR-0014. Do not send a name."
             )
         return value
 

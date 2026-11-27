@@ -2,11 +2,24 @@
 
 This is a small Python service that calculates a supportive check-in score. It is separate from the Next.js learning app. It does not read the database, and it does not store flags.
 
-It accepts the centre's learner code and numbers only. That code is not anonymous: the centre can match it to the learner. It refuses names, contact details, and notes. Read `docs/RISK_MODEL.md` in the project root for the formulas and the limits of the score.
+It accepts the centre's learner code and numbers only. That code is pseudonymous, not anonymous: the centre can match it to the learner. It refuses names, contact details, and notes. Read `docs/RISK_MODEL.md` in the project root for the formulas and the limits of the score.
 
-The weights are starting estimates. A person decides whether to check in. Do not put this service on the public internet.
+The weights are starting estimates. A person decides whether to check in.
 
-The Next.js server calls `POST /score`. A browser does not. Set `RISK_SERVICE_API_KEY` to the same long random string used in the repository `.env`. The scoring endpoint refuses a missing or wrong key. `GET /health` stays open and returns no learner data. Bind this process to `127.0.0.1`. There is no CORS permission.
+The Next.js server calls `POST /score`. A browser does not.
+Set `RISK_SERVICE_API_KEY` to the same long random string used in the repository `.env`.
+The example value in `.env.example` is rejected, and the process does not start while that value is the key.
+The scoring endpoint refuses a missing or wrong key.
+`GET /health` stays open and returns only `{"status": "ok"}`.
+`/docs`, `/redoc`, and `/openapi.json` are turned off in the program, including on this computer.
+There is no CORS permission.
+
+On this computer, bind the process to `127.0.0.1`.
+A synthetic demo may instead be reached over HTTPS.
+That public copy is only for synthetic learner data.
+Do not send a real learner code or a real attendance record to it.
+A later pilot that uses real learner data needs a different deployment and a different API key, or a private arrangement.
+This repository has not created either deployment, and it does not record a legal approval.
 
 A center may send `thresholds.watch` and `thresholds.high` on the request. The service checks those numbers. They change the Watch and High labels only. The weights stay in `config.toml`.
 
@@ -50,14 +63,39 @@ If that variable is already set in the shell, the command above is not needed. W
 
 The samples below also need the header `X-Risk-Service-Key`. Without it, `POST /score` returns 401.
 
-Then open:
+Health check: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 
-- Health check: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
-- Interactive documentation: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+`/docs`, `/redoc`, and `/openapi.json` answer 404. Use the sample commands below instead of an interactive page. The samples are synthetic. They are not real learners.
 
-In the documentation page, open `POST /score`, choose **Try it out**, and paste one of the sample files below. The samples are synthetic. They are not real learners.
+Stop the local service with Ctrl+C in the same PowerShell window.
 
-Stop the service with Ctrl+C in the same PowerShell window.
+## Synthetic demo on Render
+
+This describes a future host.
+Nothing in this repository has been deployed to Render.
+
+Set the service root to `services/risk_engine`, so Python can import `app.main`.
+Install the pinned packages from `requirements.txt` in that folder before the process starts.
+Render assigns `$PORT`.
+The process must listen on `0.0.0.0` and that port.
+Do not bind the Render process to `127.0.0.1`.
+
+Start command:
+
+```bash
+python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+Health check path: `/health`
+
+`/docs`, `/redoc`, and `/openapi.json` stay disabled.
+Generate a new `RISK_SERVICE_API_KEY` for this host.
+Do not use the example in `.env.example`.
+The Next.js app sets `RISK_SERVICE_URL` to the Render `https` address and sets `RISK_SERVICE_API_KEY` to the same secret.
+The Next.js server refuses a non-local address that is not HTTPS.
+The public demo must send only synthetic learner data.
+A real-data pilot needs its own deployment and its own API key, or a private arrangement.
+Do not reuse the synthetic-demo key for real learner records.
 
 ## Sample: five unexcused absences
 

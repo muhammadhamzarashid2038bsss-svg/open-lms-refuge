@@ -58,13 +58,13 @@ The learner code is not anonymous. The centre can match it back to the learner. 
 
 ## Homework files
 
-Homework files are uploaded to Cloudflare R2 only when the centre has configured that private storage. The file itself may contain personal information. If storage is not configured, the file stays on the phone and the app says storage is unavailable.
+Homework files are uploaded to a private Backblaze B2 bucket only when the centre has configured that storage. The file itself may contain personal information. If storage is not configured, the file stays on the phone and the app says storage is unavailable.
 
 ## Reports
 
 A director or administrator can download a CSV or PDF. The usual report contains counts for the centre, not a list of names. Counts smaller than the centre's minimum, usually 5, are shown as `<5`.
 
-A second kind of report can list learners as codes called pseudonyms. That report is still sensitive. It is not anonymous. It is available only when a funder requirement is already stored. This version has no screen for creating that requirement, and it does not send reports to a funder by itself.
+A second kind of report can list learners as codes called pseudonyms. That report is still sensitive. It is not anonymous. It is available only when a funder requirement is already stored. A director records that requirement on the Export page. The report is not sent to a funder by itself.
 
 ## Known limits
 
@@ -91,7 +91,7 @@ How can a participant stop taking part? [Centre to explain the process and what 
 
 Risk-scoring service: [ ] Enabled [ ] Not enabled [ ] Not available
 
-Cloudflare R2 homework storage: [ ] Enabled [ ] Not enabled [ ] Not available
+Backblaze B2 homework storage: [ ] Enabled [ ] Not enabled [ ] Not available
 
 Hosting provider and server location: [Centre to complete after hosting is selected]
 

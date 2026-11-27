@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { getActor } from "@/lib/auth/actor";
-import { resetPasswordByEmail, resetPinByCode, setAccountActive } from "@/lib/auth/accounts";
+import { handoffSwitchOffMessage, resetPasswordByEmail, resetPinByCode, setAccountActive } from "@/lib/auth/accounts";
 
 export type FormState = { error?: string; message?: string };
 
@@ -28,7 +28,7 @@ export async function resetPinAction(_prev: FormState, formData: FormData): Prom
   }
   if (result.status === "invalid") return { error: result.message };
   return {
-    message: "The new PIN is saved. Tell the learner in person. Leave this page when you have done that.",
+    message: "The new PIN is saved. That learner is signed out of other devices. Tell them the new PIN in person. Leave this page when you have done that.",
   };
 }
 
@@ -47,10 +47,11 @@ export async function setActiveAction(formData: FormData): Promise<void> {
   const actor = await actorOrRedirect();
   const home = actor.role === "ADMIN" ? "/admin" : "/director";
   const active = String(formData.get("active") ?? "") === "true";
-  const result = await setAccountActive(actor, String(formData.get("userId") ?? ""), active);
+  const incomingRaw = String(formData.get("incomingTeacherId") ?? "");
+  const result = await setAccountActive(actor, String(formData.get("userId") ?? ""), active, incomingRaw);
   if (result.status === "invalid") redirect(`${home}?notice=${encodeURIComponent(result.message)}`);
   if (result.status === "saved" && !active) {
-    redirect(`${home}?notice=${encodeURIComponent("The account is switched off. A teacher handoff is prepared once for each section they still taught.")}`);
+    redirect(`${home}?notice=${encodeURIComponent(handoffSwitchOffMessage(result.handoff))}`);
   }
   redirect(home);
 }

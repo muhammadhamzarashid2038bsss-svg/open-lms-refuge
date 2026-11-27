@@ -1,6 +1,6 @@
 # Architecture
 
-This page describes the system that is built on `main` at the start of Day 18 (commit `0d2acd0`, 2026-11-16). It was checked against the Prisma schema, the phone storage code, the sync and export modules, and the tests named under each diagram.
+This page describes the system that is built on `main` at the start of Day 18 (commit `0d2acd0`, 2026-11-16). It was checked against the Prisma schema, the phone storage code, the sync and export modules, and the tests named under each diagram. The private-file notes below were updated on 27 November 2026, after Backblaze B2 was connected. The rest of this page is still that Day 18 picture.
 
 A feature that appears in `docs/PRD.md` is included here only when the code does it. Planned work is named as planned. The table guide in `docs/DATABASE.md` still explains each table. The three diagrams on that page are a subset. This page is the full picture.
 
@@ -13,13 +13,13 @@ IndexedDB is the browser database used for structured rows and file bytes. A ver
 - Version-vector comparison for grades and progress notes, with human conflict resolution and an audit row.
 - A server-side grant export with a field whitelist, HMAC pseudonyms, small-group suppression, CSV, and PDF.
 - PostgreSQL tables from `prisma/schema.prisma`, including append-only attendance.
+- Private Backblaze B2 storage for homework files and for course PDFs and MP3s. Homework objects use the name `submissions/` plus an id. Course files use `course-resources/` plus an id. The bucket stays private. The server checks size, type, and SHA-256 before a homework file is marked stored or a course file is listed. Homework upload links last 10 minutes. Course PDF and MP3 upload links last 60 minutes. Download links last 2 minutes for both. If the five storage settings are missing or invalid, the app says file storage is unavailable. A course PDF upload and a learner download were checked by hand. Automated tests use a stand-in store, so not every storage case has been run against the live bucket. The settings are named in `docs/STORAGE.md`.
 
 ## What is not implemented
 
 - Quiz answers. The requirements list them as Phase 2. There is no quiz model and no quiz sync.
 - A phone workflow for lesson completion. The `LessonProgress` table and the `LESSON_PROGRESS` sync label exist. Seed data writes rows, and handoff reports can read them. No application path saves lesson progress from a phone.
-- A screen for creating, editing, or turning off a `FunderRequirement`. The table, the server function `approveFunderRequirement`, and the export check for an active row exist. The Export page can only choose a row that is already stored. `docs/future-improvements.md` records the missing screen.
-- A live Cloudflare R2 bucket. The file queue and the server checks are built. `docs/STORAGE.md` says the bucket has not been created. If the storage settings are empty, the app reports that file storage is unavailable.
+- Editing the wording of a saved funder requirement. The Export page can record a new requirement and turn one off. It does not collect a funder name, and it does not change the explanation after the row is saved.
 - Encryption of IndexedDB or localStorage. The storage comments say the rows are readable in the browser's storage tools.
 
 ## Diagram 1 — Local storage and account isolation
@@ -231,7 +231,7 @@ Checked by `tests/version-vector.test.ts`, `tests/sync-records.test.ts`, `tests/
 
 ## Diagram 4 — HMAC pseudonyms and small-group suppression
 
-A donor file is built on the server from PostgreSQL. The caller sends a date range, a format, and, for a learner-level file, the id of a saved funder requirement. The caller does not send learner facts, the suppression minimum, or a report id. The server creates a new report id for every download.
+A donor file is built on the server from PostgreSQL. The caller sends a date range, a format, and, for a learner-level file, the id of a saved funder requirement plus an explicit confirmation. The caller does not send learner facts, the suppression minimum, or a report id. The server creates a new report id for every download. A missing confirmation does not produce a file. The Export page form is sent back to the page with an error code, so the browser does not show the JSON refusal.
 
 An aggregate file has totals and no learner rows. A pseudonymized file uses those same totals and adds one row per learner in a large enough group. That learner row contains only a pseudonym. Both files also carry the report header and the suppressed aggregate figures: registered learners, the retention cohort, retained learners, the retention rate, attendance learners, confirmed sessions, recorded sessions, the attendance rate, coverage, assignment learners, completed assignments, expected assignments, the assignment rate, and separate age-band and gender counts. Those figures are not copied onto the learner row. Pseudonymized does not mean anonymous. Someone who knows a learner code and the secret can check a guess. The secret stays in `EXPORT_SECRET` on the server.
 
@@ -248,7 +248,9 @@ flowchart TD
   facts --> totals["Calculate the same totals for both modes"]
   totals --> mode{"mode"}
   mode -->|"aggregate, the default"| emptyList["Learner list stays empty"]
-  mode -->|"pseudonymized"| funder{"Active FunderRequirement already saved for this center?"}
+  mode -->|"pseudonymized"| confirm{"Caller confirmed the file is still sensitive?"}
+  confirm -->|"No"| denied
+  confirm -->|"Yes"| funder{"Active FunderRequirement already saved for this center?"}
   funder -->|"No"| denied
   funder -->|"Yes"| scope{"That row says cross-report linkage?"}
   scope -->|"No"| reportScope["HMAC input uses the new report id"]
@@ -281,7 +283,7 @@ The HMAC message is four fields joined by a NUL byte: `olr-export-v1`, the scope
 
 `EXPORT_SECRET` must be 64 lowercase hexadecimal characters, the shape produced by `crypto.randomBytes(32).toString("hex")`. The placeholder in `.env.example` is rejected. The shape check does not prove the key was random. The key is never written into the file. `lib/export/guard.ts` imports `server-only`, so a client component fails to compile if it imports the export folder.
 
-The funder reason text stays on `FunderRequirement`. The audit row stores the short requirement reference and the linkage flag. It does not store the reason text or a learner code. There is no screen for creating, editing, or turning off that row. `approveFunderRequirement` is a server function. The Export page lists an active row that already exists and says that adding or changing a requirement is not available there. `docs/future-improvements.md` records the missing screen.
+The funder reason text stays on `FunderRequirement`. The audit row stores the short requirement reference, the linkage flag, and, for a learner-level file, that the confirmation was given. It does not store the reason text, the warning sentence, or a learner code. The Export page can record a requirement and turn it off. The form asks for the explanation and an optional short reference. It does not ask for a funder name. The existing name column is filled with "Not recorded". Turning a requirement off blocks the next learner-level download. Each download still needs its own confirmation.
 
 The whitelist in `lib/export/whitelist.ts` accepts a learner object only when its single key is `pseudonym` and the value matches `ps_` plus 64 hexadecimal characters. CSV and PDF are two projections of that one report object, through `grantExportRows`. When one demographic breakdown is entirely numeric, the PDF also draws a bar chart of those group sizes. The chart does not add a per-learner indicator.
 

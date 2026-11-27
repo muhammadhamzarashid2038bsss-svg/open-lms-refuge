@@ -154,6 +154,26 @@ describe("LMS-1 course manager", () => {
     await assertConnectedTestDatabase();
     await prisma.resource.delete({ where: { id: created.resourceId } });
   });
+
+  it("refuses a link for a section the teacher is not assigned to and does not save it", async () => {
+    const teacherOne = await actorByEmail("teacher.one@demo.invalid");
+    const afternoon = await prisma.section.findFirstOrThrow({
+      where: { name: "Afternoon Group", courseId },
+      select: { id: true },
+    });
+    const title = "Temp unassigned section link";
+    const before = await prisma.resource.count({ where: { title, courseId } });
+    const refused = await createResource(teacherOne, {
+      courseId,
+      sectionId: afternoon.id,
+      title,
+      resourceType: "WEB_LINK",
+      externalUrl: "https://example.com/temp-unassigned",
+    });
+    expect(refused.ok).toBe(false);
+    if (refused.ok) await prisma.resource.delete({ where: { id: refused.resourceId } });
+    expect(await prisma.resource.count({ where: { title, courseId } })).toBe(before);
+  });
 });
 
 describe("course creation without a first section", () => {
