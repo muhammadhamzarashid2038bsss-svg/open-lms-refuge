@@ -9,6 +9,7 @@ import {
   canManageCourse,
   canManageResource,
   canManageTimetable,
+  sectionsForMaterialUpload,
   canRecordAttendance,
   canReadContact,
   canReadLearner,
@@ -162,7 +163,19 @@ describe("role permission matrix", () => {
     expect(canManageCourse(morningTeacher, centerA)).toBe(true);
     expect(canManageCourse(student, centerA)).toBe(false);
     expect(canManageResource(morningTeacher, morningFile)).toBe(true);
+    expect(canManageResource(morningTeacher, courseWide)).toBe(true);
     expect(canManageResource(afternoonTeacher, morningFile)).toBe(false);
+    const courseSections = [
+      { id: "morning", name: "Morning Group" },
+      { id: "evening", name: "Evening Group" },
+    ];
+    expect(sectionsForMaterialUpload(morningTeacher, courseSections).map((section) => section.name)).toEqual(["Morning Group"]);
+    expect(sectionsForMaterialUpload(director, courseSections).map((section) => section.name)).toEqual([
+      "Morning Group",
+      "Evening Group",
+    ]);
+    expect(sectionsForMaterialUpload(student, courseSections)).toEqual([]);
+    expect(sectionsForMaterialUpload(switchedOff, courseSections)).toEqual([]);
     expect(canManageResource(student, courseWide)).toBe(false);
     expect(canManageResource(director, morningFile)).toBe(true);
     expect(canManageTimetable(morningTeacher, morning)).toBe(true);

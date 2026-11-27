@@ -1,26 +1,12 @@
 import { getActor } from "@/lib/auth/actor";
-import { readResourceForDownload } from "@/lib/data/courses";
-import { downloadFilename, syntheticFileBytes } from "@/lib/storage/synthetic-file";
+import { courseResourceDownloadResponse, liveCourseFileDeps } from "@/lib/data/course-files";
+import { readResourceObject } from "@/lib/data/courses";
 
+// Demo rows still use filler bytes because their keys are not objects in the
+// private bucket. A course-resources key is a real file and is opened with a
+// two-minute link. The page address stays /api/resources/{id}/download.
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
-  const actor = await getActor();
-  if (!actor) {
-    return Response.json({ error: "Sign in required." }, { status: 401, headers: { "cache-control": "no-store" } });
-  }
   const { id } = await context.params;
-  const file = await readResourceForDownload(actor, id);
-  if (!file) {
-    return Response.json({ error: "Not found." }, { status: 404, headers: { "cache-control": "no-store" } });
-  }
-
-  const bytes = syntheticFileBytes(file.checksumSha256, file.byteSize);
-  const filename = downloadFilename(file.title, file.mimeType);
-  return new Response(Buffer.from(bytes), {
-    status: 200,
-    headers: {
-      "cache-control": "no-store",
-      "content-type": file.mimeType ?? "application/octet-stream",
-      "content-disposition": `attachment; filename="${filename}"`,
-    },
-  });
+  const deps = liveCourseFileDeps();
+  return courseResourceDownloadResponse(await getActor(), id, { storage: deps.storage, load: readResourceObject });
 }

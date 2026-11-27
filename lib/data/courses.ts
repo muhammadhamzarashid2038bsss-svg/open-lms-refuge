@@ -1,4 +1,4 @@
-import type { ResourceType, Semester } from "../../generated/prisma/client";
+import { Prisma, type ResourceType, type Semester } from "../../generated/prisma/client";
 import { prisma } from "../db";
 import {
   canManageCourse,
@@ -8,7 +8,20 @@ import {
   type Actor,
 } from "../auth/permissions";
 import { countDownloadableResources, validateResourcePayload, type ResourceTypeName } from "../lms/resources";
+import { formatShortDate, localDateOfInstant } from "../lms/timetable";
+import { isCourseResourceKey } from "../storage/course-file-rules";
+import { storageFromEnv } from "../storage/s3";
+import type { StorageAdapter } from "../storage/types";
 import type { ResourceView } from "./records";
+
+// Shown on the course page when Remove is refused. A class session stores
+// linkedResourceId with ON DELETE RESTRICT, so the database will not remove
+// the material while a timetable still points at it. Teachers unlink it from
+// Weekly timetable → Change this class → Lesson or audio.
+export const RESOURCE_IN_USE_MESSAGE =
+  "This material is currently linked to one or more timetable sessions. Remove or replace those timetable links before deleting it.";
+
+const FILE_REMOVE_FAILED = "The file could not be removed. Try again.";
 
 type Db = typeof prisma;
 
@@ -289,6 +302,11 @@ export async function createResource(
   input: CreateResourceInput,
   db: Db = prisma,
 ): Promise<{ ok: true; resourceId: string } | { ok: false; message: string }> {
+  // A PDF or MP3 becomes a resource only after the stored object is checked.
+  // This path is for links and reading lists. A typed storage key is not accepted.
+  if (input.resourceType === "PDF" || input.resourceType === "AUDIO") {
+    return { ok: false, message: "Add a PDF or MP3 with the file control. A storage key cannot be typed in." };
+  }
   const course = await db.course.findFirst({
     where: { id: input.courseId, centerId: actor.centerId },
     select: { id: true, centerId: true, sections: { select: { id: true } } },
@@ -326,7 +344,6 @@ export async function createResource(
   if (!payloadCheck.ok) return { ok: false, message: payloadCheck.message };
 
   const linkTypes = new Set(["TEXTBOOK_LINK", "VIDEO_LINK", "WEB_LINK"]);
-  const fileTypes = new Set(["PDF", "AUDIO"]);
 
   const resource = await db.$transaction(async (tx) => {
     return tx.resource.create({
@@ -338,10 +355,10 @@ export async function createResource(
         resourceType: input.resourceType as ResourceType,
         externalUrl: linkTypes.has(input.resourceType) ? input.externalUrl!.trim() : null,
         bodyText: input.resourceType === "TEXT" ? input.bodyText!.trim() : null,
-        storageKey: fileTypes.has(input.resourceType) ? input.storageKey!.trim() : null,
-        mimeType: fileTypes.has(input.resourceType) ? input.mimeType!.trim() : null,
-        byteSize: fileTypes.has(input.resourceType) ? input.byteSize! : null,
-        checksumSha256: fileTypes.has(input.resourceType) ? input.checksumSha256!.trim() : null,
+        storageKey: null,
+        mimeType: null,
+        byteSize: null,
+        checksumSha256: null,
       },
     });
   });
@@ -349,20 +366,68 @@ export async function createResource(
   return { ok: true, resourceId: resource.id };
 }
 
+type DeleteFailure = { ok: false; message: string; reason: "missing" | "linked" | "storage" };
+
+type LinkedClass = {
+  title: string;
+  startsAt: Date;
+  sectionName: string;
+  timeZone: string;
+};
+
+function linkedClassLabel(session: LinkedClass): string {
+  const day = localDateOfInstant(session.startsAt, session.timeZone);
+  const date = day ? formatShortDate(day) : session.startsAt.toISOString().slice(0, 10);
+  return `${session.sectionName}: ${session.title} (${date})`;
+}
+
+function linkedMessage(sessions: LinkedClass[]): string {
+  const shown = sessions.slice(0, 5).map(linkedClassLabel);
+  const extra = sessions.length > shown.length ? `, and ${sessions.length - shown.length} more` : "";
+  return `${RESOURCE_IN_USE_MESSAGE} Linked classes: ${shown.join("; ")}${extra}.`;
+}
+
+async function classesUsingResource(db: Db, resourceId: string): Promise<LinkedClass[]> {
+  const rows = await db.classSession.findMany({
+    where: { linkedResourceId: resourceId },
+    orderBy: { startsAt: "asc" },
+    select: {
+      title: true,
+      startsAt: true,
+      section: {
+        select: {
+          name: true,
+          course: { select: { center: { select: { timezone: true } } } },
+        },
+      },
+    },
+  });
+  return rows.map((row) => ({
+    title: row.title,
+    startsAt: row.startsAt,
+    sectionName: row.section.name,
+    timeZone: row.section.course.center.timezone,
+  }));
+}
+
 export async function deleteResource(
   actor: Actor,
   resourceId: string,
   db: Db = prisma,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+  // Undefined uses the configured bucket. Tests pass a stand-in so they never
+  // call Backblaze. Null means storage is unavailable.
+  storage: Pick<StorageAdapter, "delete"> | null | undefined = undefined,
+): Promise<{ ok: true } | DeleteFailure> {
   const row = await db.resource.findFirst({
     where: { id: resourceId, course: { centerId: actor.centerId } },
     select: {
       id: true,
+      storageKey: true,
       course: { select: { centerId: true, sections: { select: { id: true } } } },
       sectionId: true,
     },
   });
-  if (!row) return { ok: false, message: "Resource not found." };
+  if (!row) return { ok: false, reason: "missing", message: "Resource not found." };
 
   const courseSectionIds = row.course.sections.map((section) => section.id);
   if (
@@ -373,14 +438,49 @@ export async function deleteResource(
       courseSectionIds,
     })
   ) {
-    return { ok: false, message: "Resource not found." };
+    return { ok: false, reason: "missing", message: "Resource not found." };
   }
 
-  await db.resource.delete({ where: { id: row.id } });
+  // Check the timetable before touching the bucket. Deleting the file first
+  // would leave the course row in place when the database refuses the delete,
+  // and the class would point at a missing file.
+  const linked = await classesUsingResource(db, row.id);
+  if (linked.length > 0) return { ok: false, reason: "linked", message: linkedMessage(linked) };
+
+  // Only a server-minted course file is removed. Homework lives under
+  // submissions/ and demo stand-ins live under private/demo/. Neither is a
+  // course-resources key, so this delete cannot reach them.
+  const courseKey = row.storageKey && isCourseResourceKey(row.storageKey) ? row.storageKey : null;
+  if (courseKey) {
+    const bucket = storage === undefined ? storageFromEnv() : storage;
+    if (!bucket) return { ok: false, reason: "storage", message: FILE_REMOVE_FAILED };
+    try {
+      await bucket.delete(courseKey);
+    } catch {
+      return { ok: false, reason: "storage", message: FILE_REMOVE_FAILED };
+    }
+  }
+
+  try {
+    await db.resource.delete({ where: { id: row.id } });
+  } catch (error) {
+    // A class can be linked in the moment between the check and this delete.
+    // Say why, instead of showing the database error. The file may already
+    // have been removed in that rare case; the row stays until the link is gone.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      const again = await classesUsingResource(db, row.id);
+      return {
+        ok: false,
+        reason: "linked",
+        message: again.length > 0 ? linkedMessage(again) : RESOURCE_IN_USE_MESSAGE,
+      };
+    }
+    throw error;
+  }
   return { ok: true };
 }
 
-export async function readResourceForDownload(actor: Actor, resourceId: string, db: Db = prisma) {
+export async function readResourceObject(actor: Actor, resourceId: string, db: Db = prisma) {
   if (!actor.active || actor.role === "ADMIN") return null;
 
   const sectionIds = actor.role === "STUDENT" ? actor.enrolledSectionIds : actor.assignedSectionIds;
@@ -421,6 +521,18 @@ export async function readResourceForDownload(actor: Actor, resourceId: string, 
   }
   if (row.resourceType !== "PDF" && row.resourceType !== "AUDIO") return null;
 
+  return {
+    title: row.title,
+    mimeType: row.mimeType,
+    byteSize: row.byteSize,
+    checksumSha256: row.checksumSha256,
+    storageKey: row.storageKey,
+  };
+}
+
+export async function readResourceForDownload(actor: Actor, resourceId: string, db: Db = prisma) {
+  const row = await readResourceObject(actor, resourceId, db);
+  if (!row) return null;
   return {
     title: row.title,
     mimeType: row.mimeType,

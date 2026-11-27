@@ -62,10 +62,17 @@ export async function createResourceAction(_prev: FormState, formData: FormData)
   redirect(`/courses/${courseId}`);
 }
 
-export async function deleteResourceAction(formData: FormData): Promise<void> {
+export async function deleteResourceAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const actor = await staffOrRedirect();
   const courseId = String(formData.get("courseId") ?? "");
   const resourceId = String(formData.get("resourceId") ?? "");
-  await deleteResource(actor, resourceId);
+  let failure: string | null = null;
+  try {
+    const result = await deleteResource(actor, resourceId);
+    if (!result.ok) failure = result.message;
+  } catch {
+    failure = "This material could not be removed. Try again.";
+  }
+  if (failure) return { error: failure };
   redirect(`/courses/${courseId}`);
 }

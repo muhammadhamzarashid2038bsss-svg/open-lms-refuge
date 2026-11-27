@@ -215,6 +215,18 @@ export function canManageResource(actor: Actor, resource: ResourceScope): boolea
   return sectionIds.some((sectionId) => teacherHasSection(actor, sectionId));
 }
 
+// The course page knows every section, but a teacher may only add a file to a
+// class they are assigned to now. A director covers the centre. Whole-course
+// material is a separate choice: it is shared with every enrolled section,
+// and canManageResource allows it when the teacher already teaches one of them.
+export function sectionsForMaterialUpload<T extends { id: string }>(actor: Actor, sections: T[]): T[] {
+  if (!activeActor(actor)) return [];
+  if (actor.role === "CENTER_DIRECTOR") return sections;
+  if (actor.role !== "TEACHER") return [];
+  const assigned = new Set(actor.assignedSectionIds);
+  return sections.filter((section) => assigned.has(section.id));
+}
+
 // The optional phone is director-only and is never exported (SYS-2).
 export function canReadContact(actor: Actor, learner: LearnerScope): boolean {
   return activeActor(actor) && actor.role === "CENTER_DIRECTOR" && sharesCenter(actor, learner.centerId);

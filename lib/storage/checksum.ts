@@ -11,7 +11,7 @@ export type StreamFingerprint = {
 };
 
 // Hashes the object as it arrives. The whole file is not collected in memory.
-// Reading stops once the file is past the 1 MB pilot cap.
+// Reading stops once the file is past the caller's byte cap.
 export async function fingerprintStream(stream: Readable, maxBytes: number): Promise<StreamFingerprint> {
   const hash = createHash("sha256");
   let byteSize = 0;

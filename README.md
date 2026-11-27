@@ -61,12 +61,12 @@ The product requirements in [docs/PRD.md](docs/PRD.md) sort the work into three 
 | Feature | Requirement | Phase | What exists now |
 | --- | --- | --- | --- |
 | Staff and learner sign-in, roles, and home pages | SYS-1 | Phase 1 | Works. Staff use email and a password. Learners use a centre code, a learner code, and a 4-digit PIN. |
-| Courses, sections, and learning materials | LMS-1 | Phase 1. Saving a resource on the phone is Phase 2. | Works for links and files the server can already store. Saving materials for offline reading is not built. |
+| Courses, sections, and learning materials | LMS-1 | Phase 1. Saving a resource on the phone is Phase 2. | Works for links, and for course PDFs and MP3s when the private Backblaze bucket is configured. A course PDF upload and a learner download were checked by hand. Saving materials for offline reading is not built. |
 | Weekly timetable and Today's classes | LMS-2 | Phase 1 for the schedule and links. Offline media is Phase 2. | Works. Live classes can store a Google Meet, Zoom, or Jitsi link. |
 | Attendance kiosk and offline marks | LMS-3 | Phase 1. Automatic tracking of online classes is Phase 2. | The kiosk and offline save exist. A browser may refuse to save attendance if it will not promise to keep the data. |
 | Attendance sync | FEAT-1 | Phase 1 | Partly works. Automated tests cover compression, fallback to plain JSON, and server storage. Full offline-to-database browser verification remains unfinished. |
 | Shared-phone lock and handover | SYS-1 | Phase 1 | The screen lock and a staff handover note exist. Local records are not encrypted or deleted on sign-out. |
-| Grades, homework files, and the gradebook | LMS-4 | Phase 1 | Gradebook entries and the learner file queue work. A real Cloudflare R2 bucket has not been created, so a live file upload is not confirmed. |
+| Grades, homework files, and the gradebook | LMS-4 | Phase 1 | Gradebook entries and the learner file queue work. Homework files go to the same private Backblaze B2 bucket, under `submissions/`. Not every homework file type has been uploaded to that bucket by hand. |
 | Progress notes and skill gaps | FEAT-2 | Phase 1 | Works, including offline edits and conflicts. Custom skill tags are chosen from a centre list. |
 | Teacher handoff reports | FEAT-2 | Phase 1 | A report is created when a teacher is switched off or a section is reassigned. A director names the incoming teacher, or receives the report if nobody is named. An administrator's blank choice needs exactly one director at that centre. A section with no current teacher can be given a teacher later, without a new report. |
 | Performance dashboard | LMS-7 | Phase 1 | Works for assigned teachers and the director of that centre. |
@@ -115,7 +115,7 @@ Open `.env` and replace the placeholder secrets. Never commit `.env`. The import
 | `EXPORT_SECRET` | The HMAC key for export pseudonyms. It must be 64 lowercase hex characters. |
 | `RISK_SERVICE_URL` and `RISK_SERVICE_API_KEY` | Where the Next.js server calls the Python score service, and the shared key. The example key in `.env.example` is rejected. Leave the service unstarted if you are not using check-ins. |
 | `NEXT_PUBLIC_APP_URL` | The address of this website. Locally that is `http://localhost:3000`. |
-| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` | Cloudflare R2 for homework files. Leave them empty until a private bucket exists. Empty values make file upload say storage is unavailable. |
+| `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_REGION`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY_ID`, `OBJECT_STORAGE_SECRET_ACCESS_KEY` | Private homework files and course PDFs and MP3s on Backblaze B2. The endpoint, region, and bucket name are in [docs/STORAGE.md](docs/STORAGE.md). Leave the key id and application key empty until you type them into `.env`. A missing or invalid value makes file upload say storage is unavailable. |
 
 Generate a new random value for each secret. An example is in `.env.example`:
 
@@ -203,7 +203,7 @@ Development has used Prisma's local Postgres. A hosted Postgres database is the 
 
 The requirements document names Vercel for the website, Render for the risk service, and a hosted Postgres database as a possible free-tier demo. Day 7 of the development log records that an optional Vercel deployment was skipped. Do not treat those names as a live setup.
 
-Homework files are meant to go to a private Cloudflare R2 bucket. [docs/STORAGE.md](docs/STORAGE.md) says no bucket has been created. Until the four `R2_` values are set, the app tells the learner that file storage is unavailable and keeps the file on the phone.
+Homework files and course PDFs and MP3s go to one private Backblaze B2 bucket through its S3-compatible API. The bucket name, region, and endpoint are in [docs/STORAGE.md](docs/STORAGE.md). Local development has those settings. A course PDF upload and a learner download were checked by hand. If the five `OBJECT_STORAGE_` values are missing, the app says file storage is unavailable and keeps a waiting homework file on the phone.
 
 The risk service runs on this computer at `127.0.0.1` during development.
 A later synthetic demo may use a public HTTPS address.
@@ -218,7 +218,7 @@ If a demo server is added later, it may take a little time to wake up, so the ap
 
 The website is a Next.js app. Pages and server checks live in the same project. PostgreSQL, through Prisma, holds the centre's records. The phone keeps a second copy in IndexedDB for attendance, grades, notes, and homework files that are still waiting to send. A service worker caches the public attendance shell so that screen can open offline. It does not cache private pages or learner records.
 
-Attendance sync, grade and note sync, and file upload are separate. Attendance may be gzip-compressed. Grades and notes are plain JSON, with version vectors so two offline edits are both kept until a teacher resolves them. Homework bytes go to R2 only when that storage is configured. The Python risk service receives one scoring request from the Next.js server and returns a score. It does not read the database. Donor exports are built on the server and downloaded as CSV or PDF.
+Attendance sync, grade and note sync, and file upload are separate. Attendance may be gzip-compressed. Grades and notes are plain JSON, with version vectors so two offline edits are both kept until a teacher resolves them. Homework bytes go to the private Backblaze bucket only when that storage is configured. Course PDFs and MP3s use the same bucket under a separate `course-resources/` name. The Python risk service receives one scoring request from the Next.js server and returns a score. It does not read the database. Donor exports are built on the server and downloaded as CSV or PDF.
 
 More detail, including the five diagrams, is in:
 
@@ -233,7 +233,7 @@ The scoring rules are in [docs/RISK_MODEL.md](docs/RISK_MODEL.md). What the app 
 | Status | Item |
 | --- | --- |
 | Works | Sign-in, role checks, course and section materials, weekly timetable, Today's classes, progress notes, skill tags, performance dashboard, aggregate CSV and PDF export, and the audit log. Attendance marking works when the browser accepts the save. |
-| Works, with a condition | Risk scores, when `RISK_SERVICE_URL` and `RISK_SERVICE_API_KEY` are set and a director opens **Check-in suggestions**. Homework upload, when a private R2 bucket is configured. |
+| Works, with a condition | Risk scores, when `RISK_SERVICE_URL` and `RISK_SERVICE_API_KEY` are set and a director opens **Check-in suggestions**. Homework upload and course PDF and MP3 upload, when the private Backblaze B2 settings are present. A course PDF upload and a learner download were checked by hand. Not every storage case has been tested against the live bucket. |
 | Partly works | Attendance gzip sync. The code and automated tests cover compression, fallback to plain JSON, and server storage. A full manual test that saves a mark offline in the browser and then checks the database row is still recorded as unfinished in the Day 8 log, because Chrome refused persistent storage. |
 | Partly works | Homework photo compression. Large JPEG, PNG, and WebP files are reduced before queueing. PDFs and already-small photos are not. The compression tests use a stand-in encoder. A 1.4 MB PNG was reduced to 532 KB during a manual test. |
 | Partly works | The attendance kiosk. It is a real offline attendance screen. It is not a restricted mode for every page. Attendance save can be blocked when the browser will not promise to keep the data. |
@@ -243,7 +243,7 @@ The scoring rules are in [docs/RISK_MODEL.md](docs/RISK_MODEL.md). What the app 
 | Planned | In-app learner registration. Learner accounts in the demo come from the seed. There is no registration form. |
 | Planned | Learner erasure. Accounts are switched off, not deleted. There is no workflow that erases a learner's profile and history. |
 | Planned | A normal screen for funder requirements. The database table and the server function exist and are covered by tests. |
-| Planned | Cloud deployment, a live R2 bucket, quizzes, offline copies of course files, digital attendance import, and the Phase 2 AI assistant. |
+| Planned | Cloud deployment, quizzes, offline copies of course files, digital attendance import, and the Phase 2 AI assistant. |
 | Not a privacy guarantee | Free-text notes, grade comments, and uploaded photos can still contain a legal status, an address, a date of birth, or a family story. Local phone storage is not encrypted. |
 
 ## AI assistance

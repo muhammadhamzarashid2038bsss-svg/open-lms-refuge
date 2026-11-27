@@ -62,7 +62,7 @@ This log describes the system on `main` at the start of Day 18, commit `0d2acd0`
 
 **Alternatives considered:** Documented. Putting the file bytes inside the compressed JSON batch is the alternative those sources reject. `JsonSyncEntityType` has no file value.
 
-**Trade-offs:** Attendance can sync while a photo is still waiting. The phone must have room for the bytes, and logout will not remove them. A real Cloudflare R2 bucket is not configured in this repository. When the storage settings are empty, the app says file storage is unavailable. `docs/STORAGE.md` and the Day 10 log record that real-bucket testing is still pending.
+**Trade-offs:** Attendance can sync while a photo is still waiting. The phone must have room for the bytes, and logout will not remove them. Homework bytes go to a private Backblaze B2 bucket when the five `OBJECT_STORAGE_` settings are valid. Course PDFs and MP3s use the same bucket under `course-resources/`. When the settings are missing, the app says file storage is unavailable. `docs/STORAGE.md` records that a course PDF upload and a learner download were checked by hand, and that not every storage case has been tested on the live bucket.
 
 **Date:** Schema comment and table: commit `b7ca0f5` on 2026-11-04. Design note: Day 2 log, 2026-11-03. Phone queue: commit `cc998df` on 2026-11-10, which raised IndexedDB from version 2 to version 3. Documented rationale for the phone queue: Week 2 review, 2026-11-10.
 

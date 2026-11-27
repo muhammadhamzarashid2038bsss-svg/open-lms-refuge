@@ -198,30 +198,25 @@ The server must independently validate files before marking a Submission as stor
 **Priority:** High before a real pilot  
 **Status:** Additional validation gap identified during source review
 
-### 13. Complete Real Cloudflare R2 Upload and Download Acceptance Testing
+### 13. Finish the remaining live-bucket homework checks
 
-**Observation:** The private R2 storage integration, presigned URL workflow, submission finalization, authorization checks, and checksum verification have been implemented and tested using a mock storage adapter.
+**Observation:** The private Backblaze B2 bucket is configured. Homework objects use `submissions/`. Course PDFs and MP3s use `course-resources/` in the same bucket. Automated tests use a fake storage client and do not call Backblaze. A course PDF upload and a learner download of that file were checked by hand. That does not cover every homework file type or a cross-learner attempt on the live bucket.
 
-However, no real Cloudflare R2 bucket or credentials have been configured.
-
-**Possible improvement / verification:** When cloud infrastructure is ready, perform end-to-end testing with a real private bucket.
+**Possible improvement / verification:** Using the existing private bucket, finish the homework checks that have not been repeated by hand. Do not create another bucket or make this one public.
 
 Test:
-1. Create the private R2 bucket and configure the required restricted CORS policy.
-2. Start a digital submission from a real browser.
-3. Upload an actual JPEG or PDF using the short-lived presigned URL.
-4. Verify that the server reads the stored object and independently calculates its SHA-256.
-5. Confirm that the Submission becomes STORED only after successful verification.
-6. Test authorized teacher and learner downloads.
-7. Attempt cross-learner and cross-section access using another submission ID.
-8. Interrupt an upload, reconnect, request a fresh upload authorization, and retry using the same `clientSubmissionId`.
-9. Verify that no duplicate Submission record is created.
-10. Confirm that the phone removes its queued file only after server finalization is acknowledged.
+1. Start a digital homework submission from a real browser.
+2. Upload an actual JPEG, PNG, WebP, or PDF within the 1 MB homework limit.
+3. Verify that the server reads the stored object and independently calculates its SHA-256.
+4. Confirm that the Submission becomes STORED only after successful verification.
+5. Test authorized teacher and learner downloads.
+6. Attempt cross-learner and cross-section access using another submission ID.
+7. Confirm that the phone removes its queued file only after server finalization is acknowledged.
 
-No public file URLs should be introduced.
+No public file URLs should be introduced. An interrupted upload is covered separately in item 15.
 
 **Priority:** High before real digital submissions or a real pilot  
-**Status:** Outstanding real-cloud integration and security acceptance tests
+**Status:** Course PDF upload and learner download checked by hand. Homework live-bucket checks still outstanding
 
 ### 14. Verify Photo Compression Quality Using a Synthetic Worksheet
 
@@ -246,12 +241,12 @@ Only pursue further compression when legibility can be preserved.
 
 **Observation:** The learner file queue uses a foreground action called "Send pending submissions". It does not perform background uploads through the Service Worker.
 
-**Possible improvement / verification:** Once R2 is configured, interrupt an upload, reconnect, and confirm that the learner can resume the queued submission through the foreground send action without losing the file or creating a duplicate record.
+**Possible improvement / verification:** With the private Backblaze bucket already configured, interrupt a homework upload, reconnect, and confirm that the learner can resume the queued submission through the foreground send action without losing the file or creating a duplicate record.
 
 Document that the learner initiates the send process. Do not describe the current implementation as automatic background synchronization.
 
 **Priority:** High before real digital submissions  
-**Status:** Automated retry tests passed; real-R2 interruption and recovery test outstanding
+**Status:** Automated retry tests passed; a live Backblaze interruption and recovery test is still outstanding
 
 ---
 
@@ -264,7 +259,7 @@ Before real learner information is introduced:
 - Complete a specialist privacy and security review of local IndexedDB data, shared-device isolation, session expiry, logout and handover behavior.
 - Document that IndexedDB is not automatically encrypted and that browser storage can still be evicted.
 - Confirm the retention and recovery policy for unsynchronized attendance, grades, notes, and homework files.
-- Complete real R2 upload/download and cross-learner authorization acceptance tests.
+- Finish the remaining live-bucket homework upload and download checks, including a cross-learner authorization attempt. A course PDF upload and a learner download have already been checked by hand.
 - Verify the complete offline attendance save and synchronization workflow on a suitable real device or browser.
 - Use the public demo and repository with synthetic learner data only.
 
@@ -301,7 +296,6 @@ Do not claim production or real-pilot readiness merely because the automated tes
 | Sign-out message wording | Low | Improvement identified |
 | Handover permission explanation | Low | Improvement identified |
 | Corrupt/truncated file validation | High before pilot | Additional gap identified |
-| Real R2 upload/download testing | High before digital pilot | Outstanding verification |
 | Worksheet compression readability | Medium | Outstanding verification |
 | Real upload interruption and retry | High before digital pilot | Outstanding verification |
 | Funder-requirement management screen | Later | Record and turn-off are on the Export page. Editing the saved explanation is not. |

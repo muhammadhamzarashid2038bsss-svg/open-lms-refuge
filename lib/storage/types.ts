@@ -20,7 +20,12 @@ export type StoredObjectHead = {
 
 export type StorageAdapter = {
   presignPut(input: { key: string; contentType: string; byteSize: number; expiresInSeconds: number }): Promise<PresignedPut>;
-  presignGet(input: { key: string; expiresInSeconds: number }): Promise<PresignedGet>;
+  presignGet(input: {
+    key: string;
+    expiresInSeconds: number;
+    /// Optional download name. It is signed into the link and is not a storage key.
+    contentDisposition?: string;
+  }): Promise<PresignedGet>;
   head(key: string): Promise<StoredObjectHead | null>;
   open(key: string): Promise<Readable | null>;
   delete(key: string): Promise<void>;

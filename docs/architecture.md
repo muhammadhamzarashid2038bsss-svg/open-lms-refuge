@@ -1,6 +1,6 @@
 # Architecture
 
-This page describes the system that is built on `main` at the start of Day 18 (commit `0d2acd0`, 2026-11-16). It was checked against the Prisma schema, the phone storage code, the sync and export modules, and the tests named under each diagram.
+This page describes the system that is built on `main` at the start of Day 18 (commit `0d2acd0`, 2026-11-16). It was checked against the Prisma schema, the phone storage code, the sync and export modules, and the tests named under each diagram. The private-file notes below were updated on 27 November 2026, after Backblaze B2 was connected. The rest of this page is still that Day 18 picture.
 
 A feature that appears in `docs/PRD.md` is included here only when the code does it. Planned work is named as planned. The table guide in `docs/DATABASE.md` still explains each table. The three diagrams on that page are a subset. This page is the full picture.
 
@@ -13,13 +13,13 @@ IndexedDB is the browser database used for structured rows and file bytes. A ver
 - Version-vector comparison for grades and progress notes, with human conflict resolution and an audit row.
 - A server-side grant export with a field whitelist, HMAC pseudonyms, small-group suppression, CSV, and PDF.
 - PostgreSQL tables from `prisma/schema.prisma`, including append-only attendance.
+- Private Backblaze B2 storage for homework files and for course PDFs and MP3s. Homework objects use the name `submissions/` plus an id. Course files use `course-resources/` plus an id. The bucket stays private. The server checks size, type, and SHA-256 before a homework file is marked stored or a course file is listed. Homework upload links last 10 minutes. Course PDF and MP3 upload links last 60 minutes. Download links last 2 minutes for both. If the five storage settings are missing or invalid, the app says file storage is unavailable. A course PDF upload and a learner download were checked by hand. Automated tests use a stand-in store, so not every storage case has been run against the live bucket. The settings are named in `docs/STORAGE.md`.
 
 ## What is not implemented
 
 - Quiz answers. The requirements list them as Phase 2. There is no quiz model and no quiz sync.
 - A phone workflow for lesson completion. The `LessonProgress` table and the `LESSON_PROGRESS` sync label exist. Seed data writes rows, and handoff reports can read them. No application path saves lesson progress from a phone.
 - Editing the wording of a saved funder requirement. The Export page can record a new requirement and turn one off. It does not collect a funder name, and it does not change the explanation after the row is saved.
-- A live Cloudflare R2 bucket. The file queue and the server checks are built. `docs/STORAGE.md` says the bucket has not been created. If the storage settings are empty, the app reports that file storage is unavailable.
 - Encryption of IndexedDB or localStorage. The storage comments say the rows are readable in the browser's storage tools.
 
 ## Diagram 1 — Local storage and account isolation

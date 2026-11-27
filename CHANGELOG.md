@@ -125,6 +125,16 @@ Planned work that is not in this changelog as a finished feature includes in-app
 - A director or administrator can assign an active teacher to a section that has no current teacher. That assignment starts today, does not create another handoff report, and leaves older assignment rows and reports unchanged.
 - Staffed and unstaffed sections are managed in one place, Manage section assignments. A shared display name is shown with the teacher's email so accounts such as the synthetic Lock Test teachers can be told apart.
 
+## 27 November 2026 · Course PDF and MP3 files
+
+- A teacher can upload a PDF of up to 25 MB or an MP3 of up to 20 MB to the same private bucket. The object name starts with `course-resources/`. Homework files stay under `submissions/` at 1 MB.
+- The course file is listed only after the server has checked its size, type, and checksum. The upload link lasts 60 minutes. The download link lasts 2 minutes.
+
+## 27 November 2026 · Private homework storage on Backblaze B2
+
+- Homework files now use a private Backblaze B2 bucket through its S3-compatible API. The upload steps are unchanged: a 10-minute upload link, a 2-minute download link, and a server check of file type, size, and SHA-256.
+- The five settings are `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_REGION`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY_ID`, and `OBJECT_STORAGE_SECRET_ACCESS_KEY`. The application key is not in this repository. The bucket is configured. A course PDF upload and a learner download, recorded in the note above, were later checked by hand. This note does not mean every homework file type was uploaded to the live bucket.
+
 ## 26 November 2026 · Learner-level export confirmation
 
 - Aggregate CSV and PDF remain the usual grant export.

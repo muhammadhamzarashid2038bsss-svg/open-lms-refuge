@@ -58,7 +58,7 @@ The learner code is not anonymous. The centre can match it back to the learner. 
 
 ## Homework files
 
-Homework files are uploaded to Cloudflare R2 only when the centre has configured that private storage. The file itself may contain personal information. If storage is not configured, the file stays on the phone and the app says storage is unavailable.
+Homework files are uploaded to a private Backblaze B2 bucket only when the centre has configured that storage. The file itself may contain personal information. If storage is not configured, the file stays on the phone and the app says storage is unavailable.
 
 ## Reports
 
@@ -91,7 +91,7 @@ How can a participant stop taking part? [Centre to explain the process and what 
 
 Risk-scoring service: [ ] Enabled [ ] Not enabled [ ] Not available
 
-Cloudflare R2 homework storage: [ ] Enabled [ ] Not enabled [ ] Not available
+Backblaze B2 homework storage: [ ] Enabled [ ] Not enabled [ ] Not available
 
 Hosting provider and server location: [Centre to complete after hosting is selected]
 

@@ -28,9 +28,9 @@ These limits do not stop every possible collection. A teacher can type a legal s
 | Learner code, nickname, age band, and PIN | Learner profiles in the demo come from the seed. At sign-in, learners enter the centre code, learner code, and 4-digit PIN. There is no registration form. | The PIN is stored as a hash. | The learner code is sent to the risk service when a director runs a score. The nickname, age band, and PIN are not. |
 | Attendance and a closed absence reason | The attendance screen, including offline. Reasons are Illness, Family care, Transport or cost, Family circumstances (details not recorded), and Unknown. | PostgreSQL, and on the phone until and after sync. | Dates, statuses, and a yes/no family-circumstances flag go to the risk service. The reason words do not. |
 | Grades and an optional grade comment | The gradebook and the offline record editor. The comment can be up to 500 characters. | PostgreSQL, with older versions kept. A waiting edit is also on the phone. | Points and maximums can go to the risk service. The comment does not. |
-| Homework files | The learner homework page. Large photos are reduced on the phone first. | The file waits in IndexedDB. Metadata is in PostgreSQL. The bytes go to Cloudflare R2 only when that storage is configured. | The file bytes go to R2 when it is configured. They are not sent to the risk service. |
+| Homework files | The learner homework page. Large photos are reduced on the phone first. | The file waits in IndexedDB. Metadata is in PostgreSQL. The bytes go to a private Backblaze B2 bucket, under `submissions/`, only when that storage is configured. | The file bytes go to Backblaze when it is configured. They are not sent to the risk service. |
 | Progress notes and skill gaps | The teacher record editor. The note can be up to 2,000 characters. Skill gaps are a fixed list plus one centre-defined tag. | PostgreSQL, with older versions kept. A waiting edit is also on the phone. | No. The note text is shown inside a handoff report to the assigned recipient. |
-| Courses, materials, and the timetable | Teachers and directors. | PostgreSQL. A video item is a link, not an embedded player. | Opening a meeting link or a web link is the browser visiting that site. The app does not attach the roster to that request. |
+| Courses, materials, and the timetable | Teachers and directors. | Links and reading text stay in PostgreSQL. A video item is a link, not an embedded player. Course PDF and MP3 bytes go to the same private Backblaze B2 bucket as homework, under `course-resources/`, when that storage is configured. | Opening a meeting link or a web link is the browser visiting that site. The app does not attach the roster to that request. PDF and MP3 bytes go to Backblaze when it is configured. They are not sent to the risk service. |
 | Risk scores and check-in notes | A director starts a run and may later write a note of up to 160 characters or choose a dismissal reason. | PostgreSQL. | The scoring request described below is sent to the Python service. The saved flag stays in this app. |
 | Handoff reports | Created when a teacher is switched off or a section assignment ends. | PostgreSQL. Opening the report shows nicknames, learner codes, attendance, grades, skill gaps, and the linked note text. | No external service. The recipient can print the page from the browser. |
 | Donor exports | A director or admin downloads a CSV or PDF. | The file is downloaded. An audit row records the export. | The file goes to the person who downloaded it. It is not sent to a funder automatically. |
@@ -99,11 +99,15 @@ A future pilot that uses real learner data is not approved by this document.
 It needs a separate risk-service deployment and a separate API key, or a private arrangement that is not this public demo.
 No such deployment has been created, and no legal approval is claimed here.
 
-### Cloudflare R2
+### Backblaze B2
 
-When `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_BUCKET_NAME` are all set, the browser uploads a homework file directly to a private R2 bucket using a short-lived link. The object name is `submissions/` plus an id. The link between that id and the learner stays in PostgreSQL. The picture or PDF itself can still contain personal information.
+When `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_REGION`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY_ID`, and `OBJECT_STORAGE_SECRET_ACCESS_KEY` are all set and valid, the browser uploads files directly to one private Backblaze B2 bucket using a short-lived link.
 
-If any of those four settings is empty, the app says file storage is unavailable. The file stays on the phone. No public folder is used instead. This repository does not contain a configured bucket. See [STORAGE.md](STORAGE.md).
+Homework submissions use the object name `submissions/` plus an id. The link between that id and the learner stays in PostgreSQL. The picture or PDF itself can still contain personal information. The homework upload link lasts 10 minutes, and the download link lasts 2 minutes.
+
+Course PDFs and MP3s use the same private bucket. Their object name is `course-resources/` plus an id. That id is tied to the course resource in PostgreSQL, not to a homework submission. A course file can also contain personal information. The course upload link lasts 60 minutes, and the download link lasts 2 minutes.
+
+If any of those five settings is missing or invalid, the app says file storage is unavailable. The file stays on the phone. No public folder is used instead. This repository does not contain the application key. See [STORAGE.md](STORAGE.md).
 
 ## Exports
 
