@@ -29,7 +29,7 @@ async function Gradebook({ params }: { params: Promise<{ sectionId: string }> })
     <Shell
       wide
       title={`${book.sectionName} gradebook`}
-      lede={`${book.courseTitle}. One row per learner. Paper, digital, both, and in-class exam marks stay in this table. A save stays on this phone first.`}
+      lede={`${book.courseTitle}. Each learner is listed with that learner's assignments. A save stays on this phone first.`}
     >
       <p className="text-lg">
         <Link className="underline" href="/teacher">

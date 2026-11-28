@@ -6,10 +6,24 @@ import type { Actor } from "../lib/auth/permissions";
 import { createAssignment, loadSectionGradebook } from "../lib/data/assignments";
 import { closeWorkingDatabase, localRequest, openWorkingDatabase, runLocalTransaction } from "../lib/device/local-db";
 import { saveGradebookMarks } from "../lib/device/gradebook-save";
-import { listLocalRecords } from "../lib/device/local-records";
+import { listLocalRecords, markLocalRecords } from "../lib/device/local-records";
 import { prisma } from "../lib/db";
 import { assertConnectedTestDatabase } from "../lib/test-db/connect";
-import { fileStatusLabel, gradebookCell, planGradebookSaves, serverFileStatus, validateNewAssignment, type GradebookDraft } from "../lib/lms/gradebook";
+import {
+  acknowledgedAfterSend,
+  fileStatusLabel,
+  gradebookCell,
+  gradeCellBaseline,
+  gradeEditingAllowed,
+  gradeEntryState,
+  pendingGradeForCell,
+  planGradebookSaves,
+  serverFileStatus,
+  validateNewAssignment,
+  type GradebookDraft,
+  type GradePhoneRow,
+  type GradePhoneScope,
+} from "../lib/lms/gradebook";
 import { MAX_RECORD_MUTATIONS } from "../lib/sync/record-batch";
 import { syncLocalRecords } from "../lib/sync/record-sync";
 
@@ -99,6 +113,347 @@ describe("assignment kinds and gradebook planning", () => {
       expect(serverFileStatus(stored)).toBe(status);
       expect(fileStatusLabel(status)).toBe(label);
     }
+  });
+});
+
+const assignmentA = "00000000-0000-4000-8000-000000000011";
+const assignmentB = "00000000-0000-4000-8000-000000000012";
+const learnerA = "00000000-0000-4000-8000-000000000022";
+const learnerB = "00000000-0000-4000-8000-000000000023";
+const otherCenter = "00000000-0000-4000-8000-0000000000c2";
+const deviceId = "00000000-0000-4000-8000-0000000000d1";
+const otherDevice = "00000000-0000-4000-8000-0000000000d2";
+const recordA = "00000000-0000-4000-8000-000000000099";
+
+function phoneScope(center = owner.centerId, user = owner.userId, device: string | null = deviceId): GradePhoneScope {
+  return {
+    centerId: center,
+    userId: user,
+    deviceId: device,
+    assignmentIds: new Set([assignmentA, assignmentB]),
+    learnerIds: new Set([learnerA, learnerB]),
+  };
+}
+
+function phoneRow(overrides: {
+  points?: string;
+  assignmentId?: string;
+  learnerId?: string;
+  centerId?: string;
+  userId?: string;
+  localDeviceId?: string;
+  entityType?: string;
+  recordId?: string;
+  versionVector?: GradePhoneRow["versionVector"];
+  syncState?: string;
+} = {}): GradePhoneRow {
+  return {
+    centerId: overrides.centerId ?? owner.centerId,
+    userId: overrides.userId ?? owner.userId,
+    localDeviceId: overrides.localDeviceId ?? deviceId,
+    entityType: overrides.entityType ?? "GRADE_ENTRY",
+    recordId: overrides.recordId ?? recordA,
+    versionVector: overrides.versionVector ?? { [deviceId]: 1 },
+    syncState: overrides.syncState ?? "pending",
+    content: {
+      assignmentId: overrides.assignmentId ?? assignmentA,
+      learnerId: overrides.learnerId ?? learnerA,
+      points: overrides.points ?? "10.00",
+      academicNote: null,
+    },
+  };
+}
+
+describe("pending grades on the gradebook", () => {
+  beforeEach(() => {
+    globalThis.IDBKeyRange = IDBKeyRange;
+  });
+
+  it("shows the newest waiting mark for this learner and assignment only", () => {
+    const older = phoneRow({ points: "9.00", versionVector: { [deviceId]: 1 } });
+    const newer = phoneRow({ points: "12.00", versionVector: { [deviceId]: 2 }, recordId: recordA });
+    const pending = pendingGradeForCell(phoneScope(), assignmentA, learnerA, [
+      older,
+      newer,
+      phoneRow({ points: "3.00", learnerId: learnerB }),
+      phoneRow({ points: "4.00", assignmentId: "00000000-0000-4000-8000-0000000000aa" }),
+      phoneRow({ points: "5.00", centerId: otherCenter }),
+      phoneRow({ points: "6.00", userId: other.userId }),
+      phoneRow({ points: "7.00", localDeviceId: otherDevice }),
+      phoneRow({ points: "8.00", syncState: "acknowledged", versionVector: { [deviceId]: 9 } }),
+      phoneRow({ points: "1.00", syncState: "conflict" }),
+      phoneRow({ points: "2.00", syncState: "stale" }),
+      phoneRow({ points: "2.50", syncState: "rejected" }),
+      { ...phoneRow({ points: "15.00" }), entityType: "PROGRESS_NOTE" },
+    ]);
+    expect(pending?.points).toBe("12.00");
+    expect(pending?.recordId).toBe(recordA);
+    expect(pendingGradeForCell(phoneScope(), assignmentB, learnerA, [newer])).toBeNull();
+    expect(pendingGradeForCell(phoneScope(owner.centerId, owner.userId, null), assignmentA, learnerA, [newer])).toBeNull();
+    const serverOnly = gradeEntryState({ typed: null, pendingPoints: null, fallbackPoints: "4.00" });
+    expect(serverOnly).toEqual({ display: "4.00", status: "server" });
+    const onPhone = gradeEntryState({ typed: null, pendingPoints: pending?.points ?? null, fallbackPoints: "4.00" });
+    expect(onPhone).toEqual({ display: "12.00", status: "phone" });
+  });
+
+  it("does not save a waiting mark again until the teacher changes it", async () => {
+    const indexedDB = factory();
+    const first = await saveGradebookMarks(
+      indexedDB,
+      owner,
+      [
+        {
+          assignmentId: assignmentA,
+          learnerId: learnerA,
+          points: "10.00",
+          academicNote: "steady",
+          recordId: recordA,
+          baseVector: {},
+        },
+      ],
+      { storage: granted },
+    );
+    expect(first.ok).toBe(true);
+    const listed = await listLocalRecords(indexedDB, owner);
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    expect(listed.mutations).toHaveLength(1);
+    const scope = phoneScope(owner.centerId, owner.userId, listed.deviceId);
+    const pending = pendingGradeForCell(scope, assignmentA, learnerA, listed.mutations);
+    expect(pending?.points).toBe("10.00");
+    const baseline = gradeCellBaseline({
+      pending,
+      server: { id: "00000000-0000-4000-8000-000000000088", points: "4.00", academicNote: null, versionVector: {} },
+    });
+    expect(baseline.currentPoints).toBe("10.00");
+    expect(baseline.recordId).toBe(listed.mutations[0]?.recordId);
+    const untouched = planGradebookSaves([
+      {
+        assignmentId: assignmentA,
+        learnerId: learnerA,
+        kind: "PAPER",
+        maxPoints: "20.00",
+        entered: baseline.currentPoints ?? "",
+        currentPoints: baseline.currentPoints,
+        academicNote: baseline.academicNote,
+        recordId: baseline.recordId,
+        baseVector: baseline.baseVector,
+      },
+      {
+        assignmentId: assignmentB,
+        learnerId: learnerB,
+        kind: "PAPER",
+        maxPoints: "20.00",
+        entered: "6.00",
+        currentPoints: "6.00",
+        academicNote: null,
+        recordId: "00000000-0000-4000-8000-000000000077",
+        baseVector: {},
+      },
+    ]);
+    expect(untouched.ok && untouched.drafts).toEqual([]);
+    const savedAgain = await saveGradebookMarks(indexedDB, owner, untouched.ok ? untouched.drafts : [], { storage: granted });
+    expect(savedAgain.saved).toBe(0);
+    const still = await listLocalRecords(indexedDB, owner);
+    expect(still.ok && still.mutations).toHaveLength(1);
+
+    const edited = planGradebookSaves([
+      {
+        assignmentId: assignmentA,
+        learnerId: learnerA,
+        kind: "PAPER",
+        maxPoints: "20.00",
+        entered: "11",
+        currentPoints: baseline.currentPoints,
+        academicNote: baseline.academicNote,
+        recordId: baseline.recordId,
+        baseVector: baseline.baseVector,
+      },
+      {
+        assignmentId: assignmentB,
+        learnerId: learnerB,
+        kind: "PAPER",
+        maxPoints: "20.00",
+        entered: "",
+        currentPoints: null,
+        academicNote: null,
+        recordId: null,
+        baseVector: {},
+      },
+    ]);
+    expect(edited.ok).toBe(true);
+    if (!edited.ok) return;
+    expect(edited.drafts).toHaveLength(1);
+    expect(edited.drafts[0]).toMatchObject({
+      assignmentId: assignmentA,
+      learnerId: learnerA,
+      points: "11.00",
+      academicNote: "steady",
+      baseVector: pending?.versionVector,
+    });
+    const wiped = planGradebookSaves([
+      {
+        assignmentId: assignmentA,
+        learnerId: learnerA,
+        kind: "PAPER",
+        maxPoints: "20.00",
+        entered: "",
+        currentPoints: baseline.currentPoints,
+        academicNote: baseline.academicNote,
+        recordId: baseline.recordId,
+        baseVector: baseline.baseVector,
+      },
+    ]);
+    expect(wiped.ok).toBe(false);
+    const second = await saveGradebookMarks(indexedDB, owner, edited.drafts, { storage: granted });
+    expect(second.saved).toBe(1);
+    const after = await listLocalRecords(indexedDB, owner);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.mutations).toHaveLength(2);
+    expect(after.mutations.every((item) => "points" in item.content && item.content.learnerId === learnerA)).toBe(true);
+    expect(after.mutations.every((item) => "points" in item.content && item.content.assignmentId === assignmentA)).toBe(true);
+    const latest = pendingGradeForCell(phoneScope(owner.centerId, owner.userId, after.deviceId), assignmentA, learnerA, after.mutations);
+    expect(latest?.points).toBe("11.00");
+    expect(latest?.versionVector[after.deviceId ?? ""]).toBe(2);
+  });
+
+  it("keeps editing off until the phone grades have been read", () => {
+    expect(gradeEditingAllowed("loading")).toBe(false);
+    expect(gradeEditingAllowed("unavailable")).toBe(false);
+    expect(gradeEditingAllowed("failed")).toBe(false);
+    expect(gradeEditingAllowed("ready")).toBe(true);
+  });
+
+  it("keeps a sent mark as the baseline and writes one later edit", async () => {
+    const indexedDB = factory();
+    const server = {
+      id: "00000000-0000-4000-8000-000000000088",
+      points: "4.00",
+      academicNote: null,
+      versionVector: {},
+    };
+    const saved = await saveGradebookMarks(
+      indexedDB,
+      owner,
+      [
+        {
+          assignmentId: assignmentA,
+          learnerId: learnerA,
+          points: "12.00",
+          academicNote: "steady",
+          recordId: recordA,
+          baseVector: server.versionVector,
+        },
+      ],
+      { storage: granted },
+    );
+    expect(saved.saved).toBe(1);
+    const before = await listLocalRecords(indexedDB, owner);
+    expect(before.ok).toBe(true);
+    if (!before.ok || !before.mutations[0]) return;
+    const recorded = await markLocalRecords(indexedDB, owner, [
+      { clientMutationId: before.mutations[0].clientMutationId, syncState: "acknowledged" },
+    ]);
+    expect(recorded).toBe(true);
+    const after = await listLocalRecords(indexedDB, owner);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    const scope = phoneScope(owner.centerId, owner.userId, after.deviceId);
+    const accepted = acknowledgedAfterSend(scope, assignmentA, learnerA, before.mutations, after.mutations);
+    expect(accepted?.points).toBe("12.00");
+    expect(accepted?.recordId).toBe(recordA);
+    expect(accepted?.versionVector).toEqual(before.mutations[0].versionVector);
+    expect(acknowledgedAfterSend(scope, assignmentA, learnerA, [], after.mutations)).toBeNull();
+    expect(acknowledgedAfterSend(scope, assignmentA, learnerA, before.mutations, before.mutations)).toBeNull();
+    const conflicted = after.mutations.map((row) => ({ ...row, syncState: "conflict" }));
+    expect(acknowledgedAfterSend(scope, assignmentA, learnerA, before.mutations, conflicted)).toBeNull();
+
+    const baseline = gradeCellBaseline({ pending: null, acknowledged: accepted, server });
+    expect(baseline.currentPoints).toBe("12.00");
+    expect(baseline.baseVector).toEqual(accepted?.versionVector);
+    expect(baseline.recordId).toBe(recordA);
+    const shown = gradeEntryState({
+      typed: null,
+      pendingPoints: null,
+      acknowledgedPoints: accepted?.points ?? null,
+      fallbackPoints: server.points,
+    });
+    expect(shown).toEqual({ display: "12.00", status: "acknowledged" });
+    const unchanged = planGradebookSaves([
+      {
+        assignmentId: assignmentA,
+        learnerId: learnerA,
+        kind: "PAPER",
+        maxPoints: "20.00",
+        entered: "12.00",
+        currentPoints: baseline.currentPoints,
+        academicNote: baseline.academicNote,
+        recordId: baseline.recordId,
+        baseVector: baseline.baseVector,
+      },
+    ]);
+    expect(unchanged.ok && unchanged.drafts).toEqual([]);
+    const wiped = planGradebookSaves([
+      {
+        assignmentId: assignmentA,
+        learnerId: learnerA,
+        kind: "PAPER",
+        maxPoints: "20.00",
+        entered: "",
+        currentPoints: baseline.currentPoints,
+        academicNote: baseline.academicNote,
+        recordId: baseline.recordId,
+        baseVector: baseline.baseVector,
+      },
+    ]);
+    expect(wiped.ok).toBe(false);
+    const edited = planGradebookSaves([
+      {
+        assignmentId: assignmentA,
+        learnerId: learnerA,
+        kind: "PAPER",
+        maxPoints: "20.00",
+        entered: "13",
+        currentPoints: baseline.currentPoints,
+        academicNote: baseline.academicNote,
+        recordId: baseline.recordId,
+        baseVector: baseline.baseVector,
+      },
+    ]);
+    expect(edited.ok).toBe(true);
+    if (!edited.ok) return;
+    expect(edited.drafts).toHaveLength(1);
+    expect(edited.drafts[0]).toMatchObject({
+      points: "13.00",
+      academicNote: "steady",
+      recordId: recordA,
+      baseVector: accepted?.versionVector,
+    });
+    const second = await saveGradebookMarks(indexedDB, owner, edited.drafts, { storage: granted });
+    expect(second.saved).toBe(1);
+    const finalList = await listLocalRecords(indexedDB, owner);
+    expect(finalList.ok).toBe(true);
+    if (!finalList.ok) return;
+    expect(finalList.mutations).toHaveLength(2);
+    const stillAccepted = finalList.mutations.filter((row) => row.syncState === "acknowledged");
+    const waiting = finalList.mutations.filter((row) => row.syncState === "pending");
+    expect(stillAccepted).toHaveLength(1);
+    expect(waiting).toHaveLength(1);
+    expect(stillAccepted[0] && "points" in stillAccepted[0].content && stillAccepted[0].content.points).toBe("12.00");
+    expect(waiting[0] && "points" in waiting[0].content && waiting[0].content.points).toBe("13.00");
+    expect(waiting[0]?.versionVector[finalList.deviceId ?? ""]).toBe(2);
+    const pendingWins = gradeCellBaseline({
+      pending: {
+        points: "13.00",
+        academicNote: "steady",
+        recordId: recordA,
+        versionVector: waiting[0]?.versionVector ?? {},
+      },
+      acknowledged: accepted,
+      server,
+    });
+    expect(pendingWins.currentPoints).toBe("13.00");
   });
 });
 
