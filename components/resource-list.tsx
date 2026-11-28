@@ -46,7 +46,9 @@ export function ResourceList({
                   Download file
                 </a>
               ) : null}
-              {manage && courseId ? <RemoveResourceForm courseId={courseId} resourceId={resource.id} /> : null}
+              {manage && courseId ? (
+                <RemoveResourceForm courseId={courseId} resourceId={resource.id} title={resource.title} />
+              ) : null}
             </div>
           </li>
         ))}

@@ -24,7 +24,7 @@ async function Homework() {
   const assignments = actor ? await listLearnerHomework(actor) : null;
   if (!actor?.learnerId || !assignments) redirect("/student");
   return (
-    <Shell title="Homework files" lede="Digital and Both tasks for your sections.">
+    <Shell title="Homework files" lede="Tasks you can submit digitally for your sections.">
       <p className="text-lg">
         <Link className="underline" href="/student">
           Back to learner home

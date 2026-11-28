@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   createCourseAction,
   createResourceAction,
@@ -312,10 +312,61 @@ export function AddResourceForm({
   );
 }
 
-export function RemoveResourceForm({ courseId, resourceId }: { courseId: string; resourceId: string }) {
+export function RemoveResourceForm({
+  courseId,
+  resourceId,
+  title,
+}: {
+  courseId: string;
+  resourceId: string;
+  title: string;
+}) {
   const [state, action, pending] = useActionState(deleteResourceAction, initial);
+  const [confirming, setConfirming] = useState(false);
+  const questionRef = useRef<HTMLParagraphElement>(null);
+  // The opening Remove button leaves the page while the question is showing.
+  // This points at the button React puts back when the learner backs out.
+  const openerRef = useRef<HTMLButtonElement | null>(null);
+  const returnFocusToOpener = useRef(false);
+  // A second tap can arrive before React disables the button. This blocks that
+  // extra submit without changing the delete action.
+  const submitLock = useRef(false);
+  const questionId = `remove-${resourceId}`;
+
+  useEffect(() => {
+    if (!pending) submitLock.current = false;
+  }, [pending]);
+
+  useEffect(() => {
+    if (confirming) questionRef.current?.focus();
+  }, [confirming]);
+
+  useEffect(() => {
+    if (confirming || !returnFocusToOpener.current) return;
+    returnFocusToOpener.current = false;
+    const opener = openerRef.current;
+    // The list may already have dropped this material. Focusing a missing
+    // button would throw and strand the keyboard user.
+    if (!opener?.isConnected) return;
+    opener.focus();
+  }, [confirming]);
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    if (submitLock.current || pending) {
+      event.preventDefault();
+      return;
+    }
+    submitLock.current = true;
+  }
+
+  function cancel() {
+    if (pending) return;
+    returnFocusToOpener.current = true;
+    setConfirming(false);
+  }
+
   return (
-    <form action={action} className="flex flex-col gap-2">
+    <form action={action} className="flex flex-col gap-2" onSubmit={onSubmit}>
       <input type="hidden" name="courseId" value={courseId} />
       <input type="hidden" name="resourceId" value={resourceId} />
       {state.error ? (
@@ -323,9 +374,48 @@ export function RemoveResourceForm({ courseId, resourceId }: { courseId: string;
           {state.error}
         </p>
       ) : null}
-      <button className="min-h-12 w-full rounded-lg border-2 border-zinc-400 px-4 text-lg text-zinc-800" type="submit" disabled={pending}>
-        {pending ? "Removing…" : "Remove"}
-      </button>
+      {confirming ? (
+        <div
+          role="group"
+          aria-labelledby={questionId}
+          className="flex flex-col gap-2 rounded-lg border-2 border-zinc-950 p-3"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            // One Escape should only close this question. The page menu also
+            // listens for Escape, and a shared phone has one keyboard focus.
+            event.stopPropagation();
+            cancel();
+          }}
+        >
+          <p
+            id={questionId}
+            ref={questionRef}
+            tabIndex={-1}
+            className="text-lg font-medium focus:outline focus:outline-[3px] focus:outline-offset-[3px] focus:outline-zinc-950"
+          >
+            Remove “{title}”? People who use this course will no longer be able to open this material.
+          </p>
+          <button className={secondaryButtonClass} type="button" disabled={pending} onClick={cancel}>
+            Cancel
+          </button>
+          <button
+            className="min-h-12 w-full rounded-lg border-2 border-zinc-400 px-4 text-lg text-zinc-800 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-zinc-950 disabled:opacity-60"
+            type="submit"
+            disabled={pending}
+          >
+            {pending ? "Removing…" : "Remove"}
+          </button>
+        </div>
+      ) : (
+        <button
+          ref={openerRef}
+          className="min-h-12 w-full rounded-lg border-2 border-zinc-400 px-4 text-lg text-zinc-800 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-zinc-950"
+          type="button"
+          onClick={() => setConfirming(true)}
+        >
+          Remove
+        </button>
+      )}
     </form>
   );
 }
