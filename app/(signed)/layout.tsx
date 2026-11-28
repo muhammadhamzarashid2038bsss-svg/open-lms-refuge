@@ -24,6 +24,8 @@ export default async function SignedInLayout({ children }: { children: ReactNode
       home={homeForRole(actor.role)}
       mode="guard"
       authSessionId={clock.authSessionId}
+      role={actor.role}
+      learnerId={actor.learnerId}
     >
       {children}
     </DeviceGate>

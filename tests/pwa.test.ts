@@ -53,8 +53,9 @@ function precacheUrls(source: string) {
 describe("installable shell", () => {
   it("describes an installable app without private records", () => {
     const web = manifest();
-    expect(web.name).toBe("Open LMS Refugee");
-    expect(web.short_name).toBe("Open LMS");
+    expect(web.name).toBe("Learning Space");
+    expect(web.short_name).toBe("Learning Space");
+    expect(JSON.stringify(web)).not.toContain("Refugee");
     expect(web.description).toBeTruthy();
     expect(web.start_url).toBe("/kiosk-shell");
     expect(web.scope).toBe("/");

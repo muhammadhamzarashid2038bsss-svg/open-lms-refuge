@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { resetPinAction, type FormState } from "@/app/actions/accounts";
+import { Notice } from "./notice";
 import { buttonClass, inputClass, labelClass, secondaryButtonClass } from "./ui";
 
 const initial: FormState = {};
@@ -51,12 +52,8 @@ export function PinResetForm({ showCenterCode }: { showCenterCode: boolean }) {
       >
         Fill in a random PIN
       </button>
-      {state.error ? (
-        <p role="alert" className="text-lg font-medium">
-          {state.error}
-        </p>
-      ) : null}
-      {state.message ? <p className="text-lg font-medium">{state.message}</p> : null}
+      {state.error ? <Notice tone="error">{state.error}</Notice> : null}
+      {state.message ? <Notice tone="success">{state.message}</Notice> : null}
       <button className={buttonClass} type="submit" disabled={pending}>
         {pending ? "Saving…" : "Save the new PIN"}
       </button>

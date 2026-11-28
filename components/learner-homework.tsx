@@ -7,6 +7,7 @@ import { browserStorageProbe } from "@/lib/device/storage-readiness";
 import { sha256Hex } from "@/lib/device/sha256";
 import { listQueuedFiles, queueHomeworkFile, type FileQueueRecord } from "@/lib/device/file-queue";
 import { browserFileUploader, sendPendingSubmissions, type UploadProgress } from "@/lib/device/file-upload";
+import { HOMEWORK_QUEUE_EVENT } from "@/lib/device/homework-pending";
 import { fileStatusLabel } from "@/lib/lms/gradebook";
 import { formatFileSize, prepareStoredFile } from "@/lib/lms/photo-prepare";
 import { buttonClass } from "./ui";
@@ -49,7 +50,10 @@ export function LearnerHomework({
     const factory = globalThis.indexedDB;
     if (!factory) return;
     const listed = await listQueuedFiles(factory, owner);
-    if (listed.ok) setFiles(listed.files);
+    if (listed.ok) {
+      setFiles(listed.files);
+      window.dispatchEvent(new Event(HOMEWORK_QUEUE_EVENT));
+    }
   }
 
   useEffect(() => {
@@ -57,7 +61,10 @@ export function LearnerHomework({
     if (!factory) return;
     let active = true;
     void listQueuedFiles(factory, { centerId, userId, learnerId }).then((listed) => {
-      if (active && listed.ok) setFiles(listed.files);
+      if (active && listed.ok) {
+        setFiles(listed.files);
+        window.dispatchEvent(new Event(HOMEWORK_QUEUE_EVENT));
+      }
     });
     return () => {
       active = false;

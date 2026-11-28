@@ -1,7 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { AttendanceSync } from "@/components/attendance-sync";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { endSession } from "@/app/actions/auth";
 import { readDeviceBackup, watchDeviceBackup } from "@/lib/device/browser";
 import { MISMATCHED_RECORDS, decideRevokeResult } from "@/lib/device/offline-decisions";
@@ -9,14 +8,12 @@ import { PHONE_PRIVACY_EVENT, type PhonePrivacyDetail } from "@/lib/device/phone
 import { applyOnlineAccess, childrenVisible } from "@/lib/device/phone-online";
 import { settlePhoneCheck } from "@/lib/device/phone-check";
 import { revokeServerSession } from "@/lib/device/revoke-session";
+import type { RoleName } from "@/lib/auth/permissions";
+import { PhoneSessionProvider } from "./phone-session";
+import { SignedChrome } from "./signed-chrome";
 
-export type PhoneSession = { userId: string; centerId: string; authSessionId: string };
-
-const PhoneSessionContext = createContext<PhoneSession | null>(null);
-
-export function usePhoneSession(): PhoneSession | null {
-  return useContext(PhoneSessionContext);
-}
+export type { PhoneSession } from "./phone-session";
+export { usePhoneSession } from "./phone-session";
 
 export function DeviceGate({
   userId,
@@ -24,6 +21,8 @@ export function DeviceGate({
   home,
   mode,
   authSessionId,
+  role,
+  learnerId,
   children,
 }: {
   userId: string;
@@ -31,6 +30,8 @@ export function DeviceGate({
   home: string;
   mode: "continue" | "guard";
   authSessionId: string;
+  role?: RoleName;
+  learnerId?: string | null;
   children?: ReactNode;
 }) {
   const [ready, setReady] = useState(false);
@@ -114,11 +115,9 @@ export function DeviceGate({
   if (problem) return <p className="p-4 text-lg text-zinc-950">{problem}</p>;
   if (!ready) return <p className="p-4 text-lg text-zinc-950">Checking this phone…</p>;
   return (
-    <PhoneSessionContext.Provider value={session}>
-      <div className="mx-auto w-full max-w-lg px-4 pt-4">
-        <AttendanceSync userId={userId} centerId={centerId} />
-      </div>
+    <PhoneSessionProvider value={session}>
+      {role ? <SignedChrome role={role} userId={userId} centerId={centerId} learnerId={learnerId ?? null} /> : null}
       {children}
-    </PhoneSessionContext.Provider>
+    </PhoneSessionProvider>
   );
 }

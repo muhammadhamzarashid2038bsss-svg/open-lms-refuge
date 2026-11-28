@@ -1,10 +1,11 @@
 import type { MetadataRoute } from "next";
+import { productName } from "@/lib/product";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/kiosk-shell",
-    name: "Open LMS Refugee",
-    short_name: "Open LMS",
+    name: productName,
+    short_name: productName,
     description: "Attendance for a learning center. Marks stay on this phone until they can be sent.",
     start_url: "/kiosk-shell",
     scope: "/",

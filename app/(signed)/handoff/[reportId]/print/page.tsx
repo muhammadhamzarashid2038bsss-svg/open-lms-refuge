@@ -27,7 +27,7 @@ async function Printable({ params }: { params: Promise<{ reportId: string }> }) 
   }
   if (!report) redirect(homeForRole(actor.role));
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-4 bg-white px-4 py-6 text-zinc-950">
+    <main id="main-content" className="mx-auto flex w-full max-w-3xl flex-col gap-4 bg-white px-4 py-6 text-zinc-950">
       <p className="text-base leading-6 print:hidden">
         This page records a print request. The browser dialog can print the page or save a PDF. This app cannot tell
         whether that file was saved.

@@ -1,11 +1,12 @@
 import Link from "next/link";
+import { productName, productTagline } from "@/lib/product";
 import { Shell } from "@/components/ui";
 
 export default function HomePage() {
   return (
     <Shell
-      title="Open LMS"
-      lede="Sign in for this learning center. Use the staff door or the learner door. Sign out when you finish, especially on a shared phone."
+      title={productName}
+      lede={`${productTagline} Sign in for this learning center. Use the staff door or the learner door. Sign out when you finish, especially on a shared phone.`}
     >
       <div className="flex flex-col gap-4">
         <Link
