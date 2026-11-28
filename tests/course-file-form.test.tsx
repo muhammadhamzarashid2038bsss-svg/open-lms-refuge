@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { act } from "react";
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AddResourceForm } from "@/components/course-forms";
@@ -118,15 +119,193 @@ describe("course material form", () => {
         />,
       );
     });
-    const button = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === "Remove");
-    if (!(button instanceof HTMLButtonElement)) throw new Error("missing Remove button");
+    const open = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === "Remove");
+    if (!(open instanceof HTMLButtonElement)) throw new Error("missing Remove button");
     await act(async () => {
-      button.click();
+      open.click();
     });
+    expect(deleteResourceAction).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Duplicate alphabet PDF");
+    expect(container.textContent).toContain("no longer be able to open this material");
+    const confirm = container.querySelector("button[type='submit']");
+    if (!(confirm instanceof HTMLButtonElement)) throw new Error("missing confirm button");
+    await act(async () => {
+      confirm.click();
+    });
+    expect(deleteResourceAction).toHaveBeenCalledTimes(1);
     expect(linkedMessage).toBe(RESOURCE_IN_USE_MESSAGE);
     expect(container.textContent).toContain(linkedMessage);
     expect(container.textContent).toContain("Duplicate alphabet PDF");
     expect(container.querySelector("[role='alert']")).not.toBeNull();
+    const group = container.querySelector("[role='group']");
+    expect(group).not.toBeNull();
+    expect(group?.contains(document.activeElement)).toBe(true);
+  });
+
+  it("closes the confirmation without deleting when Cancel is chosen", async () => {
+    await act(async () => {
+      root.render(
+        <ResourceList
+          courseId="00000000-0000-4000-8000-0000000000c1"
+          downloadableCount={1}
+          manage
+          resources={[
+            {
+              id: "00000000-0000-4000-8000-0000000000aa",
+              title: "Duplicate alphabet PDF",
+              resourceType: "PDF",
+              externalUrl: null,
+              mimeType: "application/pdf",
+              byteSize: 12,
+              fileStatus: "private",
+              bodyText: null,
+              sectionId: null,
+              sectionName: null,
+            },
+          ]}
+        />,
+      );
+    });
+    const open = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === "Remove");
+    if (!(open instanceof HTMLButtonElement)) throw new Error("missing Remove button");
+    await act(async () => {
+      open.click();
+    });
+    const cancel = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === "Cancel");
+    if (!(cancel instanceof HTMLButtonElement)) throw new Error("missing Cancel button");
+    await act(async () => {
+      cancel.click();
+    });
+    expect(deleteResourceAction).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Duplicate alphabet PDF");
+    expect(container.textContent).not.toContain("no longer be able to open this material");
+    expect(container.querySelector("button[type='submit']")).toBeNull();
+  });
+
+  const sampleResource = {
+    id: "00000000-0000-4000-8000-0000000000aa",
+    title: "Duplicate alphabet PDF",
+    resourceType: "PDF" as const,
+    externalUrl: null,
+    mimeType: "application/pdf",
+    byteSize: 12,
+    fileStatus: "private" as const,
+    bodyText: null,
+    sectionId: null,
+    sectionName: null,
+  };
+
+  async function renderRemoval() {
+    await act(async () => {
+      root.render(
+        <ResourceList courseId="00000000-0000-4000-8000-0000000000c1" downloadableCount={1} manage resources={[sampleResource]} />,
+      );
+    });
+  }
+
+  function openerButton() {
+    const open = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === "Remove" && item.getAttribute("type") !== "submit");
+    if (!(open instanceof HTMLButtonElement)) throw new Error("missing Remove button");
+    return open;
+  }
+
+  function question() {
+    const node = container.querySelector("[role='group'] p");
+    if (!(node instanceof HTMLParagraphElement)) throw new Error("missing confirmation question");
+    return node;
+  }
+
+  it("moves focus to the confirmation question", async () => {
+    await renderRemoval();
+    const open = openerButton();
+    await act(async () => {
+      open.click();
+    });
+    expect(document.activeElement).toBe(question());
+    expect(deleteResourceAction).not.toHaveBeenCalled();
+  });
+
+  it("returns focus to Remove when Cancel closes the confirmation", async () => {
+    await renderRemoval();
+    await act(async () => {
+      openerButton().click();
+    });
+    const cancel = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === "Cancel");
+    if (!(cancel instanceof HTMLButtonElement)) throw new Error("missing Cancel button");
+    await act(async () => {
+      cancel.click();
+    });
+    expect(container.textContent).not.toContain("no longer be able to open this material");
+    expect(document.activeElement).toBe(openerButton());
+    expect(deleteResourceAction).not.toHaveBeenCalled();
+  });
+
+  it("returns focus to Remove when Escape closes the confirmation", async () => {
+    await renderRemoval();
+    await act(async () => {
+      openerButton().click();
+    });
+    const group = container.querySelector("[role='group']");
+    if (!(group instanceof HTMLElement)) throw new Error("missing confirmation");
+    await act(async () => {
+      group.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      group.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(container.textContent).not.toContain("no longer be able to open this material");
+    expect(document.activeElement).toBe(openerButton());
+    expect(deleteResourceAction).not.toHaveBeenCalled();
+  });
+
+  it("does not send a second removal while the first is still running", async () => {
+    let release: (value: { error: string }) => void = () => undefined;
+    deleteResourceAction.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    await act(async () => {
+      root.render(
+        <ResourceList
+          courseId="00000000-0000-4000-8000-0000000000c1"
+          downloadableCount={1}
+          manage
+          resources={[
+            {
+              id: "00000000-0000-4000-8000-0000000000aa",
+              title: "Duplicate alphabet PDF",
+              resourceType: "PDF",
+              externalUrl: null,
+              mimeType: "application/pdf",
+              byteSize: 12,
+              fileStatus: "private",
+              bodyText: null,
+              sectionId: null,
+              sectionName: null,
+            },
+          ]}
+        />,
+      );
+    });
+    const open = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === "Remove");
+    if (!(open instanceof HTMLButtonElement)) throw new Error("missing Remove button");
+    await act(async () => {
+      open.click();
+    });
+    const confirm = container.querySelector("button[type='submit']");
+    if (!(confirm instanceof HTMLButtonElement)) throw new Error("missing confirm button");
+    await act(async () => {
+      confirm.click();
+      confirm.click();
+    });
+    expect(deleteResourceAction).toHaveBeenCalledTimes(1);
+    expect(confirm.disabled).toBe(true);
+    expect(confirm.textContent).toBe("Removing…");
+    await act(async () => {
+      release({ error: "This material could not be removed. Try again." });
+    });
+    expect(container.textContent).toContain("This material could not be removed. Try again.");
+    expect(deleteResourceAction).toHaveBeenCalledTimes(1);
   });
 });
 
