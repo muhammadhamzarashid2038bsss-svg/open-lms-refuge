@@ -82,6 +82,12 @@ export type LearnerDraft = {
   reasonCode: AbsenceReasonName | null;
   clientEventId: string | null;
   recordedAt: string | null;
+  /// The newest attendance row stored on this phone for this learner.
+  /// Null means the shown mark was not taken from a local row.
+  /// Pending is still waiting for the server. Acknowledged means the server
+  /// confirmed that row. Clearing clientEventId is not this field: a tap that
+  /// matches the shown mark also clears that id.
+  phoneSync: "pending" | "acknowledged" | null;
 };
 
 export type AttendanceLearnerRow = {
@@ -103,7 +109,24 @@ export function draftFromLearner(learner: AttendanceLearnerRow): LearnerDraft {
     reasonCode: learner.saved?.reasonCode ?? null,
     clientEventId: null,
     recordedAt: null,
+    phoneSync: null,
   };
+}
+
+/// Words on one learner card. A shared phone must not call a waiting mark
+/// "on the server", and must not call an unsaved tap a confirmed record.
+/// The three places are the unsaved tap, the local row, and the server row.
+export function attendanceCardLine(learner: LearnerDraft): string {
+  if (!learner.status) return "Not marked yet";
+  const label = statusLabel(learner.status);
+  if (learner.clientEventId) return `${label} — not saved yet`;
+  if (learner.phoneSync === "pending") return `${label} — on this phone`;
+  if (learner.phoneSync === "acknowledged") return `${label} — on the server`;
+  const saved = learner.saved;
+  if (saved && saved.status === learner.status && saved.reasonCode === learner.reasonCode) {
+    return `${label} — on the server`;
+  }
+  return `${label} — not saved yet`;
 }
 
 function matchesSaved(

@@ -1437,6 +1437,7 @@ exports.zonedDateTimeToUtc = zonedDateTimeToUtc;
 exports.weekdayOfInstant = weekdayOfInstant;
 exports.clockOfInstant = clockOfInstant;
 exports.localDateOfInstant = localDateOfInstant;
+exports.todayInDisplayedWeek = todayInDisplayedWeek;
 exports.validateMeetingUrl = validateMeetingUrl;
 exports.validateTimetableInput = validateTimetableInput;
 exports.sessionInstants = sessionInstants;
@@ -1665,6 +1666,22 @@ function localDateOfInstant(date, timeZone) {
         return null;
     return { year: parts.year, month: parts.month, day: parts.day };
 }
+/// Which column of this already-built week is today at the center.
+/// weekOf is the Monday (or the first shown day) the timetable already uses.
+/// A week that does not contain today, or a center clock that cannot be read,
+/// returns null so another day is not marked by mistake.
+function todayInDisplayedWeek(weekOf, timeZone, now) {
+    const start = parseIsoDate(weekOf);
+    const today = localDateOfInstant(now, timeZone);
+    if (!start || !today)
+        return null;
+    for (let index = 0; index < exports.WEEKDAYS.length; index += 1) {
+        const date = addCalendarDays(start, index);
+        if (date.year === today.year && date.month === today.month && date.day === today.day)
+            return exports.WEEKDAYS[index] ?? null;
+    }
+    return null;
+}
 function allowedMeetingHost(hostname) {
     const host = hostname.toLowerCase();
     if (host === "meet.google.com")
@@ -1803,6 +1820,7 @@ exports.reasonAllowedFor = reasonAllowedFor;
 exports.isAttendanceStatus = isAttendanceStatus;
 exports.isAbsenceReason = isAbsenceReason;
 exports.draftFromLearner = draftFromLearner;
+exports.attendanceCardLine = attendanceCardLine;
 exports.chooseStatus = chooseStatus;
 exports.chooseReason = chooseReason;
 exports.pendingMarks = pendingMarks;
@@ -1863,7 +1881,27 @@ function draftFromLearner(learner) {
         reasonCode: learner.saved?.reasonCode ?? null,
         clientEventId: null,
         recordedAt: null,
+        phoneSync: null,
     };
+}
+/// Words on one learner card. A shared phone must not call a waiting mark
+/// "on the server", and must not call an unsaved tap a confirmed record.
+/// The three places are the unsaved tap, the local row, and the server row.
+function attendanceCardLine(learner) {
+    if (!learner.status)
+        return "Not marked yet";
+    const label = statusLabel(learner.status);
+    if (learner.clientEventId)
+        return `${label} — not saved yet`;
+    if (learner.phoneSync === "pending")
+        return `${label} — on this phone`;
+    if (learner.phoneSync === "acknowledged")
+        return `${label} — on the server`;
+    const saved = learner.saved;
+    if (saved && saved.status === learner.status && saved.reasonCode === learner.reasonCode) {
+        return `${label} — on the server`;
+    }
+    return `${label} — not saved yet`;
 }
 function matchesSaved(saved, status, reasonCode) {
     return (saved?.status ?? null) === status && (saved?.reasonCode ?? null) === reasonCode;
@@ -2678,6 +2716,7 @@ function applyLocalEvents(learners, events) {
             saved: { eventId: latest.clientEventId, status: latest.status, reasonCode: latest.reasonCode },
             clientEventId: null,
             recordedAt: null,
+            phoneSync: latest.syncState,
         };
     });
 }

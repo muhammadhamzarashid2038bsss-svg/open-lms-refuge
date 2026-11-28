@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { WeeklyTimetable } from "@/lib/data/timetable";
+import { todayInDisplayedWeek } from "@/lib/lms/timetable";
 import { secondaryButtonClass } from "./ui";
 import { AddSessionForm, EditSessionForm } from "./timetable-forms";
 
@@ -38,7 +39,11 @@ function ActionLinks({
   );
 }
 
-export function TimetableWeek({ timetable }: { timetable: WeeklyTimetable }) {
+export function TimetableWeek({ timetable, now = new Date() }: { timetable: WeeklyTimetable; now?: Date }) {
+  // Today is the center's calendar day for this week, the same clock the
+  // week was built with. A phone's own weekday is not used. If that clock
+  // cannot be read, or today is another week, no day is marked.
+  const today = todayInDisplayedWeek(timetable.weekOf, timetable.timezone, now);
   return (
     <div className="flex flex-col gap-6">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -52,12 +57,24 @@ export function TimetableWeek({ timetable }: { timetable: WeeklyTimetable }) {
       <p className="text-lg">Week of {timetable.weekLabel}</p>
       {/* ClassSession has no classroom column, so in-person classes are named in words only. */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {timetable.days.map((day) => (
-          <section key={day.weekday} aria-labelledby={`day-${day.weekday}`} className="rounded-lg border-2 border-zinc-950 p-3">
+        {timetable.days.map((day) => {
+          const isToday = day.weekday === today;
+          return (
+          <section
+            key={day.weekday}
+            aria-labelledby={`day-${day.weekday}`}
+            aria-current={isToday ? "date" : undefined}
+            className={
+              isToday
+                ? "rounded-lg border-4 border-zinc-950 bg-zinc-50 p-3"
+                : "rounded-lg border-2 border-zinc-950 bg-white p-3"
+            }
+          >
             <h2 id={`day-${day.weekday}`} className="text-xl font-semibold">
               {day.label}
+              {isToday ? <span className="ml-2 text-lg font-semibold">Today</span> : null}
             </h2>
-            <p className="text-base text-zinc-700">{day.dateLabel}</p>
+            <p className={isToday ? "text-base text-zinc-950" : "text-base text-zinc-700"}>{day.dateLabel}</p>
             {day.sessions.length === 0 ? <p className="mt-3 text-lg">No class.</p> : null}
             {day.sessions.map((session) => (
               <article key={session.id} className="mt-3 border-t-2 border-zinc-950 pt-3">
@@ -106,7 +123,8 @@ export function TimetableWeek({ timetable }: { timetable: WeeklyTimetable }) {
               </article>
             ))}
           </section>
-        ))}
+          );
+        })}
       </div>
       {timetable.canManage ? (
         <AddSessionForm sectionId={timetable.sectionId} weekOf={timetable.weekOf} resources={timetable.resources} />
