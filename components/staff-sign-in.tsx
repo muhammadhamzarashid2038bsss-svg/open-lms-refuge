@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { signInStaff, type SignInState } from "@/app/actions/auth";
+import { Notice } from "./notice";
 import { buttonClass, inputClass, labelClass } from "./ui";
 
 const initial: SignInState = {};
@@ -18,11 +19,7 @@ export function StaffSignInForm() {
         Password
         <input className={inputClass} name="password" type="password" autoComplete="current-password" required />
       </label>
-      {state.error ? (
-        <p role="alert" className="text-lg font-medium">
-          {state.error}
-        </p>
-      ) : null}
+      {state.error ? <Notice tone="error">{state.error}</Notice> : null}
       <button className={buttonClass} type="submit" disabled={pending}>
         {pending ? "Checking…" : "Sign in"}
       </button>

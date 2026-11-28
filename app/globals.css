@@ -20,6 +20,36 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Section links clear the fixed header. The offset is the measured header
+   height, set from the signed-in shell. Padding on the whole page is not
+   used: focusing a link in that header then scrolled the page by itself. */
+[data-nav-target],
+#main-content {
+  scroll-margin-top: calc(var(--app-header-height, 12rem) + 0.75rem);
+}
+
+.skip-link {
+  position: fixed;
+  left: 1rem;
+  top: 0.5rem;
+  z-index: 60;
+  transform: translateY(-150%);
+  min-height: 3rem;
+  border: 2px solid #171717;
+  background: #ffffff;
+  color: #171717;
+  padding: 0.75rem 1rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+/* The skip link sits above the sticky header while it is focused. */
+
+
 /* Shared phones are used in bright light. A dark ring shows where the keyboard is.
    The ring is unlayered so it stays visible over Tailwind's focus reset. */
 a:focus-visible,

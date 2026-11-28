@@ -34,7 +34,7 @@ async function StudentHome() {
         <>
           {today.ok ? <TodayClasses classes={today.classes} /> : <p className="text-lg">{today.message}</p>}
           <p className="text-lg">Learner code {record.learnerCode}</p>
-          <section className="flex flex-col gap-2">
+          <section id="sections" data-nav-target="" className="flex flex-col gap-2">
             <h2 className="text-xl font-semibold">Your sections</h2>
             <p className="text-lg">
               <Link className="underline" href="/student/homework">

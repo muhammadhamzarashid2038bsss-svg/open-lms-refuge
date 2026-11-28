@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { readDeviceBackup } from "@/lib/device/browser";
-import { addVerifiedPractice, performPhoneSignOut, waitingForAccount, PHONE_PRIVACY_EVENT } from "@/lib/device/phone-access";
+import { addVerifiedPractice, waitingForAccount } from "@/lib/device/phone-access";
 import { decideSignOut } from "@/lib/device/offline-decisions";
-import { revokeServerSession } from "@/lib/device/revoke-session";
-import { usePhoneSession } from "./device-gate";
+import { usePhoneSession } from "./phone-session";
 import { ATTENDANCE_SYNC_EVENT } from "@/lib/sync/trigger";
-import { buttonClass, secondaryButtonClass } from "./ui";
+import { secondaryButtonClass } from "./ui";
 
 export function PhoneTools({ userId, centerId }: { userId: string; centerId: string }) {
   const session = usePhoneSession();
@@ -58,10 +57,11 @@ export function PhoneTools({ userId, centerId }: { userId: string; centerId: str
   }, [aligned, centerId, session, userId]);
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border-2 border-zinc-950 p-4">
+    <section id="this-phone" data-nav-target="" className="flex flex-col gap-3 rounded-lg border-2 border-zinc-950 p-4">
       <h2 className="text-xl font-semibold">This phone</h2>
       <p className="text-lg leading-7">
-        Sign-in ends after 30 minutes with no use, or after 8 hours. Sign out before you hand the phone to someone else.
+        Sign-in ends after 30 minutes with no use, or after 8 hours. Use Sign out at the top of the page before you hand
+        the phone to someone else.
       </p>
       <p className="text-lg leading-7">
         {waiting === null
@@ -101,34 +101,6 @@ export function PhoneTools({ userId, centerId }: { userId: string; centerId: str
         }}
       >
         Save a practice record on this phone
-      </button>
-      <button
-        className={buttonClass}
-        type="button"
-        onClick={() => {
-          void (async () => {
-            if (!aligned || !session) {
-              window.dispatchEvent(
-                new CustomEvent(PHONE_PRIVACY_EVENT, {
-                  detail: { message: decideSignOut(false).message, claimLocked: false },
-                }),
-              );
-              return;
-            }
-            await performPhoneSignOut({
-              factory: indexedDB,
-              readRaw: readDeviceBackup,
-              account: { userId, centerId },
-              authSessionId: session.authSessionId,
-              revoke: revokeServerSession,
-              onPrivacy: (message, claimLocked) => {
-                window.dispatchEvent(new CustomEvent(PHONE_PRIVACY_EVENT, { detail: { message, claimLocked } }));
-              },
-            });
-          })();
-        }}
-      >
-        Sign out
       </button>
       {problem ? (
         <p role="alert" className="text-lg font-medium">

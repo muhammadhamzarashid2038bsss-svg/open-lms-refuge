@@ -6,6 +6,7 @@ import { ManageSectionAssignments } from "@/components/manage-section-assignment
 import { PasswordResetForm } from "@/components/password-reset-form";
 import { PhoneTools } from "@/components/phone-tools";
 import { PinResetForm } from "@/components/pin-reset-form";
+import { Notice } from "@/components/notice";
 import { Shell } from "@/components/ui";
 import { getActor } from "@/lib/auth/actor";
 import { pageGuard } from "@/lib/auth/permissions";
@@ -36,7 +37,7 @@ async function DirectorHome({ searchParams }: { searchParams: Promise<{ notice?:
   const sections = actor ? await listTimetableSections(actor) : [];
   return (
     <Shell title={summary?.name ?? "Center home"} lede="You see this center only.">
-      {notice ? <p className="text-lg" role="status">{notice}</p> : null}
+      {notice ? <Notice tone="info">{notice}</Notice> : null}
       {summary ? (
         <p className="text-lg">
           {summary.learnerCount} learners · {summary.sectionCount} sections · code {summary.code}
@@ -80,7 +81,7 @@ async function DirectorHome({ searchParams }: { searchParams: Promise<{ notice?:
           Courses and syllabus materials
         </Link>
       </p>
-      <section className="flex flex-col gap-2">
+      <section id="timetables" data-nav-target="" className="flex flex-col gap-2">
         <h2 className="text-xl font-semibold">Weekly timetables</h2>
         <p className="text-lg">Choose Take attendance on a class to mark who came.</p>
         <ul className="flex flex-col gap-2 text-lg">
@@ -94,25 +95,27 @@ async function DirectorHome({ searchParams }: { searchParams: Promise<{ notice?:
           {sections.length === 0 ? <li>No sections yet.</li> : null}
         </ul>
       </section>
-      {staffing && unstaffed ? (
-        <ManageSectionAssignments
-          sections={managedSections(staffing.sections, unstaffed.sections, false)}
-          teachers={staffing.teachers}
-          blankHint="Choose the teacher who is taking over. If you leave that blank, you receive the report. The app does not guess a teacher."
-          blankOptionLabel="No incoming teacher — send the report to me"
-        />
-      ) : null}
-      <PinResetForm showCenterCode={false} />
-      <PasswordResetForm />
-      {accounts ? (
-        <AccountList
-          accounts={accounts}
-          incomingTeachers={staffing?.teachers ?? []}
-          blankIncomingLabel="No incoming teacher — send the reports to me"
-          fallbackText="If you do not choose anyone, you receive the reports. The app does not guess."
-          emptyTeacherText="No other active teacher is at this centre yet. Leave the choice blank and you will receive the reports."
-        />
-      ) : null}
+      <section id="people" data-nav-target="" className="flex flex-col gap-6">
+        {staffing && unstaffed ? (
+          <ManageSectionAssignments
+            sections={managedSections(staffing.sections, unstaffed.sections, false)}
+            teachers={staffing.teachers}
+            blankHint="Choose the teacher who is taking over. If you leave that blank, you receive the report. The app does not guess a teacher."
+            blankOptionLabel="No incoming teacher — send the report to me"
+          />
+        ) : null}
+        <PinResetForm showCenterCode={false} />
+        <PasswordResetForm />
+        {accounts ? (
+          <AccountList
+            accounts={accounts}
+            incomingTeachers={staffing?.teachers ?? []}
+            blankIncomingLabel="No incoming teacher — send the reports to me"
+            fallbackText="If you do not choose anyone, you receive the reports. The app does not guess."
+            emptyTeacherText="No other active teacher is at this centre yet. Leave the choice blank and you will receive the reports."
+          />
+        ) : null}
+      </section>
       {actor ? <PhoneTools userId={actor.id} centerId={actor.centerId} /> : null}
     </Shell>
   );

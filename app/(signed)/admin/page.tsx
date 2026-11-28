@@ -6,6 +6,7 @@ import { PasswordResetForm } from "@/components/password-reset-form";
 import { PhoneTools } from "@/components/phone-tools";
 import { PinResetForm } from "@/components/pin-reset-form";
 import { ManageSectionAssignments } from "@/components/manage-section-assignments";
+import { Notice } from "@/components/notice";
 import { Shell } from "@/components/ui";
 import { getActor } from "@/lib/auth/actor";
 import { pageGuard } from "@/lib/auth/permissions";
@@ -36,7 +37,7 @@ async function AdminHome({ searchParams }: { searchParams: Promise<{ notice?: st
       title="Account management"
       lede="Admins manage accounts. Grades, notes, and handoff packs stay with teachers and the director."
     >
-      {notice ? <p className="text-lg" role="status">{notice}</p> : null}
+      {notice ? <Notice tone="info">{notice}</Notice> : null}
       <p className="text-lg">
         <Link className="underline" href="/audit">
           Audit log
@@ -46,25 +47,29 @@ async function AdminHome({ searchParams }: { searchParams: Promise<{ notice?: st
           Grant export
         </Link>
       </p>
-      {staffing && unstaffed ? (
-        <ManageSectionAssignments
-          sections={managedSections(staffing.sections, unstaffed.sections, true)}
-          teachers={staffing.teachers}
-          blankHint="Choose the teacher who is taking over. If you leave that blank, the report goes to the centre director only when that centre has exactly one active director. If it has none, or more than one, this change is refused. The app does not guess a teacher."
-          blankOptionLabel="No incoming teacher — only when this centre has one director"
-        />
-      ) : null}
-      <PinResetForm showCenterCode />
-      <PasswordResetForm />
-      {accounts ? (
-        <AccountList
-          accounts={accounts}
-          incomingTeachers={staffing?.teachers ?? []}
-          blankIncomingLabel="No incoming teacher — only when this centre has one director"
-          fallbackText="If you do not choose anyone, the reports go to the centre director only when that centre has exactly one active director. If it has none, or more than one, name a teacher or ask a director of that centre to switch the account off. The app does not guess."
-          emptyTeacherText="No other active teacher is at this centre yet. Leave the choice blank only when the centre has exactly one active director."
-        />
-      ) : null}
+      <section id="sections" data-nav-target="">
+        {staffing && unstaffed ? (
+          <ManageSectionAssignments
+            sections={managedSections(staffing.sections, unstaffed.sections, true)}
+            teachers={staffing.teachers}
+            blankHint="Choose the teacher who is taking over. If you leave that blank, the report goes to the centre director only when that centre has exactly one active director. If it has none, or more than one, this change is refused. The app does not guess a teacher."
+            blankOptionLabel="No incoming teacher — only when this centre has one director"
+          />
+        ) : null}
+      </section>
+      <section id="accounts" data-nav-target="" className="flex flex-col gap-6">
+        <PinResetForm showCenterCode />
+        <PasswordResetForm />
+        {accounts ? (
+          <AccountList
+            accounts={accounts}
+            incomingTeachers={staffing?.teachers ?? []}
+            blankIncomingLabel="No incoming teacher — only when this centre has one director"
+            fallbackText="If you do not choose anyone, the reports go to the centre director only when that centre has exactly one active director. If it has none, or more than one, name a teacher or ask a director of that centre to switch the account off. The app does not guess."
+            emptyTeacherText="No other active teacher is at this centre yet. Leave the choice blank only when the centre has exactly one active director."
+          />
+        ) : null}
+      </section>
       {actor ? <PhoneTools userId={actor.id} centerId={actor.centerId} /> : null}
     </Shell>
   );

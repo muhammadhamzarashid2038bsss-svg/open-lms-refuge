@@ -4,7 +4,7 @@ import { secondaryButtonClass } from "./ui";
 
 export function TodayClasses({ classes }: { classes: TodayClass[] }) {
   return (
-    <section aria-labelledby="today-heading" className="flex flex-col gap-3">
+    <section id="today" data-nav-target="" aria-labelledby="today-heading" className="flex flex-col gap-3">
       <h2 id="today-heading" className="text-xl font-semibold">
         Today&apos;s classes
       </h2>

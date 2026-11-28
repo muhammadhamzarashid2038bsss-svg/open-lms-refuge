@@ -13,6 +13,7 @@ export function Shell({
 }) {
   return (
     <main
+      id="main-content"
       className={`mx-auto flex w-full flex-col gap-6 bg-white px-4 py-8 text-zinc-950 ${wide ? "max-w-3xl" : "max-w-lg"}`}
     >
       <h1 className="text-3xl font-semibold leading-tight">{title}</h1>
