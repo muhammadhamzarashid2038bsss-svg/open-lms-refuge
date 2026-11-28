@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { AccountList } from "@/components/account-list";
+import { AdminDashboard } from "@/components/admin-dashboard";
 import { PasswordResetForm } from "@/components/password-reset-form";
 import { PhoneTools } from "@/components/phone-tools";
 import { PinResetForm } from "@/components/pin-reset-form";
@@ -37,40 +37,41 @@ async function AdminHome({ searchParams }: { searchParams: Promise<{ notice?: st
       title="Account management"
       lede="Admins manage accounts. Grades, notes, and handoff packs stay with teachers and the director."
     >
-      {notice ? <Notice tone="info">{notice}</Notice> : null}
-      <p className="text-lg">
-        <Link className="underline" href="/audit">
-          Audit log
-        </Link>
-        {" · "}
-        <Link className="underline" href="/export">
-          Grant export
-        </Link>
-      </p>
-      <section id="sections" data-nav-target="">
-        {staffing && unstaffed ? (
-          <ManageSectionAssignments
-            sections={managedSections(staffing.sections, unstaffed.sections, true)}
-            teachers={staffing.teachers}
-            blankHint="Choose the teacher who is taking over. If you leave that blank, the report goes to the centre director only when that centre has exactly one active director. If it has none, or more than one, this change is refused. The app does not guess a teacher."
-            blankOptionLabel="No incoming teacher — only when this centre has one director"
-          />
-        ) : null}
-      </section>
-      <section id="accounts" data-nav-target="" className="flex flex-col gap-6">
-        <PinResetForm showCenterCode />
-        <PasswordResetForm />
-        {accounts ? (
-          <AccountList
-            accounts={accounts}
-            incomingTeachers={staffing?.teachers ?? []}
-            blankIncomingLabel="No incoming teacher — only when this centre has one director"
-            fallbackText="If you do not choose anyone, the reports go to the centre director only when that centre has exactly one active director. If it has none, or more than one, name a teacher or ask a director of that centre to switch the account off. The app does not guess."
-            emptyTeacherText="No other active teacher is at this centre yet. Leave the choice blank only when the centre has exactly one active director."
-          />
-        ) : null}
-      </section>
-      {actor ? <PhoneTools userId={actor.id} centerId={actor.centerId} /> : null}
+      <AdminDashboard
+        notice={notice ? <Notice tone="info">{notice}</Notice> : null}
+        sections={
+          staffing && unstaffed ? (
+            <div className="rounded-lg border-2 border-zinc-950 bg-white p-4">
+              <ManageSectionAssignments
+                sections={managedSections(staffing.sections, unstaffed.sections, true)}
+                teachers={staffing.teachers}
+                blankHint="Choose the teacher who is taking over. If you leave that blank, the report goes to the centre director only when that centre has exactly one active director. If it has none, or more than one, this change is refused. The app does not guess a teacher."
+                blankOptionLabel="No incoming teacher — only when this centre has one director"
+              />
+            </div>
+          ) : null
+        }
+        accounts={
+          <>
+            <div className="rounded-lg border-2 border-zinc-950 bg-zinc-50 p-4">
+              <PinResetForm showCenterCode />
+            </div>
+            <div className="rounded-lg border-2 border-zinc-950 bg-zinc-50 p-4">
+              <PasswordResetForm />
+            </div>
+            {accounts ? (
+              <AccountList
+                accounts={accounts}
+                incomingTeachers={staffing?.teachers ?? []}
+                blankIncomingLabel="No incoming teacher — only when this centre has one director"
+                fallbackText="If you do not choose anyone, the reports go to the centre director only when that centre has exactly one active director. If it has none, or more than one, name a teacher or ask a director of that centre to switch the account off. The app does not guess."
+                emptyTeacherText="No other active teacher is at this centre yet. Leave the choice blank only when the centre has exactly one active director."
+              />
+            ) : null}
+          </>
+        }
+        phone={actor ? <PhoneTools userId={actor.id} centerId={actor.centerId} /> : null}
+      />
     </Shell>
   );
 }
