@@ -625,6 +625,7 @@ export function applyLocalEvents(learners: AttendanceLearnerRow[], events: Local
       saved: { eventId: latest.clientEventId, status: latest.status, reasonCode: latest.reasonCode },
       clientEventId: null,
       recordedAt: null,
+      phoneSync: latest.syncState,
     };
   });
 }

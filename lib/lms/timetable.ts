@@ -270,6 +270,21 @@ export function localDateOfInstant(date: Date, timeZone: string): CivilDate | nu
   return { year: parts.year, month: parts.month, day: parts.day };
 }
 
+/// Which column of this already-built week is today at the center.
+/// weekOf is the Monday (or the first shown day) the timetable already uses.
+/// A week that does not contain today, or a center clock that cannot be read,
+/// returns null so another day is not marked by mistake.
+export function todayInDisplayedWeek(weekOf: string, timeZone: string, now: Date): WeekdayName | null {
+  const start = parseIsoDate(weekOf);
+  const today = localDateOfInstant(now, timeZone);
+  if (!start || !today) return null;
+  for (let index = 0; index < WEEKDAYS.length; index += 1) {
+    const date = addCalendarDays(start, index);
+    if (date.year === today.year && date.month === today.month && date.day === today.day) return WEEKDAYS[index] ?? null;
+  }
+  return null;
+}
+
 function allowedMeetingHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
   if (host === "meet.google.com") return true;

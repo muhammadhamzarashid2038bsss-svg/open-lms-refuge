@@ -677,8 +677,13 @@ describe("local attendance", () => {
     expect(snapshot).not.toContain("password");
 
     const kiosk = readFileSync(join(root, "components", "attendance-kiosk.tsx"), "utf8");
+    const sheet = readFileSync(join(root, "components", "attendance-sheet.tsx"), "utf8");
     const local = readFileSync(join(root, "lib", "device", "local-attendance.ts"), "utf8");
     expect(kiosk).not.toContain("saveAttendanceAction");
+    expect(kiosk).not.toContain("runAttendanceSync");
+    expect(sheet).not.toContain("saveAttendanceAction");
+    expect(sheet).not.toContain("runAttendanceSync");
+    expect(sheet).not.toContain("Sync now");
     expect(kiosk).not.toContain("router.refresh");
     expect(local).not.toContain("saveAttendanceAction");
     expect(local).not.toContain("prisma");
@@ -698,6 +703,7 @@ describe("local attendance", () => {
       reasonCode: null,
       clientEventId: null,
       recordedAt: null,
+      phoneSync: null,
     };
     const shown = renderToStaticMarkup(
       <AttendanceSheetView learners={[draft]} cancelled={false} saving={false} message={saved} waitingCount={2} onStatus={() => undefined} onReason={() => undefined} onSave={() => undefined} />,

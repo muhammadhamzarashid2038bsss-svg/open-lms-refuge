@@ -1,6 +1,7 @@
 import {
   ABSENCE_REASONS,
   ATTENDANCE_STATUSES,
+  attendanceCardLine,
   reasonLabel,
   sheetCounts,
   statusLabel,
@@ -13,10 +14,7 @@ const tapClass =
   "inline-flex min-h-16 w-full items-center justify-center rounded-lg border-2 border-zinc-950 px-2 text-center text-lg font-semibold focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-zinc-950";
 
 function statusLine(learner: LearnerDraft): string {
-  if (!learner.status) return "Not marked yet";
-  const label = statusLabel(learner.status);
-  if (learner.clientEventId) return `${label} — not saved yet`;
-  return `Saved: ${label}`;
+  return attendanceCardLine(learner);
 }
 
 function statusClass(selected: boolean): string {
@@ -47,12 +45,21 @@ export function AttendanceSheetView({
 }) {
   const counts = sheetCounts(learners);
   return (
+    // The class list scrolls in its own box, and Save sits under that box
+    // in normal page flow. A bar fixed over the cards would cover the status
+    // and reason buttons on a shared phone. The box is tall enough for a
+    // card, and short enough that Save is the next thing on the page rather
+    // than after every learner. The bottom padding keeps Save above a phone's
+    // home bar.
     <div className="flex flex-col gap-4">
       <p className="text-lg leading-7">
         Unmarked learners stay unmarked. They are not saved as absent or present.
       </p>
       {cancelled ? <p className="text-lg font-semibold">This class is cancelled.</p> : null}
-      <div className="flex flex-col gap-4">
+      <div
+        data-learner-list=""
+        className="flex max-h-[min(32rem,calc(100dvh-var(--app-header-height,12rem)-22rem))] min-h-40 flex-col gap-4 overflow-y-auto overscroll-contain"
+      >
         {learners.map((learner) => {
           const unmarked = learner.status === null;
           const pending = Boolean(learner.clientEventId);
@@ -115,16 +122,6 @@ export function AttendanceSheetView({
             </article>
           );
         })}
-      </div>
-      <div className="flex flex-col gap-3 border-t-4 border-zinc-950 bg-white py-4">
-        <p aria-live="polite" className="text-lg font-semibold">
-          Marked {counts.marked}. Not marked yet {counts.unmarked}. Ready to save {counts.pending}.
-        </p>
-        {typeof waitingCount === "number" ? (
-          <p aria-live="polite" className="text-lg font-semibold">
-            Waiting to send: {waitingCount}
-          </p>
-        ) : null}
         {counts.unmarkedNames.length > 0 ? (
           <div>
             <p className="text-lg">Still unmarked, and not included in the save:</p>
@@ -136,11 +133,27 @@ export function AttendanceSheetView({
                 ))}
             </ul>
           </div>
+        ) : null}
+      </div>
+      <div
+        data-attendance-actions=""
+        className="flex shrink-0 flex-col gap-3 border-t-4 border-zinc-950 bg-white pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+      >
+        <p aria-live="polite" className="text-lg font-semibold">
+          Marked {counts.marked}. Not marked yet {counts.unmarked}. Ready to save {counts.pending}.
+        </p>
+        {typeof waitingCount === "number" ? (
+          <p aria-live="polite" className="text-lg font-semibold">
+            Waiting to send: {waitingCount}
+          </p>
+        ) : null}
+        {counts.unmarkedNames.length > 0 ? (
+          <p className="text-lg">Still unmarked, and not included in the save. Their names are in the list above.</p>
         ) : (
           <p className="text-lg">Everyone on this list has a status. Only changes are saved.</p>
         )}
         <button
-          className="inline-flex min-h-16 w-full items-center justify-center rounded-lg bg-zinc-950 px-4 text-xl font-semibold text-white disabled:opacity-60"
+          className="inline-flex min-h-16 w-full items-center justify-center rounded-lg bg-zinc-950 px-4 text-xl font-semibold text-white focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-zinc-950 disabled:opacity-60"
           type="button"
           onClick={onSave}
           disabled={saving || counts.pending === 0}

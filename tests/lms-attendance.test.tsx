@@ -7,6 +7,7 @@ import { createTimetableSession } from "../lib/data/timetable";
 import { prisma } from "../lib/db";
 import { assertConnectedTestDatabase } from "../lib/test-db/connect";
 import {
+  attendanceCardLine,
   buildSessionHistory,
   chooseReason,
   chooseStatus,
@@ -22,6 +23,7 @@ import {
 } from "../lib/lms/attendance";
 import { AttendanceHistory } from "../components/attendance-history";
 import { AttendanceSheetView } from "../components/attendance-sheet";
+import { applyLocalEvents, type LocalAttendanceEvent } from "../lib/device/local-attendance";
 
 const holder = vi.hoisted(() => ({ actor: null as Actor | null }));
 
@@ -242,6 +244,7 @@ describe("attendance kiosk screen", () => {
       reasonCode: null,
       clientEventId: null,
       recordedAt: null,
+      phoneSync: null,
       ...overrides,
     };
   }
@@ -368,6 +371,99 @@ describe("attendance kiosk screen", () => {
     expect(html).not.toContain("<button");
     expect(html).not.toContain("<textarea");
     expect(html).not.toContain("<input");
+  });
+
+  const serverRow: AttendanceLearnerRow = {
+    id: "learner-1",
+    displayName: "Demo Learner 01",
+    learnerCode: "LNR-0001",
+    saved: { eventId: "server-absent", status: "ABSENT", reasonCode: null },
+  };
+
+  function localMark(syncState: "pending" | "acknowledged", sequence: number): LocalAttendanceEvent {
+    return {
+      clientEventId: `local-event-present-${sequence}`,
+      centerId: "center-test",
+      userId: "user-test",
+      localDeviceId: "00000000-0000-4000-8000-000000000099",
+      sectionId: "section-test",
+      classSessionId: "session-test",
+      learnerId: "learner-1",
+      status: "PRESENT",
+      reasonCode: null,
+      recordedAt: "2026-11-28T01:00:00.000Z",
+      sequence,
+      correctsClientEventId: null,
+      correctsServerEventId: "server-absent",
+      syncState,
+    };
+  }
+
+  it("names a server mark, a phone mark, and an unsaved tap separately", () => {
+    const confirmed = draftFromLearner(serverRow);
+    expect(attendanceCardLine(confirmed)).toBe("Absent — on the server");
+
+    const unsaved = chooseStatus(confirmed, "PRESENT", ids("correct"));
+    expect(attendanceCardLine(unsaved)).toBe("Present — not saved yet");
+    expect(attendanceCardLine(unsaved)).not.toContain("on the server");
+
+    const waiting = applyLocalEvents([serverRow], [localMark("pending", 1)])[0];
+    expect(waiting?.phoneSync).toBe("pending");
+    expect(attendanceCardLine(waiting!)).toBe("Present — on this phone");
+    expect(attendanceCardLine(waiting!)).not.toContain("on the server");
+
+    const earlier = localMark("pending", 1);
+    const sent = localMark("acknowledged", 2);
+    const kept = [earlier, sent];
+    const current = applyLocalEvents([serverRow], kept)[0];
+    expect(attendanceCardLine(current!)).toBe("Present — on the server");
+    expect(kept).toHaveLength(2);
+    expect(kept[0]?.syncState).toBe("pending");
+  });
+
+  it("keeps save under the learner list and does not turn it into sync", () => {
+    const html = renderToStaticMarkup(
+      <AttendanceSheetView
+        learners={[
+          draft({ learnerId: "learner-1", displayName: "Demo Learner 01" }),
+          draft({
+            learnerId: "learner-2",
+            displayName: "Demo Learner 02",
+            learnerCode: "LNR-0002",
+            status: "PRESENT",
+            clientEventId: "kiosk-test-screen-2",
+            recordedAt: "2026-11-07T01:00:00.000Z",
+          }),
+        ]}
+        cancelled={false}
+        saving={false}
+        message={null}
+        waitingCount={1}
+        onStatus={() => undefined}
+        onReason={() => undefined}
+        onSave={() => undefined}
+      />,
+    );
+    const listStart = html.indexOf("data-learner-list");
+    const actionsStart = html.indexOf("data-attendance-actions");
+    expect(listStart).toBeGreaterThan(-1);
+    expect(actionsStart).toBeGreaterThan(listStart);
+    const list = html.slice(listStart, actionsStart);
+    const actions = html.slice(actionsStart);
+    expect(list).toContain("overflow-y-auto");
+    expect(list).toContain("max-h-");
+    expect(html).not.toContain("sticky");
+    expect(list).toContain('id="learner-learner-1"');
+    expect(list).toContain("Present");
+    expect(list).not.toContain("Save attendance");
+    expect(actions).toContain("Save attendance");
+    expect(actions).toContain("Ready to save 1");
+    expect(actions).toContain("Waiting to send: 1");
+    expect(actions).toContain("focus-visible:outline");
+    expect(actions).toContain("safe-area-inset-bottom");
+    expect(actions).not.toContain("fixed");
+    expect(actions).not.toContain("Sync now");
+    expect(html).not.toContain("runAttendanceSync");
   });
 });
 
